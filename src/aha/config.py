@@ -19,6 +19,9 @@ DEFAULT_LOG_LEVEL = "INFO"
 
 _TOKEN_ENV = "DISCORD_BOT_TOKEN"
 
+# Discord snowflakes are unsigned 64-bit integers; guild IDs are positive.
+_MAX_SNOWFLAKE = (1 << 63) - 1
+
 
 class ConfigError(RuntimeError):
     """Raised when required configuration is missing or malformed."""
@@ -56,8 +59,9 @@ class Settings:
             env: Mapping to read from. Defaults to :data:`os.environ`.
 
         Raises:
-            ConfigError: if ``DISCORD_BOT_TOKEN`` is missing or empty, or if
-                ``DEV_GUILD_ID`` is set to a non-integer.
+            ConfigError: if ``DISCORD_BOT_TOKEN`` is missing or empty, if
+                ``LOG_LEVEL`` is not a valid level name, or if ``DEV_GUILD_ID``
+                is not a positive Discord snowflake.
         """
         import os
 
@@ -76,9 +80,16 @@ class Settings:
         if not logging.getLevelNamesMapping().get(log_level):
             raise ConfigError(f"LOG_LEVEL must be a valid level name, got {log_level!r}")
 
+        dev_guild_id = _parse_optional_int(source.get("DEV_GUILD_ID"), name="DEV_GUILD_ID")
+        if dev_guild_id is not None and not 0 < dev_guild_id <= _MAX_SNOWFLAKE:
+            raise ConfigError(
+                "DEV_GUILD_ID must be a positive Discord snowflake "
+                f"(1..{_MAX_SNOWFLAKE}), got {dev_guild_id}",
+            )
+
         return cls(
             token=token,
             command_prefix=command_prefix or DEFAULT_COMMAND_PREFIX,
             log_level=log_level,
-            dev_guild_id=_parse_optional_int(source.get("DEV_GUILD_ID"), name="DEV_GUILD_ID"),
+            dev_guild_id=dev_guild_id,
         )

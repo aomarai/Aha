@@ -42,12 +42,20 @@ class AhaBot(commands.Bot):
             await self.load_extension(module)
             log.info("Loaded extension %s", module)
 
+        # Note: syncing overwrites the application's remote command set with the
+        # local tree. Run only one revision at a time -- if two start together,
+        # whichever syncs last wins (and an older revision can clobber newer
+        # definitions).
         if self.settings.dev_guild_id is not None:
-            # Instant, guild-scoped sync is ideal while developing. Global sync
-            # can take up to an hour to propagate.
+            # Guild-scoped sync is instant, which is ideal while developing
+            # (global sync can take up to an hour to propagate).
             guild = discord.Object(id=self.settings.dev_guild_id)
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
+            # Purge any globally-synced commands so enabling, changing, or
+            # removing DEV_GUILD_ID later does not leave stale duplicates behind.
+            self.tree.clear_commands(guild=None)
+            await self.tree.sync()
             log.info("Synced commands to dev guild %s", self.settings.dev_guild_id)
         else:
             await self.tree.sync()

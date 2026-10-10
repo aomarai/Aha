@@ -47,6 +47,12 @@ def test_dev_guild_id_rejects_non_integer() -> None:
         Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "DEV_GUILD_ID": "not-an-int"})
 
 
+@pytest.mark.parametrize("bad_value", ["0", "-1", "999999999999999999999999"])
+def test_dev_guild_id_rejects_out_of_range(bad_value: str) -> None:
+    with pytest.raises(ConfigError, match="DEV_GUILD_ID"):
+        Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "DEV_GUILD_ID": bad_value})
+
+
 def test_invalid_log_level_is_rejected() -> None:
     with pytest.raises(ConfigError, match="LOG_LEVEL"):
         Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "LOG_LEVEL": "LOUD"})

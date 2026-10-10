@@ -30,14 +30,29 @@ uv sync
 uv run aha                    # or: uv run python -m aha
 ```
 
-Invite the bot to a server (replace `APP_ID` with your application ID):
+Invite the bot to a server (replace `APP_ID` with your application ID). The
+`permissions` value grants View Channel, Send Messages, Embed Links and Read
+Message History — enough for slash and prefix commands; adjust as needed:
 
 ```
-https://discord.com/oauth2/authorize?client_id=APP_ID&scope=bot+applications.commands&permissions=0
+https://discord.com/oauth2/authorize?client_id=APP_ID&scope=bot+applications.commands&permissions=84992
 ```
 
 Verify it is alive with the `/ping` slash command (or `!ping` with the default
-prefix).
+prefix). Slash commands work with any permissions; prefix commands additionally
+need the bot to see and read messages in the channel.
+
+### Slash-command syncing
+
+`AhaBot.setup_hook` syncs the command tree on every startup:
+
+- With `DEV_GUILD_ID` set, commands are synced to that guild (instant) **and**
+  any previously-synced global commands are cleared, so switching the setting
+  never leaves stale duplicates.
+- Without it, commands are synced globally, which can take up to an hour to
+  propagate.
+- Sync overwrites the application's remote command set, so avoid running two
+  bot revisions at once — whichever syncs last wins.
 
 ## Project layout
 
