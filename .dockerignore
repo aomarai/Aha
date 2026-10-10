@@ -1,0 +1,10 @@
+# Keep the dev-container build context small and platform-independent:
+# the project virtualenv and caches are rebuilt inside the container.
+.git
+.github
+.venv
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.env
