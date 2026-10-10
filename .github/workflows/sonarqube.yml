@@ -24,6 +24,11 @@ jobs:
     if: >-
       github.event_name == 'push' ||
       github.event.pull_request.head.repo.full_name == github.repository
+    # ARC's Kubernetes container mode sets ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER=true,
+    # so the job MUST declare a container. The actions-runner image brings git,
+    # curl, sudo and apt; the step below adds the JRE plus gpg/dirmngr.
+    container:
+      image: ghcr.io/actions/actions-runner:latest
     env:
       # In-cluster Service DNS. The sq.homelab.local name is LAN-only and signed
       # by the private homelab CA, so CI cannot resolve or trust it.
