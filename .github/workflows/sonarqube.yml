@@ -1,0 +1,56 @@
+name: SonarQube
+
+# Analysis runs on the self-hosted ARC runners in the homelab, because that is
+# the only place that can reach the in-cluster SonarQube Service.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonarqube-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    # Selected by `runnerScaleSetName: aha-runners` in the homelab repo
+    # (apps/arc-runners-aha/values.yaml).
+    runs-on: aha-runners
+    # This repository is public: never execute fork PRs on the homelab runners.
+    if: >-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      # In-cluster Service DNS. The sq.homelab.local name is LAN-only and signed
+      # by the private homelab CA, so CI cannot resolve or trust it.
+      SONAR_HOST_URL: http://sonarqube-sonarqube.sonarqube.svc.cluster.local:9000
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          # Full history gives the scanner accurate new-code and blame data.
+          fetch-depth: 0
+
+      - name: Ensure scanner prerequisites (JRE, gpg, dirmngr)
+        # The actions-runner image ships no JRE and no gpg/dirmngr. The scanner
+        # needs a JRE on the host (Java 11+ with JRE auto-provisioning enabled,
+        # Java 21 if it is disabled) and the action verifies the scanner's GPG
+        # signature. default-jre-headless is OpenJDK 21 on Ubuntu 24.04.
+        run: |
+          if ! command -v java >/dev/null 2>&1 \
+             || ! command -v gpg >/dev/null 2>&1 \
+             || ! command -v dirmngr >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends \
+              gpg dirmngr default-jre-headless
+          fi
+          java -version
+
+      - name: SonarQube scan
+        uses: SonarSource/sonarqube-scan-action@v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
