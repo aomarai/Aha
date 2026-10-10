@@ -1,0 +1,16 @@
+# Configuration for the Sourcery code-review assistant.
+# Install the Sourcery GitHub App on this repository to get automatic PR
+# reviews; this file tunes what it inspects.
+ignore:
+  - .venv
+  - .git
+  - "**/migrations/**"
+  - "**/__pycache__/**"
+
+rule_settings:
+  enable: default
+  disable:
+    # The project ships an explicit ruff configuration; let ruff own style.
+    - assign-if-exp
+
+python_version: "3.15"
