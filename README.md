@@ -91,13 +91,14 @@ Real environment variables take precedence over `.env`.
 uv sync                       # install runtime + dev dependencies
 uv run ruff check .           # lint
 uv run ruff format .          # format
+uv run mypy                   # type check (strict)
 uv run pytest                 # tests
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint, format check, and tests on every
-push to `main` and every pull request. Pull requests are reviewed by
-[Sourcery](https://sourcery.ai/) (configured in `.sourcery.yaml`; install the
-GitHub App on the repository to enable it).
+CI (`.github/workflows/ci.yml`) runs lint, format check, type checking, and
+tests on every push to `main` and every pull request. Pull requests are
+reviewed by [Sourcery](https://sourcery.ai/) (configured in `.sourcery.yaml`;
+install the GitHub App on the repository to enable it).
 
 ## Dev container
 
