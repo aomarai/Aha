@@ -5,14 +5,22 @@ name: SonarQube
 on:
   push:
     branches: [main]
-  pull_request:
+  # pull_request_target, not pull_request: the homelab runner must only ever run
+  # the workflow definition from a trusted ref. With `pull_request`, GitHub takes
+  # the workflow file from the PR head, so a PR could delete the guard below and
+  # land arbitrary commands on the runner (and the homelab network). GitHub takes
+  # the definition from the base branch (main) for pull_request_target.
+  pull_request_target:
     branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
 
 concurrency:
-  group: sonarqube-${{ github.ref }}
+  # github.ref is refs/heads/main for every pull_request_target run, so key PRs
+  # off the PR number to keep them from cancelling each other.
+  group: sonarqube-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -20,10 +28,14 @@ jobs:
     # Selected by `runnerScaleSetName: aha-runners` in the homelab repo
     # (apps/arc-runners-aha/values.yaml).
     runs-on: aha-runners
-    # This repository is public: never execute fork PRs on the homelab runners.
+    # pull_request_target executes this trusted, base-branch definition, so the
+    # guard cannot be edited away by a PR. Keep public forks off the homelab
+    # network, and skip Dependabot PRs: their runs get no repository secrets, so
+    # the scan would fail with an empty SONAR_TOKEN and leave a red check.
     if: >-
       github.event_name == 'push' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+      (github.event.pull_request.head.repo.full_name == github.repository
+      && github.event.pull_request.user.login != 'dependabot[bot]')
     # ARC's Kubernetes container mode sets ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER=true,
     # so the job MUST declare a container. The actions-runner image brings git,
     # curl, sudo and apt; the step below adds the JRE plus gpg/dirmngr.
@@ -35,10 +47,18 @@ jobs:
       SONAR_HOST_URL: http://sonarqube-sonarqube.sonarqube.svc.cluster.local:9000
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        # Pinned to an immutable commit SHA (the tip of the v4.x line) instead of
+        # the movable v4 tag.
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          # pull_request_target defaults to the base branch; analyse the PR head.
           # Full history gives the scanner accurate new-code and blame data.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+
+      - name: Fetch base branch for PR analysis
+        if: github.event_name == 'pull_request_target'
+        run: git fetch --no-tags origin ${{ github.event.pull_request.base.ref }}
 
       - name: Ensure scanner prerequisites (JRE, gpg, dirmngr)
         # The actions-runner image ships no JRE and no gpg/dirmngr. The scanner
@@ -56,6 +76,12 @@ jobs:
           java -version
 
       - name: SonarQube scan
-        uses: SonarSource/sonarqube-scan-action@v8.3.0
+        # Pinned to an immutable commit SHA: the v8.3.0 tag is movable.
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          # Community Build does not auto-detect pull requests, and the scanner
+          # does not recognise the pull_request_target event, so pass the PR
+          # parameters explicitly for PR runs (empty on push to main).
+          args: ${{ github.event_name == 'pull_request_target' && format('-Dsonar.pullrequest.key={0} -Dsonar.pullrequest.branch={1} -Dsonar.pullrequest.base={2}', github.event.pull_request.number, github.event.pull_request.head.ref, github.event.pull_request.base.ref) || '' }}
