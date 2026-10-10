@@ -91,7 +91,7 @@ Real environment variables take precedence over `.env`.
 uv sync                       # install runtime + dev dependencies
 uv run ruff check .           # lint
 uv run ruff format .          # format
-uv run pytest                 # tests
+uv run pytest                 # tests (enforces a 95% coverage floor)
 ```
 
 CI (`.github/workflows/ci.yml`) runs lint, format check, and tests on every

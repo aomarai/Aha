@@ -22,6 +22,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=8.4",
+    "pytest-cov>=6.0",
     "ruff>=0.14",
 ]
 
@@ -38,4 +39,12 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra --cov=aha --cov-report=term-missing --cov-fail-under=95"
+
+[tool.coverage.run]
+branch = true
+source = ["aha"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = ["if TYPE_CHECKING:", "if __name__ == .__main__.:"]
