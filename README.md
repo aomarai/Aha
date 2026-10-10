@@ -94,6 +94,13 @@ uv run ruff format .          # format
 uv run pytest                 # tests
 ```
 
+Optional git hooks (ruff, whitespace/YAML/TOML hygiene, secret scanning):
+
+```bash
+uv run pre-commit install            # enable the hooks (once per clone)
+uv run pre-commit run --all-files    # run them on everything
+```
+
 CI (`.github/workflows/ci.yml`) runs lint, format check, and tests on every
 push to `main` and every pull request. Pull requests are reviewed by
 [Sourcery](https://sourcery.ai/) (configured in `.sourcery.yaml`; install the
