@@ -1,6 +1,6 @@
 # Aha
 
-[![Quality Gate Status](https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&metric=alert_status&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f)](https://sq.homelab.local/dashboard?id=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2)
+[![Coverage](https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&metric=coverage&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f)](https://sq.homelab.local/dashboard?id=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2)
 
 A Discord bot written in Python with [discord.py](https://discordpy.readthedocs.io/)
 and managed with [uv](https://docs.astral.sh/uv/).

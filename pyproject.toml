@@ -22,6 +22,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=8.4",
+    "pytest-cov>=6.0",
     "ruff>=0.14",
 ]
 
@@ -39,3 +40,17 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+# Coverage config. The SonarQube job runs pytest with
+# `--cov=aha --cov-report=xml` so SonarQube can compute the coverage measure
+# behind the README badge; no threshold is enforced here.
+[tool.coverage.run]
+branch = true
+source = ["aha"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = [
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
