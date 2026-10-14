@@ -37,3 +37,6 @@ repos:
     rev: v8.30.1
     hooks:
       - id: gitleaks
+        # .gitleaks.toml extends the default rules and allowlists the public
+        # SonarQube project key, which would otherwise trip `generic-api-key`.
+        args: ["--config", ".gitleaks.toml"]

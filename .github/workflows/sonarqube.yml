@@ -1,0 +1,97 @@
+name: SonarQube
+
+# Analysis runs on the self-hosted ARC runners in the homelab, because that is
+# the only place that can reach the in-cluster SonarQube Service.
+#
+# Push to main only. This SonarQube is Community Build, which does not support
+# pull-request analysis: passing sonar.pullrequest.* aborts the scan with
+# "To use the property sonar.pullrequest.key and analyze pull requests,
+# Developer Edition or above is required", so a PR trigger can only ever produce
+# a red check here.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonarqube-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    # Selected by `runnerScaleSetName: aha-runners` in the homelab repo
+    # (apps/arc-runners-aha/values.yaml).
+    runs-on: aha-runners
+    # ARC's Kubernetes container mode sets ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER=true,
+    # so the job MUST declare a container. The actions-runner image brings git,
+    # curl, sudo and apt; the step below adds the JRE plus gpg/dirmngr.
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    env:
+      # In-cluster Service DNS. The sq.homelab.local name is LAN-only and signed
+      # by the private homelab CA, so CI cannot resolve or trust it.
+      SONAR_HOST_URL: http://sonarqube-sonarqube.sonarqube.svc.cluster.local:9000
+    steps:
+      - name: Check out repository
+        # Pinned to an immutable commit SHA (the tip of the v4.x line) instead of
+        # the movable v4 tag.
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          # Full history gives the scanner accurate new-code and blame data.
+          fetch-depth: 0
+
+      - name: Ensure scanner prerequisites (JRE, gpg, dirmngr)
+        # The actions-runner image ships no JRE and no gpg/dirmngr. The scanner
+        # needs a JRE on the host (Java 11+ with JRE auto-provisioning enabled,
+        # Java 21 if it is disabled) and the action verifies the scanner's GPG
+        # signature. default-jre-headless is OpenJDK 21 on Ubuntu 24.04.
+        run: |
+          if ! command -v java >/dev/null 2>&1 \
+             || ! command -v gpg >/dev/null 2>&1 \
+             || ! command -v dirmngr >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends \
+              gpg dirmngr default-jre-headless
+          fi
+          java -version
+
+      # Coverage must be produced on the runner the scanner runs on: the CI
+      # workflow tests on github-hosted runners, which cannot reach the
+      # in-cluster SonarQube, and the scanner reads the Cobertura report from
+      # disk (sonar.python.coverage.reportPaths in sonar-project.properties).
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Run tests with coverage
+        # --locked: fail if uv.lock is stale rather than silently re-resolving.
+        run: |
+          uv sync --locked
+          uv run pytest --cov=aha --cov-report=xml
+
+      - name: SonarQube scan
+        # Pinned to an immutable commit SHA: the v8.3.0 tag is movable. The
+        # project key comes from sonar-project.properties; no PR parameters are
+        # passed because Community Build does not support pull-request analysis.
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          # Bound the scanner engine's JVM heap.
+          #
+          # The job container in ARC's Kubernetes mode cannot declare resource
+          # limits (actions/actions-runner-controller#3641), so the engine sizes
+          # its default heap from the node's RAM and its footprint is unbounded.
+          # The `aha-runners` pod runs on worker-1-storage, a ~5.5GiB node shared
+          # with the media stack, so an unbounded engine competes for the last
+          # few hundred MiB and the kernel OOM killer SIGKILLs the JVM mid-sensor:
+          #
+          #   ##[error]... exit code 137
+          #   Reason: SystemOOM  Message: victim process: java, pid: ...
+          #
+          # That is the intermittent red "SonarQube" check on main. 512m is far
+          # above what this project's Python analysis needs; raise it only if the
+          # scan starts failing with "java.lang.OutOfMemoryError: Java heap space".
+          SONAR_SCANNER_JAVA_OPTS: "-Xmx512m"

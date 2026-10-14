@@ -1,5 +1,7 @@
 # Aha
 
+[![Coverage](https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&metric=coverage&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f)](https://sq.homelab.local/dashboard?id=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2)
+
 A Discord bot written in Python with [discord.py](https://discordpy.readthedocs.io/)
 and managed with [uv](https://docs.astral.sh/uv/).
 
@@ -78,12 +80,12 @@ Aha/
 All configuration is read from environment variables (see `.env.example`).
 Real environment variables take precedence over `.env`.
 
-| Variable | Required | Default | Purpose |
-|----------|----------|---------|---------|
-| `DISCORD_BOT_TOKEN` | yes | – | Bot token from the Developer Portal |
-| `COMMAND_PREFIX` | no | `!` | Prefix for text commands (mentions always work) |
-| `LOG_LEVEL` | no | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `DEV_GUILD_ID` | no | – | Sync slash commands instantly to this guild |
+| Variable            | Required | Default | Purpose                                         |
+|---------------------|----------|---------|-------------------------------------------------|
+| `DISCORD_BOT_TOKEN` | yes      | –       | Bot token from the Developer Portal             |
+| `COMMAND_PREFIX`    | no       | `!`     | Prefix for text commands (mentions always work) |
+| `LOG_LEVEL`         | no       | `INFO`  | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `DEV_GUILD_ID`      | no       | –       | Sync slash commands instantly to this guild     |
 
 ## Development
 
@@ -91,7 +93,8 @@ Real environment variables take precedence over `.env`.
 uv sync                       # install runtime + dev dependencies
 uv run ruff check .           # lint
 uv run ruff format .          # format
-uv run pytest                 # tests
+uv run mypy                   # type check (strict)
+uv run pytest                 # tests (enforces a 95% coverage floor)
 ```
 
 Optional git hooks (ruff, whitespace/YAML/TOML hygiene, secret scanning):
@@ -101,10 +104,10 @@ uv run pre-commit install            # enable the hooks (once per clone)
 uv run pre-commit run --all-files    # run them on everything
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint, format check, and tests on every
-push to `main` and every pull request. Pull requests are reviewed by
-[Sourcery](https://sourcery.ai/) (configured in `.sourcery.yaml`; install the
-GitHub App on the repository to enable it).
+CI (`.github/workflows/ci.yml`) runs lint, format check, type checking, and
+tests on every push to `main` and every pull request. Pull requests are
+reviewed by [Sourcery](https://sourcery.ai/) (configured in `.sourcery.yaml`;
+install the GitHub App on the repository to enable it).
 
 ## Dev container
 
@@ -112,8 +115,8 @@ A [VS Code Dev Container](https://containers.dev/) is provided so the whole
 toolchain (uv + Python 3.15 + dependencies) runs in an isolated, reproducible
 environment with nothing installed on your host machine.
 
-**Use it:** open the repository in VS Code and run
-*Dev Containers: Reopen in Container* (or use the **Dev Containers CLI**:
+**Use it:** open the repository in VS Code and run *Dev Containers: Reopen in Container* (or use the **Dev Containers
+CLI**:
 `devcontainer up --workspace-folder .`). On first start the container runs
 `uv sync --locked`, which downloads Python 3.15 and installs all dependencies.
 
