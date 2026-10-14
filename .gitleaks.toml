@@ -1,0 +1,15 @@
+# Gitleaks configuration for this repository.
+#
+# Extends the default rule set; the only addition is an allowlist for the
+# SonarQube project key. That key is public configuration — it is committed in
+# `sonar-project.properties` and referenced by the CI scan — but because it has
+# a UUID-shaped, high-entropy value it trips the `generic-api-key` rule.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Public SonarQube project key (not a credential)."
+regexes = [
+  '''aomarai_Aha_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}''',
+]
