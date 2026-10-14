@@ -37,7 +37,7 @@ jobs:
       - name: Check out repository
         # Pinned to an immutable commit SHA (the tip of the v4.x line) instead of
         # the movable v4 tag.
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           # Full history gives the scanner accurate new-code and blame data.
           fetch-depth: 0
