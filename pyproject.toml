@@ -45,11 +45,11 @@ files = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra --cov=aha --cov-report=term-missing --cov-fail-under=95"
 
-# Coverage config. The SonarQube job runs pytest with
-# `--cov=aha --cov-report=xml` so SonarQube can compute the coverage measure
-# behind the README badge; no threshold is enforced here.
+# Coverage config. The SonarQube job additionally passes `--cov-report=xml` on
+# top of these addopts so the scanner can read the Cobertura report behind the
+# README badge.
 [tool.coverage.run]
 branch = true
 source = ["aha"]

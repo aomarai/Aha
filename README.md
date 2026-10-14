@@ -94,7 +94,7 @@ uv sync                       # install runtime + dev dependencies
 uv run ruff check .           # lint
 uv run ruff format .          # format
 uv run mypy                   # type check (strict)
-uv run pytest                 # tests
+uv run pytest                 # tests (enforces a 95% coverage floor)
 ```
 
 CI (`.github/workflows/ci.yml`) runs lint, format check, type checking, and
