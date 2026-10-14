@@ -9,10 +9,11 @@ runtime-valid call::
     error: Argument 1 has incompatible type "Callable[[Meta, Context[Bot]], ...]";
     expected "def (Never, Never, /, *Never, **Never) -> ..."  [arg-type]
 
-Applying the decorator through this wrapper keeps that single workaround in one
-place, so every hybrid command in :mod:`aha.cogs` stays type-checked instead of
-each call site carrying its own ``# type: ignore``. It is a drop-in replacement
-for :func:`discord.ext.commands.hybrid_command`.
+Applying the decorator through this wrapper fixes it once: the wrapper accepts
+any callback and returns the real ``HybridCommand`` type, so no call site — and
+no line here — needs a ``# type: ignore``, and every hybrid command in
+:mod:`aha.cogs` stays fully type-checked. It is a drop-in replacement for
+:func:`discord.ext.commands.hybrid_command`.
 """
 
 from __future__ import annotations
@@ -28,11 +29,14 @@ __all__ = ["hybrid_command"]
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def hybrid_command(name: Any = MISSING, **attrs: Any) -> Callable[[F], F]:
+def hybrid_command(
+    name: Any = MISSING,
+    **attrs: Any,
+) -> Callable[[F], commands.HybridCommand[Any, ..., Any]]:
     """Return a decorator that turns ``func`` into a hybrid command.
 
     mypy-safe stand-in for :func:`discord.ext.commands.hybrid_command`. The
-    decorated function keeps its own type, so the callback's ``self`` and
-    ``ctx`` annotations are still checked.
+    callback's own ``self``/``ctx`` annotations are still checked; only the
+    decorator's return type is widened.
     """
-    return commands.hybrid_command(name=name, **attrs)  # type: ignore[return-value]
+    return commands.hybrid_command(name=name, **attrs)
