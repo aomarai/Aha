@@ -79,3 +79,19 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          # Bound the scanner engine's JVM heap.
+          #
+          # The job container in ARC's Kubernetes mode cannot declare resource
+          # limits (actions/actions-runner-controller#3641), so the engine sizes
+          # its default heap from the node's RAM and its footprint is unbounded.
+          # The `aha-runners` pod runs on worker-1-storage, a ~5.5GiB node shared
+          # with the media stack, so an unbounded engine competes for the last
+          # few hundred MiB and the kernel OOM killer SIGKILLs the JVM mid-sensor:
+          #
+          #   ##[error]... exit code 137
+          #   Reason: SystemOOM  Message: victim process: java, pid: ...
+          #
+          # That is the intermittent red "SonarQube" check on main. 512m is far
+          # above what this project's Python analysis needs; raise it only if the
+          # scan starts failing with "java.lang.OutOfMemoryError: Java heap space".
+          SONAR_SCANNER_JAVA_OPTS: "-Xmx512m"
