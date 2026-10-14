@@ -97,17 +97,18 @@ uv run mypy                   # type check (strict)
 uv run pytest                 # tests (enforces a 95% coverage floor)
 ```
 
-Optional git hooks (ruff, whitespace/YAML/TOML hygiene, secret scanning):
+Git hooks (ruff, whitespace/YAML/TOML hygiene, secret scanning). They are
+enforced by CI, so installing them locally is for earlier feedback:
 
 ```bash
 uv run pre-commit install            # enable the hooks (once per clone)
 uv run pre-commit run --all-files    # run them on everything
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint, format check, type checking, and
-tests on every push to `main` and every pull request. Pull requests are
-reviewed by [Sourcery](https://sourcery.ai/) (configured in `.sourcery.yaml`;
-install the GitHub App on the repository to enable it).
+CI (`.github/workflows/ci.yml`) runs lint, format check, the pre-commit hooks,
+type checking, and tests on every push to `main` and every pull request.
+Pull requests are reviewed by [Sourcery](https://sourcery.ai/) (configured in
+`.sourcery.yaml`; install the GitHub App on the repository to enable it).
 
 ## Dev container
 
