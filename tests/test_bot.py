@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 import pytest
@@ -83,9 +84,15 @@ class _StubUser:
 
 
 def test_on_ready_logs_when_user_is_available(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     bot = _bot()
     monkeypatch.setattr(type(bot), "user", property(lambda self: _StubUser()))
 
-    asyncio.run(bot.on_ready())
+    with caplog.at_level(logging.INFO, logger="aha.bot"):
+        asyncio.run(bot.on_ready())
+
+    # Assert the readiness message is actually emitted, so removing the log
+    # call in ``on_ready`` fails this test.
+    assert "Logged in as" in caplog.text
+    assert "stub#0001" in caplog.text
