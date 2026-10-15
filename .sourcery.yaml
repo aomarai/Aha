@@ -13,4 +13,4 @@ rule_settings:
     # The project ships an explicit ruff configuration; let ruff own style.
     - assign-if-exp
 
-python_version: "3.15"
+python_version: "3.14"
