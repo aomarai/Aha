@@ -1,5 +1,5 @@
 {
-  "name": "Aha - Python 3.15 + uv",
+  "name": "Aha - Python 3.14 + uv",
   "build": {
     "dockerfile": "Dockerfile",
     "context": ".."

@@ -6,7 +6,10 @@ readme = "README.md"
 authors = [
     { name = "Ash Omaraie" }
 ]
-requires-python = ">=3.15"
+# Upper bound is deliberate: PyYAML 6.0.3 publishes no cp315 wheel, so on 3.15
+# uv falls back to building its sdist, which crashes on Windows (0xC0000005)
+# and silently drops the C extension elsewhere.
+requires-python = ">=3.14,<3.15"
 dependencies = [
     "discord-py>=2.7.1",
     "python-dotenv>=1.1.0",
@@ -40,7 +43,7 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
 "tests/**" = ["S101"]
 
 [tool.mypy]
-python_version = "3.15"
+python_version = "3.14"
 strict = true
 files = ["src", "tests"]
 

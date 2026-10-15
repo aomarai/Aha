@@ -11,7 +11,7 @@ and managed with [uv](https://docs.astral.sh/uv/).
 - A Discord bot token from the
   [Developer Portal](https://discord.com/developers/applications)
 
-Python **3.15** is pinned in `.python-version`; `uv` downloads it on demand, so
+Python **3.14** is pinned in `.python-version`; `uv` downloads it on demand, so
 nothing needs to be installed system-wide.
 
 ## Quickstart
@@ -25,7 +25,7 @@ cp .env.example .env          # add your DISCORD_BOT_TOKEN
 #   In the Developer Portal enable: Bot -> Privileged Gateway Intents ->
 #   "Message Content Intent".
 
-# 3. Install dependencies (also fetches Python 3.15)
+# 3. Install dependencies (also fetches Python 3.14)
 uv sync
 
 # 4. Run the bot
@@ -68,7 +68,7 @@ Aha/
 │   └── cogs/            # command groups, each exposing async setup(bot)
 │       └── meta.py      # /ping
 ├── tests/               # pytest suite
-├── .devcontainer/       # VS Code dev container (Python 3.15 + uv)
+├── .devcontainer/       # VS Code dev container (Python 3.14 + uv)
 ├── .github/workflows/   # CI (lint, format, tests)
 ├── .env.example         # template for local secrets
 ├── pyproject.toml       # project metadata, dependencies, ruff/pytest config
@@ -113,13 +113,13 @@ Pull requests are reviewed by [Sourcery](https://sourcery.ai/) (configured in
 ## Dev container
 
 A [VS Code Dev Container](https://containers.dev/) is provided so the whole
-toolchain (uv + Python 3.15 + dependencies) runs in an isolated, reproducible
+toolchain (uv + Python 3.14 + dependencies) runs in an isolated, reproducible
 environment with nothing installed on your host machine.
 
 **Use it:** open the repository in VS Code and run *Dev Containers: Reopen in Container* (or use the **Dev Containers
 CLI**:
 `devcontainer up --workspace-folder .`). On first start the container runs
-`uv sync --locked`, which downloads Python 3.15 and installs all dependencies.
+`uv sync --locked`, which downloads Python 3.14 and installs all dependencies.
 
 - **Image** — `.devcontainer/Dockerfile` builds on
   `mcr.microsoft.com/devcontainers/base:ubuntu-24.04` and copies a pinned `uv`
