@@ -68,4 +68,4 @@ class AhaBot(commands.Bot):
         if self.user is not None:
             log.info("Logged in as %s (id=%s)", self.user, self.user.id)
         else:
-            log.warning("on_ready fired but self.user is unset; bot state is inconsistent")
+            log.error("on_ready fired but self.user is unset; bot state is inconsistent")
