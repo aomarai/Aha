@@ -109,3 +109,4 @@ def test_on_ready_logs_when_user_is_not_available(
 
     # Assert that there is no on ready log received when no user is available
     assert "Logged in as" not in caplog.text
+    assert "Bot failed to log in" in caplog.text

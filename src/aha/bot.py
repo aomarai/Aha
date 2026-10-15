@@ -67,3 +67,5 @@ class AhaBot(commands.Bot):
         """
         if self.user is not None:
             log.info("Logged in as %s (id=%s)", self.user, self.user.id)
+        else:
+            log.warning("Bot failed to log in")
