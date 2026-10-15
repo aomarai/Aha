@@ -62,5 +62,8 @@ class AhaBot(commands.Bot):
             log.info("Synced global application commands")
 
     async def on_ready(self) -> None:
-        assert self.user is not None  # set once the gateway READY event arrives
-        log.info("Logged in as %s (id=%s)", self.user, self.user.id)
+        """
+        Called when the bot has connected to Discord and is ready to process commands.
+        """
+        if self.user is not None:
+            log.info("Logged in as %s (id=%s)", self.user, self.user.id)
