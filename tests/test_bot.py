@@ -96,3 +96,17 @@ def test_on_ready_logs_when_user_is_available(
     # call in ``on_ready`` fails this test.
     assert "Logged in as" in caplog.text
     assert "stub#0001" in caplog.text
+
+
+def test_on_ready_logs_when_user_is_not_available(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    bot = _bot()
+    monkeypatch.setattr(type(bot), "user", property(lambda self: None))
+
+    with caplog.at_level(logging.INFO, logger="aha.bot"):
+        asyncio.run(bot.on_ready())
+
+    # Assert that there is no on ready log received when no user is available
+    assert "Logged in as" not in caplog.text
+    assert "on_ready fired but self.user is unset; bot state is inconsistent" in caplog.text
