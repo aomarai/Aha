@@ -24,6 +24,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "mutmut>=3.8.0",
     "mypy>=1.11",
     "pre-commit>=4.0",
     "pytest>=8.4",
@@ -45,11 +46,20 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF"]
 [tool.mypy]
 python_version = "3.14"
 strict = true
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --cov=aha --cov-report=term-missing --cov-fail-under=95"
+
+# Mutation testing (mutmut). `--no-cov` is required: pytest's `--cov-fail-under=95`
+# would otherwise make every mutant's run exit non-zero on *coverage*, so mutmut
+# could not distinguish a killed mutant from an un-covered one. The mutation
+# campaign is scoped to the hand-written package; tests are selected from tests/.
+[tool.mutmut]
+source_paths = ["src/aha"]
+pytest_add_cli_args_test_selection = ["tests/"]
+pytest_add_cli_args = ["--no-cov", "-q", "-p", "no:cacheprovider"]
 
 # Coverage config. The SonarQube job additionally passes `--cov-report=xml` on
 # top of these addopts so the scanner can read the Cobertura report behind the
