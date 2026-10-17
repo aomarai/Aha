@@ -56,8 +56,12 @@ addopts = "-ra --cov=aha --cov-report=term-missing --cov-fail-under=95"
 # would otherwise make every mutant's run exit non-zero on *coverage*, so mutmut
 # could not distinguish a killed mutant from an un-covered one. The mutation
 # campaign is scoped to the hand-written package; tests are selected from tests/.
+# `also_copy` must include scripts/ so the copy of the repo that mutmut runs the
+# tests in contains the gate module that tests/test_mutation_score.py imports
+# (mutmut copies tests/, pyproject.toml and the lockfiles by default).
 [tool.mutmut]
 source_paths = ["src/aha"]
+also_copy = ["scripts/"]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = ["--no-cov", "-q", "-p", "no:cacheprovider"]
 
