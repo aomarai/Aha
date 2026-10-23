@@ -1,6 +1,80 @@
 # Aha
 
-[![Coverage](https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&metric=coverage&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f)](https://sq.homelab.local/dashboard?id=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2)
+<!-- Badges: build and security, SonarQube metrics, project facts, tooling. -->
+
+[![CI][ci-badge]][ci]
+[![Security][security-badge]][security]
+[![Quality Gate][sq-gate-badge]][sonar]
+[![Coverage][sq-coverage-badge]][sonar]
+
+[![Bugs][sq-bugs-badge]][sonar]
+[![Vulnerabilities][sq-vulns-badge]][sonar]
+[![Code Smells][sq-smells-badge]][sonar]
+[![Reliability Rating][sq-reliability-badge]][sonar]
+[![Security Rating][sq-security-badge]][sonar]
+[![Maintainability Rating][sq-maintainability-badge]][sonar]
+[![Duplicated Lines][sq-duplication-badge]][sonar]
+[![Lines of Code][sq-loc-badge]][sonar]
+
+[![Python 3.14][python-badge]][python]
+[![discord.py][discordpy-badge]][discordpy]
+[![Docker][docker-badge]][dockerfile]
+[![License: MIT][license-badge]][license]
+[![Last commit][last-commit-badge]][commits]
+[![Open issues][issues-badge]][issues]
+
+[![uv][uv-badge]][uv]
+[![Ruff][ruff-badge]][ruff]
+[![mypy: strict][mypy-badge]][mypy]
+[![pytest][pytest-badge]][pytest]
+[![Mutation testing: mutmut][mutmut-badge]][mutmut]
+[![pre-commit][precommit-badge]][precommit]
+[![gitleaks][gitleaks-badge]][gitleaks]
+[![Dependabot][dependabot-badge]][dependabot]
+
+[ci]: https://github.com/aomarai/Aha/actions/workflows/ci.yml
+[ci-badge]: https://github.com/aomarai/Aha/actions/workflows/ci.yml/badge.svg?branch=main
+[security]: https://github.com/aomarai/Aha/actions/workflows/security.yml
+[security-badge]: https://github.com/aomarai/Aha/actions/workflows/security.yml/badge.svg?branch=main
+[sonar]: https://sq.homelab.local/dashboard?id=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2
+[sq-gate-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=alert_status
+[sq-coverage-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=coverage
+[sq-bugs-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=bugs
+[sq-vulns-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=vulnerabilities
+[sq-smells-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=code_smells
+[sq-reliability-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=reliability_rating
+[sq-security-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=security_rating
+[sq-maintainability-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=sqale_rating
+[sq-duplication-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=duplicated_lines_density
+[sq-loc-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=ncloc
+[python]: .python-version
+[python-badge]: https://img.shields.io/badge/python-3.14-blue?logo=python&logoColor=white
+[discordpy]: https://discordpy.readthedocs.io/
+[discordpy-badge]: https://img.shields.io/badge/discord.py-%E2%89%A52.7-5865F2?logo=discord&logoColor=white
+[dockerfile]: Dockerfile
+[docker-badge]: https://img.shields.io/badge/docker-distroless-2496ED?logo=docker&logoColor=white
+[license]: LICENSE
+[license-badge]: https://img.shields.io/github/license/aomarai/Aha
+[commits]: https://github.com/aomarai/Aha/commits/main
+[last-commit-badge]: https://img.shields.io/github/last-commit/aomarai/Aha
+[issues]: https://github.com/aomarai/Aha/issues
+[issues-badge]: https://img.shields.io/github/issues/aomarai/Aha
+[uv]: https://docs.astral.sh/uv/
+[uv-badge]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json
+[ruff]: https://docs.astral.sh/ruff/
+[ruff-badge]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json
+[mypy]: https://mypy-lang.org/
+[mypy-badge]: https://www.mypy-lang.org/static/mypy_badge.svg
+[pytest]: https://docs.pytest.org/
+[pytest-badge]: https://img.shields.io/badge/tested%20with-pytest-0A9EDC?logo=pytest&logoColor=white
+[mutmut]: https://mutmut.readthedocs.io/
+[mutmut-badge]: https://img.shields.io/badge/mutation%20testing-mutmut-blueviolet
+[precommit]: https://pre-commit.com/
+[precommit-badge]: https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit
+[gitleaks]: https://github.com/gitleaks/gitleaks
+[gitleaks-badge]: https://img.shields.io/badge/secrets%20scan-gitleaks-blue
+[dependabot]: .github/dependabot.yml
+[dependabot-badge]: https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot
 
 A Discord bot written in Python with [discord.py](https://discordpy.readthedocs.io/)
 and managed with [uv](https://docs.astral.sh/uv/).
