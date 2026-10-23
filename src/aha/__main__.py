@@ -31,7 +31,7 @@ def main() -> int:
         settings = Settings.from_env()
     except ConfigError as exc:
         logging.basicConfig(level=logging.ERROR)
-        log.error("%s", exc)
+        log.exception("%s", exc)
         return 1
 
     configure_logging(settings.log_level)
