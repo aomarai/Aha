@@ -55,29 +55,34 @@ def test_skipped_mutants_are_excluded_within_the_ratio_limit() -> None:
 
 
 def test_excessive_exclusions_are_rejected() -> None:
+    campaign = stats(total=100, killed=55, survived=34, skipped=11)
     with pytest.raises(ValueError, match="too many excluded mutants"):
-        gate.mutation_score(stats(total=100, killed=55, survived=34, skipped=11))
+        gate.mutation_score(campaign)
 
 
 def test_everything_excluded_is_rejected() -> None:
+    campaign = stats(total=10, skipped=10)
     with pytest.raises(ValueError, match="no scored mutants"):
-        gate.mutation_score(stats(total=10, skipped=10))
+        gate.mutation_score(campaign)
 
 
 def test_interrupted_campaign_is_rejected() -> None:
+    campaign = stats(total=10, killed=8, survived=1, check_was_interrupted_by_user=1)
     with pytest.raises(ValueError, match="check_was_interrupted_by_user=1"):
-        gate.mutation_score(stats(total=10, killed=8, survived=1, check_was_interrupted_by_user=1))
+        gate.mutation_score(campaign)
 
 
 def test_unclassified_mutants_are_rejected() -> None:
     """A partial campaign (mutants with no recorded verdict) must not score."""
+    campaign = stats(total=10, killed=8)
     with pytest.raises(ValueError, match="unclassified mutants=2"):
-        gate.mutation_score(stats(total=10, killed=8))
+        gate.mutation_score(campaign)
 
 
 def test_no_mutants_is_rejected() -> None:
+    campaign = stats(total=0)
     with pytest.raises(ValueError, match="no mutants were enumerated"):
-        gate.mutation_score(stats(total=0))
+        gate.mutation_score(campaign)
 
 
 def test_non_integer_count_is_rejected() -> None:
