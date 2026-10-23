@@ -16,7 +16,7 @@
 FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad AS builder
 
 # Pinned for reproducible builds; keep in step with .devcontainer/Dockerfile.
-COPY --from=ghcr.io/astral-sh/uv:0.12.4@sha256:d0a6eca6c669dc7e9c51218707b8438a3d30402733d739dcc00adb3e213e8f5c /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf5661b302bf6f06abda8deca6ff /uv /uvx /bin/
 
 # Runtime deps only; bytecode is compiled now because the runtime user cannot
 # write it; copy (not hardlink) because the cache mount is a different filesystem.
@@ -65,13 +65,22 @@ RUN cd /opt/python/cpython-3.14-* \
     && find /app/.venv \( -name '*.pyx' -o -name '*.pxd' -o -name '*.c' -o -name '*.h' \
         -o -name '*.pyi' -o -name tests -o -name test \) -prune -exec rm -rf {} +
 
+# libgcc_s is the only shared library beyond glibc that the standalone Python links
+# against. `cp --parents` keeps the architecture-specific path (/usr/lib/<triplet>/),
+# which the dynamic loader searches. (frozenlist's optional C extension would also
+# need libstdc++; it is deliberately not shipped, and frozenlist falls back to its
+# pure-Python implementation.)
+RUN mkdir /stage && cp --parents /usr/lib/*-linux-gnu/libgcc_s.so.1 /stage
+
 
 # `base-nossl`: just glibc, CA certificates (for the Discord TLS connection) and
-# tzdata. No libstdc++ (the Tk libraries were its only user) and no libssl (this
-# Python statically links its own OpenSSL). The `nonroot` tag runs as UID/GID 65532.
+# tzdata. No libssl (this Python statically links its own OpenSSL) and no libstdc++.
+# The one extra library the interpreter needs, libgcc_s, is copied from the builder
+# below. The `nonroot` tag runs as UID/GID 65532.
 FROM gcr.io/distroless/base-nossl-debian13:nonroot@sha256:6d92083da644c5fceb58fb1dc50e88b3c1aa0d8b6099678223fbb801bd72962b AS runtime
 
 # Root-owned and read-only to the bot: it never needs to modify its own code.
+COPY --from=builder /stage/ /
 COPY --from=builder /opt/python /opt/python
 COPY --from=builder /app/.venv /app/.venv
 
