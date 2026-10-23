@@ -15,7 +15,11 @@ __all__ = ["COG_MODULES", "AhaBot", "AhaTree"]
 log = logging.getLogger(__name__)
 
 #: Cog modules loaded automatically at startup.
-COG_MODULES: tuple[str, ...] = ("aha.cogs.meta", "aha.cogs.errors")
+COG_MODULES: tuple[str, ...] = (
+    "aha.cogs.meta",
+    "aha.cogs.errors",
+    "aha.cogs.help",
+)
 
 #: Event dispatched for failed app commands (listeners are ``on_app_command_error``).
 APP_COMMAND_ERROR_EVENT = "app_command_error"
