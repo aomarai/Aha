@@ -78,7 +78,7 @@ def main() -> int:
     try:
         settings = Settings.from_env()
     except ConfigError as exc:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.ERROR)
         log.exception("%s", exc)
         return 1
 

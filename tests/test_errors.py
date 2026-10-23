@@ -111,6 +111,9 @@ def test_prefix_unexpected_error_is_logged_with_context_and_hides_internals(
     assert record.args is not None
     error_id = cast("str", cast("tuple[Any, ...]", record.args)[1])
     assert len(error_id) == 8
+    assert record.getMessage() == (
+        f"Unexpected error in command ping (error_id={error_id} guild=11 channel=22 user=33)"
+    )
     assert cast("tuple[Any, ...]", record.args) == ("ping", error_id, 11, 22, 33)
     assert record.exc_info is not None
     assert record.exc_info[1] is boom
@@ -153,6 +156,10 @@ def test_prefix_dm_and_missing_command_context_are_logged_as_none(
         (
             commands.BotMissingPermissions(["send_messages"]),
             "I'm missing permissions to do that: send messages.",
+        ),
+        (
+            commands.MissingPermissions(["manage_messages", "kick_members"]),
+            "You need these permissions to do that: manage messages, kick members.",
         ),
         (commands.MissingRole("Admin"), "You don't have the role required to do that."),
         (
@@ -207,6 +214,9 @@ def test_app_unexpected_error_replies_and_logs_context(
     (record,) = caplog.records
     assert record.args is not None
     error_id = cast("str", cast("tuple[Any, ...]", record.args)[1])
+    assert record.getMessage() == (
+        f"Unexpected error in command ping (error_id={error_id} guild=11 channel=22 user=33)"
+    )
     assert cast("tuple[Any, ...]", record.args) == ("ping", error_id, 11, 22, 33)
     assert record.exc_info is not None
     assert record.exc_info[1] is boom
@@ -253,7 +263,9 @@ def test_failed_reply_is_logged_not_raised(caplog: pytest.LogCaptureFixture) -> 
     (record,) = caplog.records
     assert record.getMessage() == "Could not deliver error reply for command ping"
     assert record.levelno == logging.WARNING
-    assert record.exc_info is not None
+    # ``exc_info=False`` would leave a falsy-but-not-None value, so check truthiness.
+    assert record.exc_info
+    assert record.exc_info[1] is ctx.fail_with
 
 
 def test_setup_registers_listeners_on_a_real_bot() -> None:
@@ -261,7 +273,9 @@ def test_setup_registers_listeners_on_a_real_bot() -> None:
 
     asyncio.run(errors_setup(bot))
 
-    assert isinstance(bot.get_cog("Errors"), Errors)
+    cog = bot.get_cog("Errors")
+    assert isinstance(cog, Errors)
+    assert cog.bot is bot
     assert len(bot.extra_events["on_command_error"]) == 1
     assert len(bot.extra_events["on_app_command_error"]) == 1
 

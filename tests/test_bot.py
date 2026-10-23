@@ -7,7 +7,9 @@ import logging
 from collections.abc import Callable
 from typing import Any, cast
 
+import discord
 import pytest
+from discord.ext import commands
 
 from aha.bot import COG_MODULES, AhaBot
 from aha.config import Settings
@@ -33,6 +35,21 @@ def test_bot_requests_no_privileged_intents_and_has_no_default_help() -> None:
     assert bot.intents.presences is False
     assert bot.intents.guilds is True  # discord.Intents.default() was used
     assert bot.help_command is None
+
+
+def test_bot_passes_default_intents_explicitly(monkeypatch: pytest.MonkeyPatch) -> None:
+    # discord.py falls back to default intents for ``intents=None``, so only the
+    # constructor argument itself distinguishes "explicit defaults" from "nothing".
+    captured: dict[str, Any] = {}
+
+    def fake_init(self: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(commands.Bot, "__init__", fake_init)
+
+    _bot()
+
+    assert captured["intents"] == discord.Intents.default()
 
 
 def test_bot_prefix_is_mention_only(monkeypatch: pytest.MonkeyPatch) -> None:
