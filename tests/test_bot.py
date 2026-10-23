@@ -83,16 +83,22 @@ def test_setup_hook_syncs_dev_guild_then_clears_globals(
 ) -> None:
     bot = _bot(dev_guild_id=123456789012345678)
     sync_calls: list[dict[str, Any]] = []
+    events: list[str] = []
 
     async def fake_load_extension(name: str) -> None:
         return None
 
     async def fake_sync(**kwargs: Any) -> list[Any]:
         sync_calls.append(kwargs)
+        events.append("sync")
         return []
+
+    def fake_clear_commands(**kwargs: Any) -> None:
+        events.append(f"clear:{kwargs}")
 
     monkeypatch.setattr(bot, "load_extension", fake_load_extension)
     monkeypatch.setattr(bot.tree, "sync", fake_sync)
+    monkeypatch.setattr(bot.tree, "clear_commands", fake_clear_commands)
 
     with caplog.at_level(logging.INFO, logger="aha.bot"):
         asyncio.run(bot.setup_hook())
@@ -101,6 +107,8 @@ def test_setup_hook_syncs_dev_guild_then_clears_globals(
     assert len(sync_calls) == 2
     assert sync_calls[0]["guild"].id == 123456789012345678
     assert sync_calls[1] == {}  # global command set cleared
+    # Globals must be cleared (guild=None) immediately before the global sync.
+    assert events[-2:] == ["clear:{'guild': None}", "sync"]
 
 
 class _StubUser:
