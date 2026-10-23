@@ -41,8 +41,10 @@ removing or mutating the code under test fails the test.
 ## Architecture
 
 - `__main__.main()` loads `.env` from the **current directory only** (not parent dirs; real env
-  vars win), builds `Settings`, configures logging, then runs `AhaBot` with `log_handler=None`
-  so `logging_setup.configure_logging` owns all handlers. Misconfiguration returns exit code 1.
+  vars win), builds `Settings`, configures logging, then runs `AhaBot` via `_serve` (not
+  `bot.run()`): it owns the event loop so SIGINT/SIGTERM trigger `bot.close()` (POSIX only;
+  `bot.start()` installs no log handler, so `logging_setup` owns all handlers).
+  Misconfiguration returns exit code 1.
 - `config.Settings` is a frozen dataclass built by `Settings.from_env(env=None)`. Pass an explicit
   mapping in tests instead of mutating `os.environ`. Invalid values raise `ConfigError` at
   startup rather than silently falling back.
