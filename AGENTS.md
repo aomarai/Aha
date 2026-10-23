@@ -42,7 +42,8 @@ removing or mutating the code under test fails the test.
 
 - `__main__.main()` loads `.env` from the **current directory only** (not parent dirs; real env
   vars win), builds `Settings`, configures logging, then runs `AhaBot` via `_serve` (not
-  `bot.run()`): it owns the event loop so SIGINT/SIGTERM trigger `bot.close()` (POSIX only;
+  `bot.run()`): it owns the event loop so SIGTERM cancels `bot.start()` and closes the bot (POSIX only; SIGINT
+  is left to `asyncio.run` so a second Ctrl+C can break a hung shutdown;
   `bot.start()` installs no log handler, so `logging_setup` owns all handlers).
   Misconfiguration returns exit code 1.
 - `config.Settings` is a frozen dataclass built by `Settings.from_env(env=None)`. Pass an explicit
