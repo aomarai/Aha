@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import sys
 from collections.abc import Iterator
 
 import pytest
@@ -25,6 +27,10 @@ def _restore_logging_state() -> Iterator[None]:
     saved_handlers = root.handlers[:]
     saved_level = root.level
     saved_named = {name: logging.getLogger(name).level for name in _NAMED_LOGGERS}
+    # Other tests (e.g. ``main``) run the real ``configure_logging`` and leak
+    # levels; start from a clean slate so these tests observe only their own call.
+    for name in _NAMED_LOGGERS:
+        logging.getLogger(name).setLevel(logging.NOTSET)
 
     yield
 
@@ -45,3 +51,44 @@ def test_configure_logging_sets_root_level() -> None:
 def test_configure_logging_quiets_aiohttp() -> None:
     configure_logging("DEBUG")
     assert logging.getLogger("aiohttp").level == logging.WARNING
+
+
+def test_configure_logging_defaults_to_info() -> None:
+    configure_logging()
+
+    assert logging.getLogger().level == logging.INFO
+    assert logging.getLogger("discord").level == logging.INFO
+
+
+def test_configure_logging_applies_level_to_discord() -> None:
+    configure_logging("ERROR")
+
+    assert logging.getLogger("discord").level == logging.ERROR
+
+
+def test_configure_logging_keeps_existing_loggers_enabled() -> None:
+    existing = logging.getLogger("tests.preexisting")
+
+    configure_logging("INFO")
+
+    assert not existing.disabled
+
+
+def test_configure_logging_installs_a_stdout_console_handler() -> None:
+    configure_logging("INFO")
+
+    (handler,) = logging.getLogger().handlers
+    assert isinstance(handler, logging.StreamHandler)
+    assert handler.stream is sys.stdout
+
+
+def test_configure_logging_formats_records(capsys: pytest.CaptureFixture[str]) -> None:
+    configure_logging("INFO")
+
+    logging.getLogger("aha.sample").info("hello")
+
+    # asctime uses ``%Y-%m-%d %H:%M:%S``; levelname is left-padded to 8.
+    assert re.fullmatch(
+        r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} INFO     aha\.sample: hello\n",
+        capsys.readouterr().out,
+    )
