@@ -5,16 +5,37 @@ from __future__ import annotations
 import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from aha.config import Settings
 
-__all__ = ["COG_MODULES", "AhaBot"]
+__all__ = ["COG_MODULES", "AhaBot", "AhaTree"]
 
 log = logging.getLogger(__name__)
 
 #: Cog modules loaded automatically at startup.
-COG_MODULES: tuple[str, ...] = ("aha.cogs.meta",)
+COG_MODULES: tuple[str, ...] = ("aha.cogs.meta", "aha.cogs.errors")
+
+#: Event dispatched for failed app commands (listeners are ``on_app_command_error``).
+APP_COMMAND_ERROR_EVENT = "app_command_error"
+
+
+class AhaTree(app_commands.CommandTree[commands.Bot]):
+    """Command tree that forwards errors to bot listeners.
+
+    ``CommandTree.on_error`` is a method, not an event, so a cog cannot hook it
+    directly. Forwarding keeps the handler in a loadable cog. With no listener
+    registered (cog unloaded) it falls back to discord.py's default logging.
+    """
+
+    async def on_error(
+        self, interaction: discord.Interaction[commands.Bot], error: app_commands.AppCommandError
+    ) -> None:
+        if self.client.extra_events.get(f"on_{APP_COMMAND_ERROR_EVENT}"):
+            self.client.dispatch(APP_COMMAND_ERROR_EVENT, interaction, error)
+        else:
+            await super().on_error(interaction, error)
 
 
 class AhaBot(commands.Bot):
@@ -33,6 +54,7 @@ class AhaBot(commands.Bot):
             command_prefix=commands.when_mentioned,
             intents=discord.Intents.default(),
             help_command=None,
+            tree_cls=AhaTree,
         )
         self.settings = settings
 
