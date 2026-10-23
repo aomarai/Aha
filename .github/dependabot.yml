@@ -19,6 +19,22 @@ updates:
           - "minor"
           - "patch"
 
+  # Base images in the Dockerfile, which are pinned by digest: without this the
+  # pins would go stale and stop receiving security patches.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(docker)"
+    labels:
+      - "dependencies"
+      - "area:deploy"
+
   # GitHub Actions used by the workflows in .github/workflows.
   - package-ecosystem: "github-actions"
     directory: "/"

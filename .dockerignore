@@ -1,10 +1,18 @@
-# Keep the dev-container build context small and platform-independent:
-# the project virtualenv and caches are rebuilt inside the container.
+# Keep the build context small and platform-independent: the project virtualenv
+# and caches are rebuilt inside the container, and the runtime image needs only
+# pyproject.toml, uv.lock, README.md and src/.
 .git
 .github
+.idea
+.devcontainer
 .venv
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+mutants/
+tests/
+scripts/
 .env
