@@ -78,7 +78,7 @@ def main() -> int:
     try:
         settings = Settings.from_env()
     except ConfigError as exc:
-        logging.basicConfig(level=logging.ERROR)
+        logging.basicConfig(level=logging.INFO)
         log.exception("%s", exc)
         return 1
 
@@ -87,7 +87,8 @@ def main() -> int:
     # bot.start() (unlike bot.run()) never installs a log handler, so
     # logging_setup stays authoritative.
     try:
-        asyncio.run(_serve(AhaBot(settings), settings.token))
+        bot = AhaBot(settings)
+        asyncio.run(_serve(bot, settings.token))
     except KeyboardInterrupt:
         log.info("Interrupted; bot closed")
     except Exception:
