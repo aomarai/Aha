@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 import pytest
 
@@ -24,6 +25,24 @@ def test_bot_constructs_and_stores_settings() -> None:
     assert bot.command_prefix is not None
 
 
+def test_bot_enables_message_content_and_has_no_default_help() -> None:
+    bot = _bot()
+
+    assert bot.intents.message_content is True
+    assert bot.intents.guilds is True  # discord.Intents.default() was used
+    assert bot.help_command is None
+
+
+def test_bot_prefix_is_configured_prefix_or_mention(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _bot(command_prefix="$")
+    monkeypatch.setattr(type(bot), "user", property(lambda self: _StubUser()))
+    prefix = cast("Callable[[Any, Any], list[str]]", bot.command_prefix)
+
+    assert prefix(bot, None) == ["<@123456789> ", "<@!123456789> ", "$"]
+
+
 def test_cog_modules_are_configured_as_extensions() -> None:
     # Extensions are dotted module paths that must live under aha.cogs.
     assert COG_MODULES
@@ -31,7 +50,7 @@ def test_cog_modules_are_configured_as_extensions() -> None:
 
 
 def test_setup_hook_loads_cogs_and_syncs_globally(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     bot = _bot()
     loaded: list[str] = []
@@ -47,14 +66,20 @@ def test_setup_hook_loads_cogs_and_syncs_globally(
     monkeypatch.setattr(bot, "load_extension", fake_load_extension)
     monkeypatch.setattr(bot.tree, "sync", fake_sync)
 
-    asyncio.run(bot.setup_hook())
+    with caplog.at_level(logging.INFO, logger="aha.bot"):
+        asyncio.run(bot.setup_hook())
 
     assert loaded == list(COG_MODULES)
     assert sync_calls == [{}]  # one global sync, no guild argument
+    messages = [r.getMessage() for r in caplog.records]
+    assert messages == [
+        *(f"Loaded extension {module}" for module in COG_MODULES),
+        "Synced global application commands",
+    ]
 
 
 def test_setup_hook_syncs_dev_guild_then_clears_globals(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     bot = _bot(dev_guild_id=123456789012345678)
     sync_calls: list[dict[str, Any]] = []
@@ -69,8 +94,10 @@ def test_setup_hook_syncs_dev_guild_then_clears_globals(
     monkeypatch.setattr(bot, "load_extension", fake_load_extension)
     monkeypatch.setattr(bot.tree, "sync", fake_sync)
 
-    asyncio.run(bot.setup_hook())
+    with caplog.at_level(logging.INFO, logger="aha.bot"):
+        asyncio.run(bot.setup_hook())
 
+    assert caplog.records[-1].getMessage() == ("Synced commands to dev guild 123456789012345678")
     assert len(sync_calls) == 2
     assert sync_calls[0]["guild"].id == 123456789012345678
     assert sync_calls[1] == {}  # global command set cleared
@@ -94,8 +121,7 @@ def test_on_ready_logs_when_user_is_available(
 
     # Assert the readiness message is actually emitted, so removing the log
     # call in ``on_ready`` fails this test.
-    assert "Logged in as" in caplog.text
-    assert "stub#0001" in caplog.text
+    assert [r.getMessage() for r in caplog.records] == ["Logged in as stub#0001 (id=123456789)"]
 
 
 def test_on_ready_logs_when_user_is_not_available(
@@ -108,5 +134,9 @@ def test_on_ready_logs_when_user_is_not_available(
         asyncio.run(bot.on_ready())
 
     # Assert that there is no on ready log received when no user is available
-    assert "Logged in as" not in caplog.text
-    assert "on_ready fired but self.user is unset; bot state is inconsistent" in caplog.text
+    assert [(r.levelno, r.getMessage()) for r in caplog.records] == [
+        (
+            logging.ERROR,
+            "on_ready fired but self.user is unset; bot state is inconsistent",
+        )
+    ]

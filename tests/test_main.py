@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -48,3 +49,50 @@ def test_main_runs_the_bot_with_valid_settings(
 
     assert aha_main.main() == 0
     assert started["token"] == "dummy-token"
+
+
+def test_main_loads_dotenv_from_the_current_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(aha_main, "load_dotenv", lambda **kwargs: seen.update(kwargs))
+
+    assert aha_main.main() == 1  # no token: load_dotenv stubbed out
+    assert seen == {"dotenv_path": tmp_path / ".env"}
+
+
+def test_main_reports_configuration_errors(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    basic_config_kwargs: dict[str, Any] = {}
+    monkeypatch.setattr(logging, "basicConfig", lambda **kw: basic_config_kwargs.update(kw))
+
+    assert aha_main.main() == 1
+
+    assert basic_config_kwargs == {"level": logging.ERROR}
+    (record,) = caplog.records
+    assert record.levelno == logging.ERROR
+    assert record.msg == "%s"
+    assert "DISCORD_BOT_TOKEN is not set" in record.getMessage()
+
+
+def test_main_configures_logging_and_disables_discord_log_handler(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    monkeypatch.setenv("LOG_LEVEL", "debug")
+    configured: list[str] = []
+    run_kwargs: dict[str, Any] = {}
+
+    def fake_run(self: AhaBot, token: str, **kwargs: Any) -> None:
+        run_kwargs.update(kwargs)
+
+    monkeypatch.setattr(aha_main, "configure_logging", configured.append)
+    monkeypatch.setattr(AhaBot, "run", fake_run)
+
+    assert aha_main.main() == 0
+    assert configured == ["DEBUG"]
+    assert run_kwargs == {"log_handler": None}

@@ -63,4 +63,6 @@ def test_setup_registers_the_meta_cog() -> None:
     asyncio.run(meta_setup(_as_bot(bot)))
 
     assert len(bot.added_cogs) == 1
-    assert isinstance(bot.added_cogs[0], Meta)
+    cog = bot.added_cogs[0]
+    assert isinstance(cog, Meta)
+    assert cast("Any", cog.bot) is bot
