@@ -22,8 +22,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # 2. Create a bot, then configure it
 cp .env.example .env          # add your DISCORD_BOT_TOKEN
-#   In the Developer Portal enable: Bot -> Privileged Gateway Intents ->
-#   "Message Content Intent".
+#   No privileged gateway intents are required (see "Intents" below).
 
 # 3. Install dependencies (also fetches Python 3.14)
 uv sync
@@ -34,15 +33,26 @@ uv run aha                    # or: uv run python -m aha
 
 Invite the bot to a server (replace `APP_ID` with your application ID). The
 `permissions` value grants View Channel, Send Messages, Embed Links and Read
-Message History — enough for slash and prefix commands; adjust as needed:
+Message History — enough for slash commands; adjust as needed:
 
 ```
 https://discord.com/oauth2/authorize?client_id=APP_ID&scope=bot+applications.commands&permissions=84992
 ```
 
-Verify it is alive with the `/ping` slash command (or `!ping` with the default
-prefix). Slash commands work with any permissions; prefix commands additionally
-need the bot to see and read messages in the channel.
+Verify it is alive with the `/ping` slash command. Slash commands work with any
+permissions.
+
+### Intents
+
+Aha is **slash-command only** and requests **no privileged gateway intents**:
+leave Message Content, Server Members and Presence switched off in the Developer
+Portal. Discord's guidance is to migrate text commands to slash commands, and
+privileged-intent access above 10,000 unique users requires an application that
+must be renewed annually (rule change of 2026-06-10), so the bot avoids needing
+it. The only text trigger left is an `@Aha` mention, which Discord delivers
+without the Message Content intent. If a future feature genuinely needs message
+text, prefer a message context-menu command (`app_commands.ContextMenu`), which
+receives the message without the intent.
 
 ### Slash-command syncing
 
@@ -83,7 +93,6 @@ Real environment variables take precedence over `.env`.
 | Variable            | Required | Default | Purpose                                         |
 |---------------------|----------|---------|-------------------------------------------------|
 | `DISCORD_BOT_TOKEN` | yes      | –       | Bot token from the Developer Portal             |
-| `COMMAND_PREFIX`    | no       | `!`     | Prefix for text commands (mentions always work) |
 | `LOG_LEVEL`         | no       | `INFO`  | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `DEV_GUILD_ID`      | no       | –       | Sync slash commands instantly to this guild     |
 

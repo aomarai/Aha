@@ -57,7 +57,7 @@ removing or mutating the code under test fails the test.
   appending its dotted path to `COG_MODULES` in `bot.py`** (a test asserts all entries are under
   `aha.cogs.`).
 - Use `aha.commands.hybrid_command`, not `discord.ext.commands.hybrid_command`, for hybrid
-  (slash + prefix) commands. The wrapper exists purely so mypy strict accepts the decorator on cog
+  (slash + mention) commands. The wrapper exists purely so mypy strict accepts the decorator on cog
   methods without `# type: ignore`.
 
 ## Conventions

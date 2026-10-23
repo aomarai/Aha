@@ -14,7 +14,6 @@ from dataclasses import dataclass
 
 __all__ = ["ConfigError", "Settings"]
 
-DEFAULT_COMMAND_PREFIX = "!"
 DEFAULT_LOG_LEVEL = "INFO"
 
 _TOKEN_ENV = "DISCORD_BOT_TOKEN"
@@ -47,7 +46,6 @@ class Settings:
     """Validated, immutable application settings."""
 
     token: str
-    command_prefix: str = DEFAULT_COMMAND_PREFIX
     log_level: str = DEFAULT_LOG_LEVEL
     dev_guild_id: int | None = None
 
@@ -74,7 +72,6 @@ class Settings:
                 "your bot token, then retry.",
             )
 
-        command_prefix = (source.get("COMMAND_PREFIX") or DEFAULT_COMMAND_PREFIX).strip()
         log_level = (source.get("LOG_LEVEL") or DEFAULT_LOG_LEVEL).strip().upper()
 
         if not logging.getLevelNamesMapping().get(log_level):
@@ -89,7 +86,6 @@ class Settings:
 
         return cls(
             token=token,
-            command_prefix=command_prefix or DEFAULT_COMMAND_PREFIX,
             log_level=log_level,
             dev_guild_id=dev_guild_id,
         )

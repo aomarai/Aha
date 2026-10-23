@@ -26,7 +26,6 @@ def test_from_env_applies_defaults() -> None:
     settings = Settings.from_env({"DISCORD_BOT_TOKEN": "secret"})
 
     assert settings.token == "secret"
-    assert settings.command_prefix == "!"
     assert settings.log_level == "INFO"
     assert settings.dev_guild_id is None
 
@@ -35,14 +34,12 @@ def test_from_env_reads_and_normalises_overrides() -> None:
     settings = Settings.from_env(
         {
             "DISCORD_BOT_TOKEN": "  secret  ",
-            "COMMAND_PREFIX": "$",
             "LOG_LEVEL": "debug",
             "DEV_GUILD_ID": "123456789012345678",
         }
     )
 
     assert settings.token == "secret"
-    assert settings.command_prefix == "$"
     assert settings.log_level == "DEBUG"
     assert settings.dev_guild_id == 123456789012345678
 

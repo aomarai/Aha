@@ -24,14 +24,14 @@ class AhaBot(commands.Bot):
     """
 
     def __init__(self, settings: Settings) -> None:
-        # ``message_content`` is a privileged intent: enable it in the Discord
-        # Developer Portal (Bot -> Privileged Gateway Intents) before running.
-        intents = discord.Intents.default()
-        intents.message_content = True
-
+        # Default intents only: no privileged intent (notably ``message_content``)
+        # is requested, so commands are slash-only. ``commands.Bot`` still needs a
+        # prefix; ``when_mentioned`` is the one value that needs no message
+        # content (Discord delivers it for messages that @mention the bot) and
+        # that discord.py does not warn about when the intent is off.
         super().__init__(
-            command_prefix=commands.when_mentioned_or(settings.command_prefix),
-            intents=intents,
+            command_prefix=commands.when_mentioned,
+            intents=discord.Intents.default(),
             help_command=None,
         )
         self.settings = settings

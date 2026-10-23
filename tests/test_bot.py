@@ -18,29 +18,29 @@ def _bot(**kwargs: Any) -> AhaBot:
 
 
 def test_bot_constructs_and_stores_settings() -> None:
-    settings = Settings(token="test-token", command_prefix="$")
+    settings = Settings(token="test-token")
     bot = AhaBot(settings)
 
     assert bot.settings is settings
     assert bot.command_prefix is not None
 
 
-def test_bot_enables_message_content_and_has_no_default_help() -> None:
+def test_bot_requests_no_privileged_intents_and_has_no_default_help() -> None:
     bot = _bot()
 
-    assert bot.intents.message_content is True
+    assert bot.intents.message_content is False
+    assert bot.intents.members is False
+    assert bot.intents.presences is False
     assert bot.intents.guilds is True  # discord.Intents.default() was used
     assert bot.help_command is None
 
 
-def test_bot_prefix_is_configured_prefix_or_mention(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    bot = _bot(command_prefix="$")
+def test_bot_prefix_is_mention_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = _bot()
     monkeypatch.setattr(type(bot), "user", property(lambda self: _StubUser()))
     prefix = cast("Callable[[Any, Any], list[str]]", bot.command_prefix)
 
-    assert prefix(bot, None) == ["<@123456789> ", "<@!123456789> ", "$"]
+    assert prefix(bot, None) == ["<@123456789> ", "<@!123456789> "]
 
 
 def test_cog_modules_are_configured_as_extensions() -> None:
