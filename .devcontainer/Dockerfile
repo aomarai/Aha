@@ -10,7 +10,7 @@ FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04
 
 # uv version is pinned for reproducible builds; keep it in step with the host
 # development environment.
-COPY --from=ghcr.io/astral-sh/uv:0.12.4 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.13.5 /uv /uvx /usr/local/bin/
 
 # UV_LINK_MODE=copy: hardlink/copy into the venv instead of symlinking from the
 # cache, which is required when the workspace is a bind mount (cache and venv
