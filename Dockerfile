@@ -77,7 +77,7 @@ RUN mkdir /stage && cp --parents /usr/lib/*-linux-gnu/libgcc_s.so.1 /stage
 # tzdata. No libssl (this Python statically links its own OpenSSL) and no libstdc++.
 # The one extra library the interpreter needs, libgcc_s, is copied from the builder
 # below. The `nonroot` tag runs as UID/GID 65532.
-FROM gcr.io/distroless/base-nossl-debian13:nonroot@sha256:6d92083da644c5fceb58fb1dc50e88b3c1aa0d8b6099678223fbb801bd72962b AS runtime
+FROM gcr.io/distroless/base-nossl-debian13:nonroot@sha256:6a2a3346335b94d3be0732472245f42ca3ce3cc1135a9521a2bda4b677f2ef0d AS runtime
 
 # Root-owned and read-only to the bot: it never needs to modify its own code.
 COPY --from=builder /stage/ /
