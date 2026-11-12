@@ -1,8 +1,8 @@
 """Consistent embed building for bot responses.
 
-Every command response that carries structured content uses one of the builders
-here rather than a raw ``discord.Embed`` or plain text, so the bot presents a
-consistent visual identity across all commands.
+Command responses that carry structured content should use one of the
+builders here rather than a raw ``discord.Embed`` or plain text, so the bot
+presents a consistent visual identity across all commands.
 
 Usage in a cog::
 
@@ -16,6 +16,10 @@ Usage in a cog::
 The builders accept an optional ``title`` and a sequence of ``(name, value,
 inline)`` field tuples for structured content. All responses carry the bot's
 brand color, a UTC timestamp, and a footer identifying the bot.
+
+Builder input is clipped to Discord's per-property embed limits, so an
+oversized description, title, or field never produces a rejected message;
+more than 25 fields raises :class:`ValueError`.
 """
 
 from __future__ import annotations
@@ -30,6 +34,15 @@ __all__ = ["Colors", "error", "info", "status", "success", "warning"]
 #: A field is a (name, value, inline) triple matching ``Embed.add_field``.
 Field = tuple[str, str, bool]
 
+#: Discord's hard per-property limits (chars) for a single embed.
+_TITLE_LIMIT = 256
+_DESCRIPTION_LIMIT = 4096
+_FIELD_NAME_LIMIT = 256
+_FIELD_VALUE_LIMIT = 1024
+
+#: Discord caps an embed at 25 fields.
+_MAX_FIELDS = 25
+
 
 class Colors:
     """Accent colors for response types (hex integers)."""
@@ -41,9 +54,16 @@ class Colors:
     STATUS = 0xB26FF2  # Purple — diagnostics, latency, health
 
 
+def _clip(text: str, limit: int) -> str:
+    """Shorten ``text`` to at most ``limit`` characters, with an ellipsis."""
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
 def _build(description: str, *, color: int) -> discord.Embed:
     """Common embed skeleton: timestamp + bot footer."""
-    e = discord.Embed(description=description, color=color)
+    e = discord.Embed(description=_clip(description, _DESCRIPTION_LIMIT), color=color)
     e.timestamp = datetime.now(tz=UTC)
     e.set_footer(text="Aha")
     return e
@@ -57,11 +77,17 @@ def _typed(
     fields: Sequence[Field] = (),
 ) -> discord.Embed:
     """Build a typed embed with optional title and inline fields."""
+    if len(fields) > _MAX_FIELDS:
+        raise ValueError(f"an embed holds at most {_MAX_FIELDS} fields")
     e = _build(description, color=color)
     if title is not None:
-        e.title = title
+        e.title = _clip(title, _TITLE_LIMIT)
     for name, value, inline in fields:
-        e.add_field(name=name, value=value, inline=inline)
+        e.add_field(
+            name=_clip(name, _FIELD_NAME_LIMIT),
+            value=_clip(value, _FIELD_VALUE_LIMIT),
+            inline=inline,
+        )
     return e
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import discord
 from discord.ext import commands
 
 from aha import embeds
@@ -18,7 +19,12 @@ class Meta(commands.Cog):
     async def ping(self, ctx: commands.Context[commands.Bot]) -> None:
         """Reply with the current gateway latency in milliseconds."""
         latency_ms = round(self.bot.latency * 1000)
-        await ctx.reply(embed=embeds.status(f"WebSocket latency: {latency_ms} ms"))
+        text = f"WebSocket latency: {latency_ms} ms"
+        try:
+            await ctx.reply(embed=embeds.status(text))
+        except discord.HTTPException:
+            # The channel may lack embed permission; keep the reply alive.
+            await ctx.reply(text)
 
 
 async def setup(bot: commands.Bot) -> None:

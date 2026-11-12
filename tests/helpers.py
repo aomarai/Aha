@@ -55,20 +55,26 @@ class StubContext:
     """Records replies instead of talking to Discord.
 
     Ids: command ``ping``, guild 11, channel 22, author 33. Set ``fail_with`` to
-    make ``reply`` raise.
+    make every ``reply`` raise; set ``reject_embeds`` to make only embed-only
+    replies raise, as in a channel without embed permission.
     """
 
-    def __init__(self, *, command: bool = True, guild: bool = True) -> None:
+    def __init__(
+        self, *, command: bool = True, guild: bool = True, reject_embeds: bool = False
+    ) -> None:
         self.command = Named(qualified_name="ping") if command else None
         self.guild = Named(id=11) if guild else None
         self.channel = Named(id=22)
         self.author = Named(id=33)
         self.replies: list[tuple[str | None, dict[str, Any]]] = []
         self.fail_with: Exception | None = None
+        self.reject_embeds = reject_embeds
 
     async def reply(self, content: str | None = None, **kwargs: Any) -> None:
         if self.fail_with is not None:
             raise self.fail_with
+        if self.reject_embeds and content is None:
+            raise http_error()
         self.replies.append((content, kwargs))
 
 

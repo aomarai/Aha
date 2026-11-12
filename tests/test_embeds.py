@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import discord
+import pytest
 
 from aha import embeds
 
@@ -63,6 +64,7 @@ def test_fields_are_added() -> None:
     assert e.fields[0].value == "42 ms"
     assert e.fields[0].inline is True
     assert e.fields[1].name == "Uptime"
+    assert e.fields[1].value == "3d 4h"
     assert e.fields[1].inline is False
 
 
@@ -92,3 +94,30 @@ def test_all_builders_accept_fields_and_title() -> None:
 def test_embed_is_discord_embed() -> None:
     e = embeds.info("x")
     assert isinstance(e, discord.Embed)
+
+
+def test_oversized_description_is_clipped() -> None:
+    e = embeds.info("x" * 5000)
+    assert e.description is not None
+    assert len(e.description) == 4096
+    assert e.description.endswith("…")
+
+
+def test_oversized_title_is_clipped() -> None:
+    e = embeds.info("body", title="t" * 300)
+    assert e.title is not None
+    assert len(e.title) == 256
+
+
+def test_oversized_field_name_and_value_are_clipped() -> None:
+    e = embeds.info("d", fields=[("n" * 300, "v" * 1100, True)])
+    assert e.fields[0].name is not None
+    assert len(e.fields[0].name) == 256
+    assert e.fields[0].value is not None
+    assert len(e.fields[0].value) == 1024
+
+
+def test_more_than_25_fields_is_rejected() -> None:
+    fields = [(f"f{i}", "v", True) for i in range(26)]
+    with pytest.raises(ValueError):
+        embeds.info("d", fields=fields)
