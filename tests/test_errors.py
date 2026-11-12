@@ -70,7 +70,9 @@ def test_prefix_unexpected_error_is_logged_with_context_and_hides_internals(
             {"ephemeral": True},
         )
     ]
-    assert "secret" not in ctx.replies[0][0]
+    content = ctx.replies[0][0]
+    assert isinstance(content, str)
+    assert "secret" not in content
 
 
 def test_unknown_command_is_ignored(caplog: pytest.LogCaptureFixture) -> None:

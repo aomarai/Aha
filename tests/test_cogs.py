@@ -24,7 +24,22 @@ def test_ping_reports_latency_in_milliseconds() -> None:
     callback = cast("Any", cog.ping.callback)
     asyncio.run(callback(cog, as_context(ctx)))
 
-    assert ctx.replies == [("Pong! WebSocket latency: 42 ms", {})]
+    content, kwargs = ctx.replies[0]
+    assert content is None
+    assert "embed" in kwargs
+    embed = kwargs["embed"]
+    assert embed.description == "WebSocket latency: 42 ms"
+
+
+def test_ping_falls_back_to_plain_text_when_embed_is_rejected() -> None:
+    bot = StubBot(latency=0.042)
+    cog = Meta(as_bot(bot))
+    ctx = StubContext(reject_embeds=True)
+
+    callback = cast("Any", cog.ping.callback)
+    asyncio.run(callback(cog, as_context(ctx)))
+
+    assert ctx.replies == [("WebSocket latency: 42 ms", {})]
 
 
 def test_setup_registers_the_meta_cog() -> None:
