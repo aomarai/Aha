@@ -24,7 +24,11 @@ def test_ping_reports_latency_in_milliseconds() -> None:
     callback = cast("Any", cog.ping.callback)
     asyncio.run(callback(cog, as_context(ctx)))
 
-    assert ctx.replies == [("Pong! WebSocket latency: 42 ms", {})]
+    content, kwargs = ctx.replies[0]
+    assert content is None
+    assert "embed" in kwargs
+    embed = kwargs["embed"]
+    assert "42 ms" in embed.description
 
 
 def test_setup_registers_the_meta_cog() -> None:

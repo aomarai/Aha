@@ -63,10 +63,10 @@ class StubContext:
         self.guild = Named(id=11) if guild else None
         self.channel = Named(id=22)
         self.author = Named(id=33)
-        self.replies: list[tuple[str, dict[str, Any]]] = []
+        self.replies: list[tuple[str | None, dict[str, Any]]] = []
         self.fail_with: Exception | None = None
 
-    async def reply(self, content: str, **kwargs: Any) -> None:
+    async def reply(self, content: str | None = None, **kwargs: Any) -> None:
         if self.fail_with is not None:
             raise self.fail_with
         self.replies.append((content, kwargs))
