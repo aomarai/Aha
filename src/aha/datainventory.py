@@ -6,9 +6,9 @@ and
 ``tests/test_datainventory.py`` fails when a migration creates a table that is not listed here (or
 when an entry here has no table), so the rule cannot be forgotten.
 
-To add a table: write the migration, then add an entry below naming the column that holds the Discord
-user id and/or guild id (``None`` if the table is not per user or per guild), and say in words how
-long rows are kept. Then implement the purge for it where the feature lives.
+To add a table: write the migration, then add an entry below naming the column that holds the
+Discord user id and/or guild id (``None`` if the table is not per user or per guild), and say in
+words how long rows are kept. Then implement the purge for it where the feature lives.
 """
 
 from __future__ import annotations
