@@ -62,8 +62,10 @@ removing or mutating the code under test fails the test.
 
 ## Conventions
 
-- Every module starts with a docstring and `from __future__ import annotations`, and declares
-  `__all__`. Module-level logger: `log = logging.getLogger(__name__)`; use %-style log args.
+- Every module starts with a docstring and `from __future__ import annotations` (a bare package
+  marker — an `__init__.py` holding only a docstring — is exempt). Modules under `src/aha/` also
+  declare `__all__`; test modules and `scripts/` are not a public API, so they need not.
+  Module-level logger: `log = logging.getLogger(__name__)`; use %-style log args.
 - Line length 100; ruff rule set is in `pyproject.toml`. No `# type: ignore` — fix types instead.
 - Tests are plain pytest functions; async code is driven with `asyncio.run(...)` (no
   pytest-asyncio). Discord collaborators are replaced with `monkeypatch.setattr` fakes that

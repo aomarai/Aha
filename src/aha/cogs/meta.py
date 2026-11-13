@@ -8,6 +8,8 @@ from discord.ext import commands
 from aha import embeds
 from aha.commands import hybrid_command
 
+__all__ = ["Meta", "setup"]
+
 
 class Meta(commands.Cog):
     """Basic bot introspection commands."""
