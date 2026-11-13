@@ -299,6 +299,10 @@ uv run pre-commit run --all-files    # run them on everything
 
 CI (`.github/workflows/ci.yml`) runs lint, format check, the pre-commit hooks,
 type checking, and tests on every push to `main` and every pull request.
+`.github/workflows/image.yml` also builds the production Docker image, runs
+[`scripts/smoke_image.sh`](scripts/smoke_image.sh) against it, and scans it with Trivy (fixable
+HIGH/CRITICAL findings fail the build; see [`.trivyignore`](.trivyignore)); results go to code
+scanning and an SBOM is attached to the run.
 Pull requests are reviewed by [Sourcery](https://sourcery.ai/) (configured in
 `.sourcery.yaml`; install the GitHub App on the repository to enable it).
 

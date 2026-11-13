@@ -33,7 +33,13 @@ strict, pytest with 95% branch coverage, then a **mutation-testing job** that fa
 mutmut score drops below `THRESHOLD` in `scripts/mutation_score.py` (currently 0.98 against a
 measured 100%, a ratchet meant to be raised as surviving mutants are killed) and when the campaign
 enumerates fewer than `MIN_MUTANTS` (544), so a silently shrinking campaign cannot pass. Separate
-workflows run security checks and SonarQube.
+workflows run security checks and SonarQube. `.github/workflows/image.yml` builds the production
+image on every PR, smoke-tests it (`scripts/smoke_image.sh`: unprivileged user, imports, `--version`,
+`aha sync --help`, a missing token fails with exit code 1) and scans it with Trivy, failing on
+**fixable** HIGH/CRITICAL findings; an exception goes in `.trivyignore` with a justification and an
+expiry. The SARIF report goes to code scanning and a CycloneDX SBOM is kept as a build artifact.
+Anything that changes what the image needs (a new stdlib module the image strips, a new data file)
+must keep the smoke test passing; extend `scripts/smoke_image.sh` when you add such a dependency.
 
 Consequence: tests must be *assertive*, not just covering. A test that executes a line but would
 still pass if that line were deleted or altered lets the mutant survive. When writing or fixing

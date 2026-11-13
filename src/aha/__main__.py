@@ -19,6 +19,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from aha import __version__
 from aha.bot import AhaBot, SyncResult
 from aha.config import MAX_SNOWFLAKE, ConfigError, Settings
 from aha.logging_setup import configure_logging, static_fields_from_env
@@ -85,6 +86,7 @@ def _guild_id(raw: str) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aha", description="Run the Aha Discord bot.")
+    parser.add_argument("--version", action="version", version=f"aha {__version__}")
     commands = parser.add_subparsers(dest="command", metavar="COMMAND")
     sync = commands.add_parser(
         "sync",

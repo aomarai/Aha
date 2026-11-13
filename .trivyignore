@@ -1,0 +1,10 @@
+# Vulnerabilities the image scan (.github/workflows/image.yml) is allowed to ignore.
+#
+# The scan already skips findings with no available fix (--ignore-unfixed), so an entry here
+# means a fix EXISTS but cannot be taken yet. Every entry needs a justification and an expiry,
+# so it cannot be forgotten:
+#
+#   # Why this is not exploitable here, and what unblocks the upgrade.
+#   CVE-2099-12345 exp:2099-01-31
+#
+# (No entries.)
