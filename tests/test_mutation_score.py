@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -99,9 +100,10 @@ def test_main_passes_at_threshold(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     # Derive the campaign from THRESHOLD, so raising the ratchet does not break
-    # this boundary test: just enough kills to meet the configured gate.
+    # this boundary test. Round *up*: for a threshold that is not an exact
+    # multiple of 1/total, rounding down would land below the gate.
     total = 1000
-    killed = round(total * gate.THRESHOLD)
+    killed = math.ceil(total * gate.THRESHOLD)
     stats_path = write_stats(
         tmp_path / "mutants" / "mutmut-cicd-stats.json",
         stats(total=total, killed=killed, survived=total - killed),
@@ -115,7 +117,7 @@ def test_main_fails_below_threshold(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     total = 1000
-    killed = round(total * gate.THRESHOLD) - 1
+    killed = math.ceil(total * gate.THRESHOLD) - 1
     stats_path = write_stats(
         tmp_path / "mutants" / "mutmut-cicd-stats.json",
         stats(total=total, killed=killed, survived=total - killed),
