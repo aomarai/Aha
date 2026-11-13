@@ -165,3 +165,38 @@ def test_setup_registers_the_meta_cog() -> None:
     cog = bot.get_cog("Meta")
     assert isinstance(cog, Meta)
     assert cog.bot is bot
+
+
+def test_privacy_summarises_the_policy_privately_with_links() -> None:
+    ctx = StubContext()
+
+    _run(Meta(_bot()), ctx, "privacy")
+
+    ((content, kwargs),) = ctx.replies
+    assert content is None
+    assert kwargs["ephemeral"] is True
+    embed = kwargs["embed"]
+    assert embed.title == "Privacy"
+    assert "does **not** store your messages" in embed.description
+    assert "<https://github.com/aomarai/Aha/blob/main/docs/privacy.md>" in embed.description
+    assert "<https://github.com/aomarai/Aha/blob/main/docs/terms.md>" in embed.description
+
+
+def test_privacy_falls_back_to_plain_text_when_embeds_are_rejected() -> None:
+    ctx = StubContext(reject_embeds=True)
+
+    _run(Meta(_bot()), ctx, "privacy")
+
+    ((content, kwargs),) = ctx.replies
+    assert content is not None
+    assert content.startswith("Aha does **not** store your messages")
+    assert kwargs["ephemeral"] is True
+
+
+def test_privacy_metadata_and_cooldown() -> None:
+    assert Meta.privacy.qualified_name == "privacy"
+    assert Meta.privacy.description == "Show what the bot stores and where the policy is."
+    assert Meta.privacy.extras["category"] == "Info"
+    cooldown = Meta.privacy.cooldown
+    assert cooldown is not None
+    assert (cooldown.rate, cooldown.per) == (1, 10)

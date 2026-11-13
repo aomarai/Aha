@@ -367,6 +367,13 @@ Run the bot inside the container exactly as you would locally:
 uv run aha        # needs DISCORD_BOT_TOKEN in .env (see .env.example)
 ```
 
+## Privacy
+
+Aha stores no personal data in a database yet. Logs record who ran which command (IDs and option
+names, never values). The drafts of the [privacy policy](docs/privacy.md) and
+[terms](docs/terms.md) need the owner's review before the bot grows past 75 servers; `/privacy` links
+them, and every future table must be declared in `aha.datainventory` (a test enforces it).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and the quality gates, [SECURITY.md](SECURITY.md)
