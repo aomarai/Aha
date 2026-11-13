@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import math
 import time
@@ -14,11 +13,13 @@ from discord.ext import commands
 
 from aha.config import Settings
 from aha.ratelimit import RateLimiter
+from aha.tasks import TaskRegistry
 
 __all__ = [
     "COG_MODULES",
     "GATEWAY_DISCONNECT_TIMEOUT",
     "GATEWAY_WATCHDOG_INTERVAL",
+    "WATCHDOG_TASK",
     "AhaBot",
     "AhaTree",
 ]
@@ -38,6 +39,9 @@ APP_COMMAND_ERROR_EVENT = "app_command_error"
 
 #: Seconds the gateway may stay disconnected before the bot closes itself.
 GATEWAY_DISCONNECT_TIMEOUT = 300.0
+
+#: Name of the gateway watchdog task in the registry.
+WATCHDOG_TASK = "gateway-watchdog"
 
 #: How often the watchdog re-checks the connection state.
 GATEWAY_WATCHDOG_INTERVAL = 30.0
@@ -85,7 +89,8 @@ class AhaBot(commands.Bot):
         self.watchdog_interval = watchdog_interval
         self._sync_lock = asyncio.Lock()
         self._disconnected_since: float | None = None
-        self._watchdog_task: asyncio.Task[None] | None = None
+        #: Supervised background tasks; cogs must spawn through this, never ``create_task``.
+        self.tasks = TaskRegistry()
         #: Process exit code; the watchdog sets 1 so a supervisor restarts the bot.
         self.exit_code = 0
         self.add_check(self._enforce_rate_limit)
@@ -111,19 +116,12 @@ class AhaBot(commands.Bot):
             log.info("Loaded extension %s", module)
 
         await self.sync_commands()
-        if self._watchdog_task is None:
-            self._watchdog_task = asyncio.create_task(
-                self._watch_gateway(), name="gateway-watchdog"
-            )
+        if WATCHDOG_TASK not in self.tasks:
+            self.tasks.spawn(self._watch_gateway, name=WATCHDOG_TASK, restart=True, critical=True)
 
     async def close(self) -> None:
-        """Cancel the gateway watchdog, then close the client."""
-        watchdog = self._watchdog_task
-        self._watchdog_task = None
-        if watchdog is not None:
-            watchdog.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await watchdog
+        """Cancel the background tasks, then close the client."""
+        await self.tasks.close()
         await super().close()
 
     async def _watch_gateway(self) -> None:
@@ -146,8 +144,7 @@ class AhaBot(commands.Bot):
         )
         # A non-zero code lets an "on-failure" supervisor restart the process.
         self.exit_code = 1
-        # Clear before closing so ``close`` does not try to cancel this task.
-        self._watchdog_task = None
+        # ``TaskRegistry.close`` skips the calling task, so this does not cancel itself.
         await self.close()
         return True
 

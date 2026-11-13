@@ -196,6 +196,7 @@ Aha/
 │   ├── bot.py           # AhaBot (commands.Bot) + setup_hook/on_ready/sync_commands
 │   ├── config.py        # Settings loaded & validated from the environment
 │   ├── logging_setup.py # logging configuration
+│   ├── tasks.py         # TaskRegistry: supervised background tasks
 │   └── cogs/            # command groups, each exposing async setup(bot)
 │       ├── errors.py    # global error handler
 │       ├── fun.py       # /roll, /coin

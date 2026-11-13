@@ -12,7 +12,7 @@ import pytest
 from discord import app_commands
 from discord.ext import commands
 
-from aha.bot import COG_MODULES, AhaBot
+from aha.bot import COG_MODULES, WATCHDOG_TASK, AhaBot
 from aha.config import Settings
 from aha.ratelimit import RateLimiter
 from tests.helpers import (
@@ -489,7 +489,6 @@ def test_check_gateway_timeout_closes_when_the_limit_is_exceeded(
 
     assert closed == [True]
     assert bot.exit_code == 1
-    assert bot._watchdog_task is None
     assert [record.getMessage() for record in caplog.records] == [
         "Gateway has been disconnected for 61.0 s (limit 60.0 s); closing the bot"
     ]
@@ -561,18 +560,20 @@ def test_setup_hook_schedules_the_watchdog_and_closes_the_client(
     monkeypatch.setattr(bot, "_check_gateway_timeout", fake_check)
     monkeypatch.setattr(commands.Bot, "close", fake_super_close)
 
-    async def scenario() -> bool:
+    async def scenario() -> tuple[bool, bool]:
         await bot.setup_hook()
-        task = bot._watchdog_task
+        assert WATCHDOG_TASK in bot.tasks
+        task = bot.tasks.get(WATCHDOG_TASK)
         assert task is not None
         await task
+        await asyncio.sleep(0)  # let the done-callback unregister the finished task
+        registered_after = WATCHDOG_TASK in bot.tasks
         await bot.close()
-        return task.done()
+        return task.done(), registered_after
 
-    assert asyncio.run(scenario()) is True
+    assert asyncio.run(scenario()) == (True, False)
     assert checked == [True]
     assert closed_client == [True]
-    assert bot._watchdog_task is None
 
 
 def test_close_cancels_a_running_watchdog(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -589,15 +590,14 @@ def test_close_cancels_a_running_watchdog(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(commands.Bot, "close", fake_super_close)
 
     async def scenario() -> bool:
-        task = asyncio.create_task(bot._watch_gateway())
-        bot._watchdog_task = task
+        task = bot.tasks.spawn(bot._watch_gateway, name=WATCHDOG_TASK)
         await asyncio.sleep(0)  # let the task run its first check and sleep
         await bot.close()
         return task.cancelled()
 
     assert asyncio.run(scenario()) is True
     assert closed_client == [True]
-    assert bot._watchdog_task is None
+    assert len(bot.tasks) == 0
 
 
 def test_close_without_a_watchdog_still_closes_the_client(
@@ -614,7 +614,7 @@ def test_close_without_a_watchdog_still_closes_the_client(
     asyncio.run(bot.close())
 
     assert closed_client == [True]
-    assert bot._watchdog_task is None
+    assert len(bot.tasks) == 0
 
 
 def test_setup_hook_does_not_start_a_second_watchdog(
@@ -635,17 +635,18 @@ def test_setup_hook_does_not_start_a_second_watchdog(
     monkeypatch.setattr(bot, "sync_commands", fake_sync_commands)
     monkeypatch.setattr(commands.Bot, "close", fake_super_close)
 
-    async def scenario() -> tuple[asyncio.Task[None] | None, asyncio.Task[None] | None]:
+    async def scenario() -> tuple[asyncio.Task[None], asyncio.Task[None]]:
         await bot.setup_hook()
-        first = bot._watchdog_task
+        first = bot.tasks.get(WATCHDOG_TASK)
+        assert first is not None
         await bot.setup_hook()
-        second = bot._watchdog_task
+        second = bot.tasks.get(WATCHDOG_TASK)
+        assert second is not None
         await bot.close()
         return first, second
 
     first, second = asyncio.run(scenario())
 
-    assert first is not None
     assert first is second
     assert first.get_name() == "gateway-watchdog"
 
