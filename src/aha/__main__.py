@@ -86,15 +86,19 @@ def main() -> int:
 
     # bot.start() (unlike bot.run()) never installs a log handler, so
     # logging_setup stays authoritative.
+    exit_code = 0
     try:
         bot = AhaBot(settings)
         asyncio.run(_serve(bot, settings.token))
+        # A watchdog-triggered shutdown sets a non-zero code so an
+        # "on-failure" supervisor restarts the process.
+        exit_code = bot.exit_code
     except KeyboardInterrupt:
         log.info("Interrupted; bot closed")
     except Exception:
         log.exception("Bot stopped with an unexpected error")
         return 1
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

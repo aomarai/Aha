@@ -144,6 +144,15 @@ receives the message without the intent.
 - Sync is serialized within the process by a lock and restores the local command tree if a
   purge sync fails; separate bot processes still need the out-of-band sync tracked in #2.
 
+### Connection health
+
+`on_connect` and `on_disconnect` are logged (the disconnect warning includes the
+WebSocket close code when discord.py exposes it), and `on_resumed` logs the
+outage duration. If the gateway stays disconnected for five minutes, the
+watchdog logs CRITICAL and closes the bot with a non-zero exit code, so an
+on-failure supervisor restarts it; the limit is `GATEWAY_DISCONNECT_TIMEOUT` in
+`bot.py`.
+
 ### Command access control
 
 Commands that can be spammed or that expose operator power declare their own

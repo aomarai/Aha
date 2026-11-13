@@ -101,6 +101,19 @@ def test_main_configures_logging_before_serving(
     assert events == ["DEBUG", "serve"]
 
 
+def test_main_returns_the_bot_exit_code(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+
+    async def fake_serve(bot: AhaBot, token: str) -> None:
+        bot.exit_code = 7
+
+    monkeypatch.setattr(aha_main, "configure_logging", lambda level: None)
+    monkeypatch.setattr(aha_main, "_serve", fake_serve)
+
+    assert aha_main.main() == 7
+
+
 def test_main_exits_cleanly_on_keyboard_interrupt(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
