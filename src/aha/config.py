@@ -13,10 +13,26 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-__all__ = ["LOG_FORMATS", "MAX_SNOWFLAKE", "ConfigError", "Settings"]
+__all__ = [
+    "ACTIVITY_TYPES",
+    "LOG_FORMATS",
+    "MAX_SNOWFLAKE",
+    "STATUSES",
+    "ConfigError",
+    "Settings",
+]
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FORMAT = "text"
+
+#: Presence defaults: "Listening to /help", shown as online. ``BOT_ACTIVITY=off`` shows nothing.
+DEFAULT_ACTIVITY = "/help"
+DEFAULT_ACTIVITY_TYPE = "listening"
+DEFAULT_STATUS = "online"
+ACTIVITY_TYPES = frozenset({"playing", "listening", "watching", "competing"})
+STATUSES = frozenset({"online", "idle", "dnd", "invisible"})
+#: Discord rejects an activity name longer than this.
+MAX_ACTIVITY_LENGTH = 128
 
 #: Health/metrics server defaults: loopback only, so nothing is exposed unless asked.
 DEFAULT_HEALTH_BIND = "127.0.0.1"
@@ -86,6 +102,30 @@ def _read_token(source: Mapping[str, str]) -> str:
     return inline
 
 
+def _parse_activity(raw: str | None) -> str | None:
+    """Return the activity text: the default when blank, ``None`` for ``off``."""
+    text = (raw or "").strip()
+    if not text:
+        return DEFAULT_ACTIVITY
+    if text.lower() == "off":
+        return None
+    if len(text) > MAX_ACTIVITY_LENGTH:
+        raise ConfigError(
+            f"BOT_ACTIVITY must be at most {MAX_ACTIVITY_LENGTH} characters, got {len(text)}"
+        )
+    return text
+
+
+def _parse_choice(raw: str | None, *, name: str, choices: frozenset[str], default: str) -> str:
+    """Return ``raw`` lower-cased if it is one of ``choices``; the default when blank."""
+    value = (raw or "").strip().lower()
+    if not value:
+        return default
+    if value not in choices:
+        raise ConfigError(f"{name} must be one of {', '.join(sorted(choices))}, got {value!r}")
+    return value
+
+
 def _parse_optional_int(raw: str | None, *, name: str) -> int | None:
     """Return ``raw`` as an int, or ``None`` when unset.
 
@@ -110,6 +150,10 @@ class Settings:
     dev_guild_id: int | None = None
     log_format: str = DEFAULT_LOG_FORMAT
     sync_on_startup: bool = False
+    #: Activity text shown under the bot's name; ``None`` shows no activity.
+    activity: str | None = DEFAULT_ACTIVITY
+    activity_type: str = DEFAULT_ACTIVITY_TYPE
+    status: str = DEFAULT_STATUS
     health_bind: str = DEFAULT_HEALTH_BIND
     #: TCP port of the health/metrics server; 0 disables it.
     health_port: int = DEFAULT_HEALTH_PORT
@@ -123,10 +167,11 @@ class Settings:
 
         Raises:
             ConfigError: if neither ``DISCORD_BOT_TOKEN`` nor ``DISCORD_BOT_TOKEN_FILE`` gives
-                a token (or both are set), if ``LOG_LEVEL`` is
-                not a valid level name, if ``LOG_FORMAT`` is not ``text`` or ``json``, if
-                ``SYNC_ON_STARTUP`` is not a boolean, if ``HEALTH_PORT`` is not a port
-                number, or if ``DEV_GUILD_ID`` is not a positive Discord snowflake.
+                a token (or both are set), if ``LOG_LEVEL`` is not a valid level name, if
+                ``LOG_FORMAT`` is not ``text`` or ``json``, if ``SYNC_ON_STARTUP`` is not a
+                boolean, if ``HEALTH_PORT`` is not a port number, if ``BOT_STATUS``,
+                ``BOT_ACTIVITY_TYPE`` or ``BOT_ACTIVITY`` is invalid, or if ``DEV_GUILD_ID``
+                is not a positive Discord snowflake.
         """
         import os
 
@@ -153,6 +198,17 @@ class Settings:
         sync_on_startup = _parse_bool(source.get("SYNC_ON_STARTUP"), name="SYNC_ON_STARTUP")
 
         # Strip first: a blank value must not become "", which would bind every interface.
+        activity = _parse_activity(source.get("BOT_ACTIVITY"))
+        activity_type = _parse_choice(
+            source.get("BOT_ACTIVITY_TYPE"),
+            name="BOT_ACTIVITY_TYPE",
+            choices=ACTIVITY_TYPES,
+            default=DEFAULT_ACTIVITY_TYPE,
+        )
+        status = _parse_choice(
+            source.get("BOT_STATUS"), name="BOT_STATUS", choices=STATUSES, default=DEFAULT_STATUS
+        )
+
         health_bind = (source.get("HEALTH_BIND") or "").strip() or DEFAULT_HEALTH_BIND
         health_port = _parse_optional_int(source.get("HEALTH_PORT"), name="HEALTH_PORT")
         if health_port is None:
@@ -168,6 +224,9 @@ class Settings:
             dev_guild_id=dev_guild_id,
             log_format=log_format,
             sync_on_startup=sync_on_startup,
+            activity=activity,
+            activity_type=activity_type,
+            status=status,
             health_bind=health_bind,
             health_port=health_port,
         )

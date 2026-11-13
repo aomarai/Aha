@@ -267,3 +267,87 @@ def test_a_token_read_from_a_file_is_still_redacted_in_the_repr(tmp_path: Path) 
     settings = Settings.from_env({"DISCORD_BOT_TOKEN_FILE": path})
 
     assert "file-secret" not in repr(settings)
+
+
+def test_presence_defaults_to_listening_to_help_and_online() -> None:
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "secret"})
+
+    assert (settings.activity, settings.activity_type, settings.status) == (
+        "/help",
+        "listening",
+        "online",
+    )
+
+
+def test_presence_is_configurable() -> None:
+    settings = Settings.from_env(
+        {
+            "DISCORD_BOT_TOKEN": "secret",
+            "BOT_ACTIVITY": "  with dice  ",
+            "BOT_ACTIVITY_TYPE": " Playing ",
+            "BOT_STATUS": "DND",
+        }
+    )
+
+    assert (settings.activity, settings.activity_type, settings.status) == (
+        "with dice",
+        "playing",
+        "dnd",
+    )
+
+
+@pytest.mark.parametrize("raw", ["off", "OFF", " Off "])
+def test_activity_off_shows_no_activity(raw: str) -> None:
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "s", "BOT_ACTIVITY": raw}).activity is None
+
+
+def test_a_blank_presence_setting_falls_back_to_the_defaults() -> None:
+    settings = Settings.from_env(
+        {"DISCORD_BOT_TOKEN": "s", "BOT_ACTIVITY": " ", "BOT_ACTIVITY_TYPE": "", "BOT_STATUS": " "}
+    )
+
+    assert (settings.activity, settings.activity_type, settings.status) == (
+        "/help",
+        "listening",
+        "online",
+    )
+
+
+@pytest.mark.parametrize("status", ["online", "idle", "dnd", "invisible"])
+def test_every_discord_status_is_accepted(status: str) -> None:
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "s", "BOT_STATUS": status}).status == status
+
+
+@pytest.mark.parametrize("kind", ["playing", "listening", "watching", "competing"])
+def test_every_supported_activity_type_is_accepted(kind: str) -> None:
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "s", "BOT_ACTIVITY_TYPE": kind})
+
+    assert settings.activity_type == kind
+
+
+def test_an_unknown_status_is_rejected_listing_the_choices() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN": "s", "BOT_STATUS": "away"})
+
+    assert (
+        str(excinfo.value) == "BOT_STATUS must be one of dnd, idle, invisible, online, got 'away'"
+    )
+
+
+def test_an_unknown_activity_type_is_rejected_listing_the_choices() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN": "s", "BOT_ACTIVITY_TYPE": "streaming"})
+
+    assert str(excinfo.value) == (
+        "BOT_ACTIVITY_TYPE must be one of competing, listening, playing, watching, got 'streaming'"
+    )
+
+
+def test_an_activity_at_discords_length_limit_is_accepted_and_one_over_is_not() -> None:
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "s", "BOT_ACTIVITY": "x" * 128}).activity == (
+        "x" * 128
+    )
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN": "s", "BOT_ACTIVITY": "x" * 129})
+
+    assert str(excinfo.value) == "BOT_ACTIVITY must be at most 128 characters, got 129"

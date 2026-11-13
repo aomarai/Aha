@@ -702,3 +702,42 @@ def test_on_ready_logs_when_user_is_not_available(
             "on_ready fired but self.user is unset; bot state is inconsistent",
         )
     ]
+
+
+def test_the_default_presence_is_listening_to_help_and_online() -> None:
+    bot = _bot()
+
+    activity = bot.activity
+    assert isinstance(activity, discord.Activity)
+    assert (activity.type, activity.name) == (discord.ActivityType.listening, "/help")
+    assert bot.status is discord.Status.online
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected"),
+    [
+        ("playing", discord.ActivityType.playing),
+        ("listening", discord.ActivityType.listening),
+        ("watching", discord.ActivityType.watching),
+        ("competing", discord.ActivityType.competing),
+    ],
+)
+def test_the_configured_presence_is_passed_to_the_client(
+    kind: str, expected: discord.ActivityType
+) -> None:
+    settings = Settings(token="t", activity="with dice", activity_type=kind, status="dnd")
+
+    bot = AhaBot(settings)
+
+    activity = bot.activity
+    # discord.py represents a "playing" activity as a ``Game``.
+    assert isinstance(activity, (discord.Activity, discord.Game))
+    assert (activity.type, activity.name) == (expected, "with dice")
+    assert bot.status is discord.Status.dnd
+
+
+def test_switching_the_activity_off_leaves_only_the_status() -> None:
+    bot = AhaBot(Settings(token="t", activity=None, status="idle"))
+
+    assert bot.activity is None
+    assert bot.status is discord.Status.idle

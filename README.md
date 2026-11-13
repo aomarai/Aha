@@ -256,6 +256,9 @@ Real environment variables take precedence over `.env`.
 | `LOG_FORMAT`        | no       | `text`  | `text` (human-readable) or `json` (one object per line) |
 | `DEV_GUILD_ID`      | no       | –       | Sync slash commands instantly to this guild     |
 | `SYNC_ON_STARTUP`   | no       | `false` | Sync commands at every start (single process only) |
+| `BOT_ACTIVITY`      | no       | `/help` | Activity text under the bot's name; `off` shows none (max 128 chars) |
+| `BOT_ACTIVITY_TYPE` | no       | `listening` | `playing`, `listening`, `watching` or `competing` |
+| `BOT_STATUS`        | no       | `online` | `online`, `idle`, `dnd` or `invisible`      |
 | `HEALTH_BIND`       | no       | `127.0.0.1` | Address of the health/metrics server        |
 | `HEALTH_PORT`       | no       | `8080`  | Port of the health/metrics server; `0` disables it |
 
