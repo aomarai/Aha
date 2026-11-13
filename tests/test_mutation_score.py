@@ -137,9 +137,20 @@ def test_main_fails_when_fewer_mutants_than_the_baseline(
 
     assert gate.main() == 1
 
-    captured = capsys.readouterr()
-    assert "below the" in captured.err
-    assert str(gate.MIN_MUTANTS) in captured.err
+    assert capsys.readouterr().err == (
+        f"FAIL: campaign enumerated 10 mutants, below the {gate.MIN_MUTANTS} baseline; "
+        "lower MIN_MUTANTS only when code was deliberately deleted\n"
+    )
+
+
+def test_mutmut_enumerates_mutants_for_a_new_function() -> None:
+    """The enumeration walk must see new code, or MIN_MUTANTS cannot protect it."""
+    from mutmut.mutation.file_mutation import create_mutations
+
+    code = "def canary(value: int) -> int:\n    return value + 1\n"
+    _module, mutations, _ignored_classes, _ignored_functions = create_mutations("canary.py", code)
+
+    assert mutations
 
 
 def test_main_accepts_the_baseline_mutant_count(

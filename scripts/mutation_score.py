@@ -53,8 +53,9 @@ THRESHOLD = 0.98
 
 # Floor on how many mutants the campaign must enumerate. A ratio cannot notice
 # that source stopped being mutated at all (e.g. a broken path filter), and a
-# campaign that silently shrinks would let new code escape the gate. Lower this
-# only when code is deliberately deleted; new code raises the total above it.
+# campaign that silently shrinks would let new code escape the gate. Raise this
+# to the new total after a code-adding PR merges so the floor tracks the
+# campaign; lower it only when code is deliberately deleted.
 MIN_MUTANTS = 544
 
 # At most this fraction of enumerated mutants may be excluded (skipped) before
@@ -155,7 +156,8 @@ def main() -> int:
     total = _count(stats, "total")
     if total < MIN_MUTANTS:
         print(
-            f"FAIL: campaign enumerated {total} mutants, below the {MIN_MUTANTS} baseline",
+            f"FAIL: campaign enumerated {total} mutants, below the {MIN_MUTANTS} "
+            "baseline; lower MIN_MUTANTS only when code was deliberately deleted",
             file=sys.stderr,
         )
         return 1
