@@ -17,6 +17,11 @@ __all__ = ["LOG_FORMATS", "MAX_SNOWFLAKE", "ConfigError", "Settings"]
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FORMAT = "text"
 
+#: Health/metrics server defaults: loopback only, so nothing is exposed unless asked.
+DEFAULT_HEALTH_BIND = "127.0.0.1"
+DEFAULT_HEALTH_PORT = 8080
+MAX_PORT = 65535
+
 #: Supported ``LOG_FORMAT`` values.
 LOG_FORMATS = frozenset({"text", "json"})
 
@@ -73,6 +78,9 @@ class Settings:
     dev_guild_id: int | None = None
     log_format: str = DEFAULT_LOG_FORMAT
     sync_on_startup: bool = False
+    health_bind: str = DEFAULT_HEALTH_BIND
+    #: TCP port of the health/metrics server; 0 disables it.
+    health_port: int = DEFAULT_HEALTH_PORT
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -82,10 +90,10 @@ class Settings:
             env: Mapping to read from. Defaults to :data:`os.environ`.
 
         Raises:
-            ConfigError: if ``DISCORD_BOT_TOKEN`` is missing or empty, if
-                ``LOG_LEVEL`` is not a valid level name, if ``LOG_FORMAT`` is not
-                ``text`` or ``json``, if ``SYNC_ON_STARTUP`` is not a boolean, or if
-                ``DEV_GUILD_ID`` is not a positive Discord snowflake.
+            ConfigError: if ``DISCORD_BOT_TOKEN`` is missing or empty, if ``LOG_LEVEL`` is
+                not a valid level name, if ``LOG_FORMAT`` is not ``text`` or ``json``, if
+                ``SYNC_ON_STARTUP`` is not a boolean, if ``HEALTH_PORT`` is not a port
+                number, or if ``DEV_GUILD_ID`` is not a positive Discord snowflake.
         """
         import os
 
@@ -116,10 +124,22 @@ class Settings:
 
         sync_on_startup = _parse_bool(source.get("SYNC_ON_STARTUP"), name="SYNC_ON_STARTUP")
 
+        # Strip first: a blank value must not become "", which would bind every interface.
+        health_bind = (source.get("HEALTH_BIND") or "").strip() or DEFAULT_HEALTH_BIND
+        health_port = _parse_optional_int(source.get("HEALTH_PORT"), name="HEALTH_PORT")
+        if health_port is None:
+            health_port = DEFAULT_HEALTH_PORT
+        if not 0 <= health_port <= MAX_PORT:
+            raise ConfigError(
+                f"HEALTH_PORT must be 0 (disabled) or 1..{MAX_PORT}, got {health_port}"
+            )
+
         return cls(
             token=token,
             log_level=log_level,
             dev_guild_id=dev_guild_id,
             log_format=log_format,
             sync_on_startup=sync_on_startup,
+            health_bind=health_bind,
+            health_port=health_port,
         )

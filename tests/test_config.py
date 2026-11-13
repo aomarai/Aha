@@ -124,3 +124,57 @@ def test_sync_on_startup_accepts_falsy_and_blank_values(raw: str) -> None:
 def test_invalid_sync_on_startup_is_rejected() -> None:
     with pytest.raises(ConfigError, match=r"^SYNC_ON_STARTUP must be true or false, got 'maybe'$"):
         Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "SYNC_ON_STARTUP": "maybe"})
+
+
+def test_health_server_defaults_to_loopback_port_8080() -> None:
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "secret"})
+
+    assert (settings.health_bind, settings.health_port) == ("127.0.0.1", 8080)
+
+
+def test_health_server_address_is_configurable() -> None:
+    settings = Settings.from_env(
+        {"DISCORD_BOT_TOKEN": "secret", "HEALTH_BIND": " 0.0.0.0 ", "HEALTH_PORT": "9100"}
+    )
+
+    assert (settings.health_bind, settings.health_port) == ("0.0.0.0", 9100)
+
+
+def test_blank_health_settings_fall_back_to_the_defaults() -> None:
+    settings = Settings.from_env(
+        {"DISCORD_BOT_TOKEN": "secret", "HEALTH_BIND": "", "HEALTH_PORT": " "}
+    )
+
+    assert (settings.health_bind, settings.health_port) == ("127.0.0.1", 8080)
+
+
+@pytest.mark.parametrize("raw", [" ", "\t", "  \n"])
+def test_a_whitespace_only_health_bind_falls_back_to_loopback(raw: str) -> None:
+    # An empty bind address would make the server listen on every interface.
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "HEALTH_BIND": raw})
+
+    assert settings.health_bind == "127.0.0.1"
+
+
+def test_health_port_zero_disables_the_server() -> None:
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "HEALTH_PORT": "0"})
+
+    assert settings.health_port == 0
+
+
+@pytest.mark.parametrize("raw", ["-1", "65536", "99999"])
+def test_health_port_out_of_range_is_rejected(raw: str) -> None:
+    with pytest.raises(ConfigError, match=r"^HEALTH_PORT must be 0 \(disabled\) or 1\.\.65535"):
+        Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "HEALTH_PORT": raw})
+
+
+def test_health_port_must_be_an_integer() -> None:
+    with pytest.raises(ConfigError, match="HEALTH_PORT must be an integer"):
+        Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "HEALTH_PORT": "http"})
+
+
+def test_health_port_boundary_values_are_accepted() -> None:
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "s", "HEALTH_PORT": "1"}).health_port == 1
+    assert (
+        Settings.from_env({"DISCORD_BOT_TOKEN": "s", "HEALTH_PORT": "65535"}).health_port == 65535
+    )

@@ -1,0 +1,44 @@
+# Prometheus alerting rules for Aha. Load with `rule_files:` or wrap in a PrometheusRule.
+#
+# Only metrics that exist today are alerted on. Alerts for the session-start budget, REST 429s
+# and scheduler lag ship with the issues that add those metrics (see the roadmap, #20).
+groups:
+  - name: aha
+    rules:
+      - alert: AhaShardNotReady
+        expr: min by (shard) (aha_shard_ready) == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Shard {{ $labels.shard }} has not been ready for 5 minutes"
+          description: >-
+            The gateway connection is down or never finished starting. Check the pod logs for
+            gateway disconnects and the watchdog's CRITICAL line.
+
+      - alert: AhaReadinessFlapping
+        expr: changes(aha_shard_ready[30m]) > 4
+        labels:
+          severity: warn
+        annotations:
+          summary: "Shard {{ $labels.shard }} readiness changed {{ $value }} times in 30 minutes"
+
+      - alert: AhaReconnectStorm
+        expr: increase(aha_gateway_reconnects_total[10m]) > 5
+        labels:
+          severity: warn
+        annotations:
+          summary: "Shard {{ $labels.shard }} disconnected {{ $value }} times in 10 minutes"
+          description: >-
+            Repeated disconnects. A crash loop also spends the daily session-start budget.
+
+      - alert: AhaCommandErrorRate
+        expr: >-
+          sum(rate(aha_commands_total{outcome="error"}[15m]))
+          / sum(rate(aha_commands_total[15m])) > 0.05
+          and sum(rate(aha_commands_total[15m])) > 0.02
+        for: 15m
+        labels:
+          severity: warn
+        annotations:
+          summary: "More than 5% of commands are failing with unexpected errors"

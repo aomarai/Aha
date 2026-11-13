@@ -172,7 +172,7 @@ def _sync(settings: Settings, *, guild: int | None, dry_run: bool) -> int:
     if guild is not None:
         settings = replace(settings, dev_guild_id=guild)
     # The Job syncs explicitly below; the startup sync must not run a second time.
-    bot = AhaBot(settings, sync_on_startup=False)
+    bot = AhaBot(settings, sync_on_startup=False, health_server=False)
     try:
         results = asyncio.run(_sync_once(bot, settings.token, dry_run=dry_run))
     except Exception:

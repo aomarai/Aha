@@ -20,12 +20,12 @@ from discord.ext import commands
 
 from aha.replies import reply, respond
 
-__all__ = ["Errors", "setup"]
+__all__ = ["WRAPPERS", "Errors", "setup"]
 
 log = logging.getLogger(__name__)
 
 #: Wrapper exceptions whose ``original`` attribute holds the real failure.
-_WRAPPERS = (
+WRAPPERS = (
     commands.CommandInvokeError,
     commands.HybridCommandError,
     app_commands.CommandInvokeError,
@@ -119,7 +119,7 @@ class Errors(commands.Cog):
         user_id: int,
         respond: _Respond,
     ) -> None:
-        while isinstance(error, _WRAPPERS):
+        while isinstance(error, WRAPPERS):
             error = error.original
 
         message = _describe(error)
