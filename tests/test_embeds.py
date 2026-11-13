@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC
+
 import discord
 import pytest
 
@@ -82,6 +84,8 @@ def test_embed_has_footer() -> None:
 def test_embed_has_timestamp() -> None:
     e = embeds.error("oops")
     assert e.timestamp is not None
+    # The timestamp must be timezone-aware and UTC, not naive local time.
+    assert e.timestamp.tzinfo is UTC
 
 
 def test_all_builders_accept_fields_and_title() -> None:
@@ -103,6 +107,12 @@ def test_oversized_description_is_clipped() -> None:
     assert e.description.endswith("…")
 
 
+def test_description_at_exactly_the_limit_is_not_clipped() -> None:
+    text = "x" * 4096
+    e = embeds.info(text)
+    assert e.description == text
+
+
 def test_oversized_title_is_clipped() -> None:
     e = embeds.info("body", title="t" * 300)
     assert e.title is not None
@@ -117,7 +127,13 @@ def test_oversized_field_name_and_value_are_clipped() -> None:
     assert len(e.fields[0].value) == 1024
 
 
+def test_exactly_25_fields_is_allowed() -> None:
+    fields = [(f"f{i}", "v", True) for i in range(25)]
+    e = embeds.info("d", fields=fields)
+    assert len(e.fields) == 25
+
+
 def test_more_than_25_fields_is_rejected() -> None:
     fields = [(f"f{i}", "v", True) for i in range(26)]
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="an embed holds at most 25 fields"):
         embeds.info("d", fields=fields)
