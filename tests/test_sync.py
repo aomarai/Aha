@@ -9,6 +9,7 @@ from typing import Any
 
 import discord
 import pytest
+from discord import app_commands
 
 from aha.bot import COG_MODULES, OPERATOR_COG, AhaBot
 from aha.config import Settings
@@ -138,6 +139,7 @@ def test_a_dry_run_reports_changes_and_writes_nothing(
         (result,) = asyncio.run(scenario())
 
     assert harness.sync_calls == []
+    assert result.target == "global"
     assert result.synced is False
     assert result.diff.added == ("coin", "ping", "roll")
     assert [r.getMessage() for r in caplog.records] == [
@@ -433,3 +435,24 @@ def test_a_production_tree_has_no_sync_command(monkeypatch: pytest.MonkeyPatch) 
 
     assert "sync" not in production
     assert "sync" in dev
+
+
+def test_the_guild_target_diffs_the_guilds_own_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    harness = Harness(monkeypatch, dev_guild_id=GUILD_ID)
+
+    async def only_here(interaction: discord.Interaction) -> None:
+        return None
+
+    async def scenario() -> Any:
+        await harness.load()
+        guild = discord.Object(id=GUILD_ID)
+        harness.bot.tree.add_command(
+            app_commands.Command(name="onlyhere", description="Dev only.", callback=only_here),
+            guild=guild,
+        )
+        harness.http.global_commands = [_remote_view(p) for p in harness.local()]
+        return await harness.bot.sync_commands()
+
+    guild_result, _ = asyncio.run(scenario())
+
+    assert guild_result.diff.added == ("coin", "onlyhere", "ping", "roll")

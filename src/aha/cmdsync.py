@@ -88,7 +88,7 @@ def local_signature(payload: Mapping[str, Any]) -> dict[str, Any]:
         "description": payload.get("description", ""),
         "type": payload.get("type", _CHAT_INPUT),
         "options": _prune(payload.get("options") or []),
-        "nsfw": bool(payload.get("nsfw", False)),
+        "nsfw": bool(payload.get("nsfw")),
         "default_member_permissions": payload.get("default_member_permissions"),
         "contexts": _contexts(payload.get("contexts"), payload.get("dm_permission") is not False),
         "integration_types": _installs(payload.get("integration_types")),
@@ -111,7 +111,7 @@ def remote_signature(payload: Mapping[str, Any]) -> dict[str, Any]:
         "description": payload.get("description", ""),
         "type": payload.get("type", _CHAT_INPUT),
         "options": _prune(payload.get("options") or []),
-        "nsfw": bool(payload.get("nsfw", False)),
+        "nsfw": bool(payload.get("nsfw")),
         # Discord sends the permission bitfield as a string; the local tree uses an int.
         "default_member_permissions": None if permissions is None else int(permissions),
         "contexts": _contexts(payload.get("contexts"), payload.get("dm_permission") is not False),

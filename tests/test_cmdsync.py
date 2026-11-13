@@ -205,3 +205,54 @@ def test_remote_signature_reports_permissions_as_an_integer() -> None:
     assert signature["default_member_permissions"] == 32
     assert signature["contexts"] == [0, 1, 2]
     assert signature["integration_types"] == [0]
+
+
+def test_missing_keys_default_the_same_way_on_both_sides() -> None:
+    # A context menu has no description; Discord sends "" and the local tree omits the key.
+    local = {"name": "Inspect"}
+    remote = {"id": "1", "application_id": "2", "version": "3", "name": "Inspect", "type": 1}
+
+    assert _diff([local], [remote]).unchanged is True
+    assert local_signature(local) == remote_signature(remote)
+
+
+def test_a_remote_payload_without_optional_keys_matches_the_defaults() -> None:
+    signature = remote_signature({"name": "x"})
+
+    assert signature == {
+        "name": "x",
+        "description": "",
+        "type": 1,
+        "options": [],
+        "nsfw": False,
+        "default_member_permissions": None,
+        "contexts": [0, 1, 2],
+        "integration_types": [0],
+        "name_localizations": {},
+        "description_localizations": {},
+    }
+
+
+def test_nsfw_defaults_to_false_when_absent_remotely() -> None:
+    assert _diff([_PING], [{k: v for k, v in _remote(_PING).items() if k != "nsfw"}]).unchanged
+    assert _diff(
+        [{**_PING, "nsfw": True}],
+        [{"name": "ping", "description": _PING["description"], "type": 1}],
+    ) == (CommandDiff(changed=("ping",)))
+
+
+def test_empty_lists_and_dicts_equal_missing_keys() -> None:
+    remote_payload = copy.deepcopy(_ROLL)
+    remote_payload["options"][0].update(
+        {"choices": [], "channel_types": [], "name_localizations": {}, "autocomplete": False}
+    )
+
+    assert _diff([_ROLL], [_remote(remote_payload)]).unchanged is True
+
+
+def test_a_non_empty_list_or_dict_is_a_change() -> None:
+    with_choices = copy.deepcopy(_ROLL)
+    with_choices["options"][0]["choices"] = [{"name": "one", "value": 1}]
+
+    assert _diff([_ROLL], [_remote(with_choices)]) == CommandDiff(changed=("roll",))
+    assert _diff([with_choices], [_remote(_ROLL)]) == CommandDiff(changed=("roll",))

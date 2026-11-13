@@ -530,3 +530,62 @@ def test_sync_once_logs_in_over_rest_syncs_and_closes() -> None:
 
     assert bot.events == ["enter", "login:tok", "sync:True", "exit"]
     assert [r.target for r in results] == ["global"]
+
+
+_MAIN_HELP = (
+    "usage: aha [-h] COMMAND ...\n\nRun the Aha Discord bot.\n\npositional arguments:\n"
+    "  COMMAND\n    sync      sync the slash commands to Discord and exit\n\noptions:\n"
+    "  -h, --help  show this help message and exit\n"
+)
+
+_SYNC_HELP = (
+    "usage: aha sync [-h] [--guild ID] [--dry-run]\n\n"
+    "Compare the bot's slash commands with Discord's and sync only if they differ. "
+    "Uses REST only (no\ngateway connection), so it is safe to run as a deploy Job.\n\n"
+    "options:\n  -h, --help  show this help message and exit\n"
+    "  --guild ID  sync to this guild (as a dev server) instead of globally; "
+    "overrides DEV_GUILD_ID\n"
+    "  --dry-run   show what would change without syncing\n"
+)
+
+
+def test_the_help_text_documents_the_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("COLUMNS", "100")
+    monkeypatch.setenv("NO_COLOR", "1")
+    parser = aha_main._build_parser()
+    sync_parser = cast("Any", parser)._subparsers._group_actions[0].choices["sync"]
+
+    assert parser.format_help() == _MAIN_HELP
+    assert sync_parser.format_help() == _SYNC_HELP
+
+
+def test_a_bad_guild_id_explains_what_is_wrong(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+
+    for raw, message in (
+        ("abc", "argument --guild: not an integer: 'abc'"),
+        ("0", "argument --guild: not a positive Discord snowflake: '0'"),
+    ):
+        with pytest.raises(SystemExit):
+            aha_main.main(["sync", "--guild", raw])
+        assert message in capsys.readouterr().err
+
+
+def test_guild_id_bounds_are_inclusive() -> None:
+    assert aha_main._guild_id("1") == 1
+    assert aha_main._guild_id(str((1 << 63) - 1)) == (1 << 63) - 1
+
+
+def test_the_report_continues_past_an_unchanged_target(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    results = [
+        SyncResult("dev guild 5", CommandDiff(), synced=False),
+        SyncResult("global", CommandDiff(removed=("old",)), synced=True),
+    ]
+
+    aha_main._print_report(results, dry_run=False)
+
+    assert capsys.readouterr().out == "dev guild 5: unchanged\nglobal: synced\n  - old\n"
