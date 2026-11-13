@@ -11,6 +11,7 @@ from typing import Any, cast
 import pytest
 
 from aha import __main__ as aha_main
+from aha import __version__
 from aha.bot import AhaBot, SyncResult
 from aha.cmdsync import CommandDiff
 
@@ -534,9 +535,11 @@ def test_sync_once_logs_in_over_rest_syncs_and_closes() -> None:
 
 
 _MAIN_HELP = (
-    "usage: aha [-h] COMMAND ...\n\nRun the Aha Discord bot.\n\npositional arguments:\n"
+    "usage: aha [-h] [--version] COMMAND ...\n\nRun the Aha Discord bot.\n\n"
+    "positional arguments:\n"
     "  COMMAND\n    sync      sync the slash commands to Discord and exit\n\noptions:\n"
     "  -h, --help  show this help message and exit\n"
+    "  --version   show program's version number and exit\n"
 )
 
 _SYNC_HELP = (
@@ -590,3 +593,13 @@ def test_the_report_continues_past_an_unchanged_target(
     aha_main._print_report(results, dry_run=False)
 
     assert capsys.readouterr().out == "dev guild 5: unchanged\nglobal: synced\n  - old\n"
+
+
+def test_version_flag_prints_the_package_version_and_exits(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as caught:
+        aha_main.main(["--version"])
+
+    assert caught.value.code == 0
+    assert capsys.readouterr().out == f"aha {__version__}\n"

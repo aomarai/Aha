@@ -63,7 +63,7 @@ addopts = "-ra --cov=aha --cov-report=term-missing --cov-fail-under=95"
 # (mutmut copies tests/, pyproject.toml and the lockfiles by default).
 [tool.mutmut]
 source_paths = ["src/aha"]
-also_copy = ["scripts/"]
+also_copy = ["scripts/", "pyproject.toml"]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = ["--no-cov", "-q", "-p", "no:cacheprovider"]
 

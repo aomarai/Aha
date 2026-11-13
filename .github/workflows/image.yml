@@ -1,0 +1,94 @@
+name: Image
+
+# Builds the production image on every pull request and push to main, smoke-tests it, and
+# scans it for fixable HIGH/CRITICAL vulnerabilities. A change that breaks the Dockerfile (a
+# missing COPY, a stripped stdlib module that is now imported) is found here, not at deploy
+# time. The pip/uv audit in security.yml only covers Python dependencies; this also covers the
+# OS layer and the bundled interpreter. Nothing is pushed anywhere: publishing is a separate
+# job (see the release issue).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      # Only to upload the SARIF report to code scanning.
+      security-events: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build runtime image
+        run: >-
+          docker build
+          --tag aha:ci
+          --label "org.opencontainers.image.revision=${{ github.sha }}"
+          .
+
+      - name: Smoke-test the image
+        run: scripts/smoke_image.sh aha:ci
+
+      # SARIF first, never failing, so findings reach code scanning even when the gate below
+      # trips. The gate then prints a readable table and fails the job.
+      - name: Scan image (SARIF for code scanning)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: aha:ci
+          format: sarif
+          output: trivy.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          exit-code: "0"
+
+      # Fork and Dependabot pull requests get a read-only token and cannot upload.
+      - name: Upload scan results to code scanning
+        if: >-
+          always() && github.actor != 'dependabot[bot]' &&
+          (github.event_name == 'push' ||
+          github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-image
+
+      - name: Scan image (gate on fixable HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: aha:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          exit-code: "1"
+
+      - name: Generate SBOM (CycloneDX)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: aha:ci
+          format: cyclonedx
+          output: sbom.cdx.json
+          exit-code: "0"
+
+      - name: Upload SBOM
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: ignore
+          retention-days: 30
