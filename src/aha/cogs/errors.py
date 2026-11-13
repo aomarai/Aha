@@ -73,7 +73,12 @@ class Errors(commands.Cog):
             return
 
         async def respond(message: str) -> None:
-            await ctx.reply(message, ephemeral=True)
+            # ``ephemeral`` only means anything for interaction-based contexts;
+            # message replies (mention invocations) are public either way.
+            if ctx.interaction is not None:
+                await ctx.reply(message, ephemeral=True)
+            else:
+                await ctx.reply(message)
 
         await self._handle(
             error,

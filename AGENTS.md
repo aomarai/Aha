@@ -59,6 +59,11 @@ removing or mutating the code under test fails the test.
 - Use `aha.commands.hybrid_command`, not `discord.ext.commands.hybrid_command`, for hybrid
   (slash + mention) commands. The wrapper exists purely so mypy strict accepts the decorator on cog
   methods without `# type: ignore`.
+- Hybrid commands run `prepare()` on the slash path too, so `commands.cooldown`,
+  `commands.guild_only`, and `commands.has_permissions` apply to both surfaces.
+  `app_commands.default_permissions` (Discord-side visibility) and `app_commands.checks.*`
+  (interaction-time checks) must be applied *below* `@hybrid_command` so `HybridCommand` reads
+  them off the callback. `commands.guild_only()` also sets the app command's `guild_only` flag.
 
 ## Conventions
 

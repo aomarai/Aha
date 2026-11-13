@@ -29,7 +29,7 @@ def _cog() -> Errors:
     return Errors(cast("commands.Bot", object()))
 
 
-def test_prefix_expected_error_gets_targeted_ephemeral_reply(
+def test_prefix_expected_error_gets_a_targeted_reply(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     ctx = StubContext()
@@ -38,10 +38,21 @@ def test_prefix_expected_error_gets_targeted_ephemeral_reply(
     with caplog.at_level(logging.DEBUG, logger="aha"):
         asyncio.run(_cog().on_command_error(as_context(ctx), error))
 
+    # A message context cannot reply privately, so no meaningless ``ephemeral``.
+    assert ctx.replies == [("You need these permissions to do that: manage messages.", {})]
+    assert caplog.records == []
+
+
+def test_hybrid_slash_failure_replies_ephemerally() -> None:
+    ctx = StubContext()
+    ctx.interaction = Named(id=1)
+    error = commands.MissingPermissions(["manage_messages"])
+
+    asyncio.run(_cog().on_command_error(as_context(ctx), error))
+
     assert ctx.replies == [
         ("You need these permissions to do that: manage messages.", {"ephemeral": True})
     ]
-    assert caplog.records == []
 
 
 def test_prefix_unexpected_error_is_logged_with_context_and_hides_internals(
@@ -67,7 +78,7 @@ def test_prefix_unexpected_error_is_logged_with_context_and_hides_internals(
     assert ctx.replies == [
         (
             f"Something went wrong. If it keeps happening, quote error ID `{error_id}`.",
-            {"ephemeral": True},
+            {},
         )
     ]
     content = ctx.replies[0][0]
@@ -135,7 +146,7 @@ def test_expected_errors_map_to_messages(error: Exception, expected: str) -> Non
 
     asyncio.run(_cog().on_command_error(as_context(ctx), cast("commands.CommandError", error)))
 
-    assert ctx.replies == [(expected, {"ephemeral": True})]
+    assert ctx.replies == [(expected, {})]
 
 
 def test_app_cooldown_message() -> None:
@@ -200,7 +211,7 @@ def test_hybrid_wrapper_is_unwrapped(caplog: pytest.LogCaptureFixture) -> None:
 
     asyncio.run(_cog().on_command_error(as_context(ctx), error))
 
-    assert ctx.replies == [("This command can't be used in direct messages.", {"ephemeral": True})]
+    assert ctx.replies == [("This command can't be used in direct messages.", {})]
     assert caplog.records == []
 
 

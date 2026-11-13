@@ -113,9 +113,13 @@ def test_setup_hook_syncs_dev_guild_then_clears_globals(
     def fake_clear_commands(**kwargs: Any) -> None:
         events.append(f"clear:{kwargs}")
 
+    def fake_copy_global_to(**kwargs: Any) -> None:
+        events.append(f"copy:{kwargs['guild'].id}")
+
     monkeypatch.setattr(bot, "load_extension", fake_load_extension)
     monkeypatch.setattr(bot.tree, "sync", fake_sync)
     monkeypatch.setattr(bot.tree, "clear_commands", fake_clear_commands)
+    monkeypatch.setattr(bot.tree, "copy_global_to", fake_copy_global_to)
 
     with caplog.at_level(logging.INFO, logger="aha.bot"):
         asyncio.run(bot.setup_hook())
@@ -124,8 +128,40 @@ def test_setup_hook_syncs_dev_guild_then_clears_globals(
     assert len(sync_calls) == 2
     assert sync_calls[0]["guild"].id == 123456789012345678
     assert sync_calls[1] == {}  # global command set cleared
-    # Globals must be cleared (guild=None) immediately before the global sync.
-    assert events[-2:] == ["clear:{'guild': None}", "sync"]
+    # copy -> guild sync -> clear globals -> global sync, in that order.
+    assert events == [
+        "copy:123456789012345678",
+        "sync",
+        "clear:{'guild': None}",
+        "sync",
+    ]
+
+
+def test_sync_commands_keeps_globals_for_a_second_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _bot(dev_guild_id=123456789012345678)
+
+    async def fake_sync(**kwargs: Any) -> list[Any]:
+        return []
+
+    async def scenario() -> tuple[list[str], list[str], list[str]]:
+        await bot.load_extension("aha.cogs.meta")
+        monkeypatch.setattr(bot.tree, "sync", fake_sync)
+        before = [command.name for command in bot.tree.get_commands(guild=None)]
+        await bot.sync_commands()
+        after_first = [command.name for command in bot.tree.get_commands(guild=None)]
+        await bot.sync_commands()
+        after_second = [command.name for command in bot.tree.get_commands(guild=None)]
+        return before, after_first, after_second
+
+    before, after_first, after_second = asyncio.run(scenario())
+
+    # The dev-guild purge empties the local global tree to empty the remote set;
+    # it must restore it, or a later sync copies nothing and wipes the guild.
+    assert before == ["ping", "sync"]
+    assert after_first == before
+    assert after_second == before
 
 
 class _StubUser:
