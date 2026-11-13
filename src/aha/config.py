@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 
 __all__ = ["LOG_FORMATS", "MAX_SNOWFLAKE", "ConfigError", "Settings"]
 
@@ -26,6 +27,7 @@ MAX_PORT = 65535
 LOG_FORMATS = frozenset({"text", "json"})
 
 _TOKEN_ENV = "DISCORD_BOT_TOKEN"
+_TOKEN_FILE_ENV = "DISCORD_BOT_TOKEN_FILE"
 
 # Discord snowflakes are unsigned 64-bit integers; guild IDs are positive.
 MAX_SNOWFLAKE = (1 << 63) - 1
@@ -52,6 +54,35 @@ def _parse_bool(raw: str | None, *, name: str, default: bool = False) -> bool:
     if value in _FALSE:
         return False
     raise ConfigError(f"{name} must be true or false, got {raw!r}")
+
+
+def _read_token(source: Mapping[str, str]) -> str:
+    """Return the bot token from ``DISCORD_BOT_TOKEN`` or the file ``DISCORD_BOT_TOKEN_FILE``.
+
+    A file keeps the token out of the process environment (``kubectl describe``, crash dumps,
+    ``/proc/<pid>/environ``), which is how a Kubernetes Secret should be mounted. Setting both
+    is an error rather than a silent precedence rule. The token itself is never put in an error
+    message.
+    """
+    inline = (source.get(_TOKEN_ENV) or "").strip()
+    path = (source.get(_TOKEN_FILE_ENV) or "").strip()
+    if inline and path:
+        raise ConfigError(f"Set only one of {_TOKEN_ENV} and {_TOKEN_FILE_ENV}, not both.")
+    if path:
+        try:
+            token = Path(path).read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError) as exc:
+            reason = exc.strerror if isinstance(exc, OSError) else "not valid UTF-8"
+            raise ConfigError(f"Cannot read {_TOKEN_FILE_ENV} ({path}): {reason}.") from exc
+        if not token:
+            raise ConfigError(f"{_TOKEN_FILE_ENV} ({path}) is empty.")
+        return token
+    if not inline:
+        raise ConfigError(
+            f"{_TOKEN_ENV} is not set. Copy .env.example to .env and add "
+            "your bot token, then retry.",
+        )
+    return inline
 
 
 def _parse_optional_int(raw: str | None, *, name: str) -> int | None:
@@ -90,7 +121,8 @@ class Settings:
             env: Mapping to read from. Defaults to :data:`os.environ`.
 
         Raises:
-            ConfigError: if ``DISCORD_BOT_TOKEN`` is missing or empty, if ``LOG_LEVEL`` is
+            ConfigError: if neither ``DISCORD_BOT_TOKEN`` nor ``DISCORD_BOT_TOKEN_FILE`` gives
+                a token (or both are set), if ``LOG_LEVEL`` is
                 not a valid level name, if ``LOG_FORMAT`` is not ``text`` or ``json``, if
                 ``SYNC_ON_STARTUP`` is not a boolean, if ``HEALTH_PORT`` is not a port
                 number, or if ``DEV_GUILD_ID`` is not a positive Discord snowflake.
@@ -99,12 +131,7 @@ class Settings:
 
         source: Mapping[str, str] = os.environ if env is None else env
 
-        token = (source.get(_TOKEN_ENV) or "").strip()
-        if not token:
-            raise ConfigError(
-                f"{_TOKEN_ENV} is not set. Copy .env.example to .env and add "
-                "your bot token, then retry.",
-            )
+        token = _read_token(source)
 
         log_level = (source.get("LOG_LEVEL") or DEFAULT_LOG_LEVEL).strip().upper()
 
