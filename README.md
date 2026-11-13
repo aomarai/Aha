@@ -345,7 +345,8 @@ HIGH/CRITICAL findings fail the build; see [`.trivyignore`](.trivyignore)); resu
 scanning and an SBOM is attached to the run.
 SonarQube (`.github/workflows/sonarqube.yml`) gates **`main` only**: the self-hosted server is
 Community Build, which cannot analyse pull requests, so a failing quality gate turns the check red
-after a merge rather than blocking the PR.
+after a merge rather than blocking the PR. The job is also `continue-on-error`: the cluster is short
+on memory, so a SonarQube failure is advisory and never blocks CI.
 Pull requests are reviewed by [Sourcery](https://sourcery.ai/) (configured in
 `.sourcery.yaml`; install the GitHub App on the repository to enable it).
 
