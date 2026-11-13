@@ -172,9 +172,12 @@ class StubInteraction:
         self.followup = _Followup()
 
 
-def stub_command(name: str, description: str = "", hidden: bool = False) -> Any:
+def stub_command(
+    name: str, description: str = "", hidden: bool = False, category: str | None = None
+) -> Any:
     """Return a fake ``commands.Command`` as yielded by ``walk_commands``."""
-    return Named(qualified_name=name, description=description, hidden=hidden)
+    extras = {} if category is None else {"category": category}
+    return Named(qualified_name=name, description=description, hidden=hidden, extras=extras)
 
 
 def as_bot(stub: StubBot) -> commands.Bot:

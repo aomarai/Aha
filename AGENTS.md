@@ -99,6 +99,9 @@ every change must keep:
   declare `__all__`; test modules and `scripts/` are not a public API, so they need not.
   Module-level logger: `log = logging.getLogger(__name__)`; use %-style log args.
 - Line length 100; ruff rule set is in `pyproject.toml`. No `# type: ignore` — fix types instead.
+- Every command declares its `/help` category: `@hybrid_command(..., extras={"category": "Info"})`
+  (`Info`, `Fun`, `Admin`; a test fails for a command without one). `/help` groups by it, with
+  headers only when more than one category exists.
 - Cog replies go through `aha.replies.reply`, which defaults to
   `allowed_mentions=AllowedMentions.none()`; never call `ctx.reply` directly, or user text can
   ping roles or `@everyone`. A bot-wide per-user budget is enforced by

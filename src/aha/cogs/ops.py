@@ -30,6 +30,7 @@ class Operator(commands.Cog):
     @hybrid_command(
         name="sync",
         description="Re-sync the slash commands (bot owner, requires Manage Server).",
+        extras={"category": "Admin"},
     )
     @commands.cooldown(1, 60, commands.BucketType.user)
     @app_commands.default_permissions(manage_guild=True)

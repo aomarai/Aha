@@ -20,7 +20,9 @@ class Meta(commands.Cog):
     def __init__(self, bot: AhaBot) -> None:
         self.bot = bot
 
-    @hybrid_command(name="ping", description="Check the bot's WebSocket latency.")
+    @hybrid_command(
+        name="ping", description="Check the bot's WebSocket latency.", extras={"category": "Info"}
+    )
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def ping(self, ctx: commands.Context[commands.Bot]) -> None:
         """Reply with the current gateway latency in milliseconds."""
@@ -31,7 +33,11 @@ class Meta(commands.Cog):
             # The channel may lack embed permission; keep the reply alive.
             await reply(ctx, text)
 
-    @hybrid_command(name="about", description="Show the bot's version, uptime and status.")
+    @hybrid_command(
+        name="about",
+        description="Show the bot's version, uptime and status.",
+        extras={"category": "Info"},
+    )
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def about(self, ctx: commands.Context[commands.Bot]) -> None:
         """Reply with the running version, commit, uptime and this process's shards and guilds.

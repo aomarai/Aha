@@ -20,7 +20,7 @@ class Fun(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    @hybrid_command(name="roll", description="Roll a die.")
+    @hybrid_command(name="roll", description="Roll a die.", extras={"category": "Fun"})
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def roll(self, ctx: commands.Context[commands.Bot], sides: int = 6) -> None:
         """Roll a die with the given number of sides (default d6)."""
@@ -34,7 +34,7 @@ class Fun(commands.Cog):
         except discord.HTTPException:
             await reply(ctx, text)
 
-    @hybrid_command(name="coin", description="Flip a coin.")
+    @hybrid_command(name="coin", description="Flip a coin.", extras={"category": "Fun"})
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def coin(self, ctx: commands.Context[commands.Bot]) -> None:
         """Flip a coin and report heads or tails."""
