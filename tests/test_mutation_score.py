@@ -127,6 +127,46 @@ def test_main_fails_below_threshold(
     assert "FAIL:" in capsys.readouterr().out
 
 
+def test_main_fails_when_fewer_mutants_than_the_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stats_path = write_stats(
+        tmp_path / "mutants" / "mutmut-cicd-stats.json", stats(total=10, killed=10)
+    )
+    monkeypatch.setattr(gate, "STATS_PATH", stats_path)
+
+    assert gate.main() == 1
+
+    assert capsys.readouterr().err == (
+        f"FAIL: campaign enumerated 10 mutants, below the {gate.MIN_MUTANTS} baseline; "
+        "lower MIN_MUTANTS only when code was deliberately deleted\n"
+    )
+
+
+def test_mutmut_enumerates_mutants_for_a_new_function() -> None:
+    """The enumeration walk must see new code, or MIN_MUTANTS cannot protect it."""
+    from mutmut.mutation.file_mutation import create_mutations
+
+    code = "def canary(value: int) -> int:\n    return value + 1\n"
+    _module, mutations, _ignored_classes, _ignored_functions = create_mutations("canary.py", code)
+
+    assert mutations
+
+
+def test_main_accepts_the_baseline_mutant_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    total = gate.MIN_MUTANTS
+    stats_path = write_stats(
+        tmp_path / "mutants" / "mutmut-cicd-stats.json", stats(total=total, killed=total)
+    )
+    monkeypatch.setattr(gate, "STATS_PATH", stats_path)
+
+    assert gate.main() == 0
+
+    assert "OK:" in capsys.readouterr().out
+
+
 def test_main_fails_on_invalid_campaign(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
