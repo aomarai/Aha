@@ -32,6 +32,7 @@ __all__ = [
     "AhaBot",
     "AhaTree",
     "SyncResult",
+    "gateway_intents",
 ]
 
 log = logging.getLogger(__name__)
@@ -68,6 +69,23 @@ WATCHDOG_TASK = "gateway-watchdog"
 
 #: How often the watchdog re-checks the connection state.
 GATEWAY_WATCHDOG_INTERVAL = 30.0
+
+
+def gateway_intents() -> discord.Intents:
+    """Return the gateway intents the bot uses, and nothing else.
+
+    ``discord.Intents.default()`` subscribes to every non-privileged event (typing, voice states,
+    invites, emoji, reactions, scheduled events, ...), and each unused one costs bandwidth, CPU and
+    memory on every shard, which is what limits how many shards one pod can hold (ADR 0001).
+
+    * ``guilds``: the guild, channel and role cache, and ``on_guild_remove``. Required.
+    * ``guild_messages`` and ``dm_messages``: only so an ``@Aha`` mention reaches the command
+      parser. If that surface is ever dropped these go too (#101), leaving one event stream:
+      guild lifecycle.
+
+    Add an intent here only together with the feature that needs it (``voice_states`` for #68).
+    """
+    return discord.Intents(guilds=True, guild_messages=True, dm_messages=True)
 
 
 _ACTIVITY_TYPES = {
@@ -122,14 +140,16 @@ class AhaBot(commands.Bot):
             or watchdog_interval <= 0
         ):
             raise ValueError("gateway_timeout and watchdog_interval must be finite and positive")
-        # Default intents only: no privileged intent (notably ``message_content``)
-        # is requested, so commands are slash-only. ``commands.Bot`` still needs a
-        # prefix; ``when_mentioned`` is the one value that needs no message
-        # content (Discord delivers it for messages that @mention the bot) and
-        # that discord.py does not warn about when the intent is off.
+        # No privileged intent (notably ``message_content``) is requested. ``commands.Bot``
+        # still needs a prefix; ``when_mentioned`` is the one value that needs no message
+        # content (Discord delivers it for messages that @mention the bot) and that discord.py
+        # does not warn about when the intent is off.
         super().__init__(
             command_prefix=commands.when_mentioned,
-            intents=discord.Intents.default(),
+            intents=gateway_intents(),
+            # Slash commands and mentions never read old messages, so keep none: this is a
+            # per-shard cache that would otherwise hold the last 1000 messages of every channel.
+            max_messages=None,
             help_command=None,
             tree_cls=AhaTree,
             # Presence is sent when each shard identifies, so it needs no extra task and is

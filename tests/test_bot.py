@@ -13,7 +13,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from aha import logctx
-from aha.bot import COG_MODULES, WATCHDOG_TASK, AhaBot
+from aha.bot import COG_MODULES, WATCHDOG_TASK, AhaBot, gateway_intents
 from aha.config import Settings
 from aha.ratelimit import LocalBackend, RateLimiter
 from aha.tasks import TaskRegistry
@@ -45,13 +45,54 @@ def test_bot_requests_no_privileged_intents_and_has_no_default_help() -> None:
     assert bot.intents.message_content is False
     assert bot.intents.members is False
     assert bot.intents.presences is False
-    assert bot.intents.guilds is True  # discord.Intents.default() was used
+    assert bot.intents.guilds is True
     assert bot.help_command is None
 
 
-def test_bot_passes_default_intents_explicitly(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_only_the_intents_the_bot_uses_are_requested() -> None:
+    intents = gateway_intents()
+
+    assert (
+        intents.value == discord.Intents(guilds=True, guild_messages=True, dm_messages=True).value
+    )
+    enabled = {name for name, on in intents if on}
+    assert enabled == {"guilds", "guild_messages", "dm_messages"}
+
+
+def test_the_noisy_default_intents_are_not_requested() -> None:
+    intents = gateway_intents()
+
+    for name in (
+        "guild_typing",
+        "dm_typing",
+        "voice_states",
+        "invites",
+        "emojis_and_stickers",
+        "guild_reactions",
+        "dm_reactions",
+        "guild_scheduled_events",
+        "auto_moderation",
+        "integrations",
+        "webhooks",
+        "polls",
+        "bans",
+        "moderation",
+        "expressions",
+    ):
+        assert getattr(intents, name) is False, name
+
+
+def test_every_privileged_intent_stays_off() -> None:
+    intents = gateway_intents()
+
+    assert (intents.message_content, intents.members, intents.presences) == (False, False, False)
+
+
+def test_bot_passes_its_minimal_intents_and_no_message_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # discord.py falls back to default intents for ``intents=None``, so only the
-    # constructor argument itself distinguishes "explicit defaults" from "nothing".
+    # constructor argument itself distinguishes "explicit intents" from "nothing".
     captured: dict[str, Any] = {}
 
     def fake_init(self: Any, **kwargs: Any) -> None:
@@ -62,7 +103,9 @@ def test_bot_passes_default_intents_explicitly(monkeypatch: pytest.MonkeyPatch) 
 
     _bot()
 
-    assert captured["intents"] == discord.Intents.default()
+    assert captured["intents"] == gateway_intents()
+    assert captured["intents"] != discord.Intents.default()
+    assert captured["max_messages"] is None  # no per-channel message cache
 
 
 def test_bot_prefix_is_mention_only(monkeypatch: pytest.MonkeyPatch) -> None:
