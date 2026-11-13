@@ -13,6 +13,7 @@ import asyncio
 import os
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import asyncpg
@@ -29,6 +30,7 @@ from aha.dbmigrate import (
     require_current,
     status,
 )
+from aha.jobstore import JobStore
 
 URL = os.environ.get("AHA_TEST_DATABASE_URL")
 
@@ -165,3 +167,147 @@ async def test_the_pool_cancels_a_query_that_exceeds_the_statement_timeout() -> 
         assert await database.ping() is True
     finally:
         await database.close()
+
+
+# ------------------------------------------------------------------------------ job store
+
+
+@pytest_asyncio.fixture
+async def store(schema: str) -> AsyncIterator[JobStore]:
+    """A job store on a pool whose search_path is the test schema, with every migration applied."""
+    assert URL is not None
+    conn = await _connect(schema)
+    try:
+        await migrate(conn, load_migrations())
+    finally:
+        await conn.close()
+    pool = await asyncpg.create_pool(
+        URL, min_size=1, max_size=4, server_settings={"search_path": schema}
+    )
+    try:
+        yield JobStore(Database(pool))
+    finally:
+        await pool.close()
+
+
+def _later(seconds: float) -> datetime:
+    return datetime.now(UTC) + timedelta(seconds=seconds)
+
+
+async def test_a_due_job_is_claimed_with_its_data_and_a_future_one_is_not(store: JobStore) -> None:
+    due = await store.enqueue(
+        "reminder", _later(-1), user_id=33, guild_id=11, payload={"text": "hi", "n": [1, 2]}
+    )
+    await store.enqueue("reminder", _later(3600), user_id=33)
+
+    claimed = await store.claim(10, 60.0)
+
+    assert [job.id for job in claimed] == [due]
+    job = claimed[0]
+    assert (job.kind, job.user_id, job.guild_id, job.attempts) == ("reminder", 33, 11, 1)
+    assert job.payload == {"text": "hi", "n": [1, 2]}
+
+
+async def test_a_claimed_job_is_leased_until_the_lease_expires(store: JobStore) -> None:
+    await store.enqueue("reminder", _later(-1), user_id=1)
+
+    first = await store.claim(10, 0.3)
+    during = await store.claim(10, 0.3)
+    await asyncio.sleep(0.5)
+    after = await store.claim(10, 60.0)
+
+    assert (len(first), len(during), len(after)) == (1, 0, 1)
+    assert after[0].attempts == 2  # attempts are counted at claim, so a crash loop ends
+
+
+async def test_concurrent_claimers_never_get_the_same_job(store: JobStore) -> None:
+    for _ in range(30):
+        await store.enqueue("reminder", _later(-1), user_id=1)
+
+    batches = await asyncio.gather(*(store.claim(10, 60.0) for _ in range(4)))
+    ids = [job.id for batch in batches for job in batch]
+
+    assert len(ids) == 30
+    assert len(set(ids)) == 30  # SKIP LOCKED: no job was handed to two claimers
+
+
+async def test_jobs_are_claimed_oldest_first_up_to_the_limit(store: JobStore) -> None:
+    newest = await store.enqueue("k", _later(-1), user_id=1)
+    oldest = await store.enqueue("k", _later(-100), user_id=1)
+    middle = await store.enqueue("k", _later(-50), user_id=1)
+
+    claimed = await store.claim(2, 60.0)
+
+    assert [job.id for job in claimed] == [oldest, middle]
+    assert newest not in [job.id for job in claimed]
+
+
+async def test_completing_a_job_deletes_it(store: JobStore) -> None:
+    job_id = await store.enqueue("k", _later(-1), user_id=1)
+    await store.claim(10, 60.0)
+
+    await store.complete(job_id)
+
+    assert await store.claim(10, 60.0) == []
+    assert await store.lag() == 0.0
+
+
+async def test_a_failed_job_is_retried_later_with_its_error_kept(store: JobStore) -> None:
+    job_id = await store.enqueue("k", _later(-1), user_id=1)
+    await store.claim(10, 60.0)
+
+    await store.fail(job_id, "ValueError: boom", retry_in=0.2, dead=False)
+
+    assert await store.claim(10, 60.0) == []  # not due yet
+    await asyncio.sleep(0.4)
+    (retry,) = await store.claim(10, 60.0)
+    assert (retry.id, retry.attempts) == (job_id, 2)
+
+
+async def test_a_dead_job_is_never_claimed_again_and_is_purged_after_retention(
+    store: JobStore,
+) -> None:
+    job_id = await store.enqueue("k", _later(-1), user_id=1)
+    await store.claim(10, 60.0)
+
+    await store.fail(job_id, "gave up", retry_in=0.0, dead=True)
+
+    assert await store.claim(10, 60.0) == []
+    assert await store.purge_dead(3600.0) == 0  # too recent to delete
+    await asyncio.sleep(0.2)
+    assert await store.purge_dead(0.1) == 1  # older than 0.1 s
+
+
+async def test_lag_is_how_long_the_oldest_due_unclaimed_job_has_waited(store: JobStore) -> None:
+    assert await store.lag() == 0.0
+    await store.enqueue("k", _later(-30), user_id=1)
+    await store.enqueue("k", _later(-5), user_id=1)
+    await store.enqueue("k", _later(3600), user_id=1)  # not due: ignored
+
+    assert 29.0 < await store.lag() < 40.0
+
+    await store.claim(10, 60.0)  # claimed jobs are being handled, so they are not lag
+
+    assert await store.lag() == 0.0
+
+
+async def test_a_users_or_a_guilds_jobs_can_be_deleted(store: JobStore) -> None:
+    await store.enqueue("k", _later(60), user_id=1, guild_id=10)
+    await store.enqueue("k", _later(60), user_id=1, guild_id=11)
+    await store.enqueue("k", _later(60), user_id=2, guild_id=10)
+    await store.enqueue("k", _later(60), user_id=3)
+
+    assert await store.purge_user(1) == 2
+    assert await store.purge_guild(10) == 1  # user 2's job in guild 10
+    assert await store.purge_guild(10) == 0
+    assert await store.purge_user(3) == 1
+
+
+async def test_a_job_with_no_owner_is_rejected_by_the_database(store: JobStore) -> None:
+    with pytest.raises(asyncpg.CheckViolationError):
+        await store.enqueue("k", _later(1))
+
+
+async def test_an_empty_kind_is_rejected_by_the_database(store: JobStore) -> None:
+    with pytest.raises(asyncpg.CheckViolationError):
+        await store.enqueue("", _later(1), user_id=1)

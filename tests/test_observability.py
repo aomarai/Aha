@@ -709,3 +709,88 @@ def test_the_sync_job_never_opens_the_database(monkeypatch: pytest.MonkeyPatch) 
 
     assert bot.db is None
     assert _FakeDatabase.instances == []
+
+
+def test_a_database_gives_the_bot_a_scheduler_that_runs_as_a_critical_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from aha.bot import SCHEDULER_TASK
+
+    async def current(connection: object, migrations: object) -> None:
+        return None
+
+    monkeypatch.setattr("aha.bot.require_current", current)
+    monkeypatch.setattr("aha.bot.JobStore", lambda database: ("store", database))
+    bot = _database_bot(monkeypatch, database_url="postgresql://db/aha")
+
+    async def scenario() -> tuple[object, bool]:
+        await bot.setup_hook()
+        running = SCHEDULER_TASK in bot.tasks
+        await bot.close()
+        return bot.scheduler, running
+
+    scheduler, running = asyncio.run(scenario())
+
+    assert running is True
+    assert scheduler is not None
+    args = cast("Any", scheduler).args
+    assert args == (("store", bot.db),)
+    bot.metrics.scheduler_lag.set(0)  # the lag callback is the metric's setter
+    assert cast("Any", scheduler).kwargs["on_lag"] == bot.metrics.scheduler_lag.set
+
+
+def test_without_a_database_there_is_no_scheduler(monkeypatch: pytest.MonkeyPatch) -> None:
+    from aha.bot import SCHEDULER_TASK
+
+    bot = _database_bot(monkeypatch)
+
+    async def scenario() -> bool:
+        await bot.setup_hook()
+        present = SCHEDULER_TASK in bot.tasks
+        await bot.close()
+        return present
+
+    assert asyncio.run(scenario()) is False
+    assert bot.scheduler is None
+
+
+class _CrashingScheduler:
+    """A scheduler whose first run crashes, to show how the bot supervises it."""
+
+    runs = 0
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    async def run(self) -> None:
+        _CrashingScheduler.runs += 1
+        if _CrashingScheduler.runs == 1:
+            raise RuntimeError("scheduler bug")
+        await asyncio.Event().wait()
+
+
+def test_the_scheduler_is_a_critical_restartable_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    from aha.bot import SCHEDULER_TASK
+
+    async def current(connection: object, migrations: object) -> None:
+        return None
+
+    _CrashingScheduler.runs = 0
+    monkeypatch.setattr("aha.bot.require_current", current)
+    monkeypatch.setattr("aha.bot.Scheduler", _CrashingScheduler)
+    bot = _database_bot(monkeypatch, database_url="postgresql://db/aha")
+
+    async def scenario() -> tuple[frozenset[str], frozenset[str], int]:
+        await bot.setup_hook()
+        for _ in range(10):
+            await asyncio.sleep(0)
+        result = (bot.tasks.degraded, bot.tasks.failed, _CrashingScheduler.runs)
+        await bot.close()
+        return result
+
+    degraded, failed, runs = asyncio.run(scenario())
+
+    # Critical and restartable: parked in back-off (readiness reports it), not dead.
+    assert degraded == frozenset({SCHEDULER_TASK})
+    assert failed == frozenset()
+    assert runs == 1

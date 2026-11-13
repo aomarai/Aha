@@ -19,8 +19,10 @@ from aha.config import Settings
 from aha.db import Database
 from aha.dbmigrate import load_migrations, require_current
 from aha.health import HealthServer
+from aha.jobstore import JobStore
 from aha.metrics import Metrics, ShardState
 from aha.ratelimit import LocalBackend, RateLimitBackend, RateLimiter
+from aha.scheduler import Scheduler
 from aha.tasks import TaskRegistry
 
 __all__ = [
@@ -30,6 +32,7 @@ __all__ = [
     "HEALTH_TASK",
     "OPERATOR_COG",
     "READINESS_DISCONNECT_GRACE",
+    "SCHEDULER_TASK",
     "WATCHDOG_TASK",
     "AhaBot",
     "AhaTree",
@@ -59,6 +62,9 @@ APP_COMMAND_ERROR_EVENT = "app_command_error"
 
 #: Seconds the gateway may stay disconnected before the bot closes itself.
 GATEWAY_DISCONNECT_TIMEOUT = 300.0
+
+#: Name of the durable-job scheduler task in the registry.
+SCHEDULER_TASK = "scheduler"
 
 #: Name of the health/metrics server task in the registry.
 HEALTH_TASK = "health-server"
@@ -163,6 +169,8 @@ class AhaBot(commands.Bot):
         self.settings = settings
         #: The PostgreSQL pool, opened in ``setup_hook`` when ``DATABASE_URL`` is set.
         self.db: Database | None = None
+        #: Runs durable jobs from the database; ``None`` without one. Cogs register handlers on it.
+        self.scheduler: Scheduler | None = None
         #: False for short-lived jobs (``aha sync``) that must not open the database.
         self.use_database = use_database
         #: Unix time the bot object was created, shown by ``/about`` as the start of its uptime.
@@ -225,6 +233,8 @@ class AhaBot(commands.Bot):
             await self.sync_commands()
         else:
             log.info("Command sync skipped at startup (run 'aha sync')")
+        if self.scheduler is not None and SCHEDULER_TASK not in self.tasks:
+            self.tasks.spawn(self.scheduler.run, name=SCHEDULER_TASK, restart=True, critical=True)
         if self.health_server_enabled and HEALTH_TASK not in self.tasks:
             server = HealthServer(self, self.settings.health_bind, self.settings.health_port)
             self.tasks.spawn(server.run, name=HEALTH_TASK, restart=True, critical=True)
@@ -244,6 +254,7 @@ class AhaBot(commands.Bot):
         )
         async with self.db.acquire() as connection:
             await require_current(connection, load_migrations())
+        self.scheduler = Scheduler(JobStore(self.db), on_lag=self.metrics.scheduler_lag.set)
         log.info("Connected to the database; the schema is up to date")
 
     async def close(self) -> None:

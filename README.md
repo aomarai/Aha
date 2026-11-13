@@ -232,6 +232,8 @@ Aha/
 │   ├── db.py            # PostgreSQL pool (statement timeout, application_name)
 │   ├── dbmigrate.py     # plain-SQL migration runner (see docs/migrations.md)
 │   ├── migrations/      # NNNN_description.sql
+│   ├── scheduler.py     # durable job scheduler (any pod runs due jobs)
+│   ├── jobstore.py      # SQL behind the scheduler (scheduled_jobs)
 │   ├── cmdsync.py       # compare local vs remote command trees (sync only if changed)
 │   ├── components.py    # shared button/menu helpers (see docs/components.md)
 │   ├── config.py        # Settings loaded & validated from the environment

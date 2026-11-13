@@ -17,6 +17,9 @@ for how a release is cut.
 - Image build, smoke test and Trivy scan on every pull request; versioned images published to GHCR.
 - `/privacy`, draft privacy policy and terms, and a data inventory rule: a test fails when a
   migration creates a table that is not declared with its owner columns and retention.
+- Durable job scheduler on PostgreSQL (`scheduled_jobs`): any pod claims due jobs with
+  `FOR UPDATE SKIP LOCKED`, at-least-once delivery, retry with back-off, dead-lettering,
+  `aha_scheduler_lag_seconds` and an alert.
 - PostgreSQL support: an optional pooled connection (`DATABASE_URL`), `aha migrate` plain-SQL
   migrations (advisory lock, one transaction each, bounded `lock_timeout`), and a startup check
   that refuses to run on a schema that is behind. No tables yet.

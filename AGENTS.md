@@ -145,6 +145,10 @@ every change must keep:
   schema changes only through `src/aha/migrations/NNNN_*.sql`, applied by `aha migrate` as a deploy
   Job and never at startup, forward-only and expand/contract (see `docs/migrations.md`). Every new
   table needs a user/guild purge path (#99).
+- Scheduled work: due jobs live in `scheduled_jobs` and any pod runs them (`aha.scheduler`,
+  `aha.jobstore`, see `docs/scheduler.md`). Handlers are at-least-once: make them idempotent, never
+  rely on in-memory timers for anything that must fire. `jobstore.py` is pure SQL, excluded from
+  mutation testing (`do_not_mutate`) and covered by the real-PostgreSQL tests.
 - Audit trail: `cogs/observability.py` writes one `aha.audit` INFO record per completed command
   (`extra={event, outcome, arguments, duration_ms}`; who/where come from the log context). Log
   argument **names** only, never values, and never use `args`, `msg`, `message` or the other

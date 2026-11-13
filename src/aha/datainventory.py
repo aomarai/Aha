@@ -34,4 +34,13 @@ class TableData:
 EXEMPT_TABLES = frozenset({"schema_migrations"})
 
 #: Every other table. Empty until the first stateful feature (#96-#98) adds one.
-INVENTORY: dict[str, TableData] = {}
+INVENTORY: dict[str, TableData] = {
+    "scheduled_jobs": TableData(
+        user_column="user_id",
+        guild_column="guild_id",
+        retention=(
+            "until the job runs, then the row is deleted; a job that keeps failing is kept "
+            "dead for 7 days for debugging, then deleted"
+        ),
+    ),
+}
