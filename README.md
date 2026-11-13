@@ -231,7 +231,7 @@ Aha/
 │   ├── tasks.py         # TaskRegistry: supervised background tasks
 │   └── cogs/            # command groups, each exposing async setup(bot)
 │       ├── errors.py    # global error handler
-│       ├── fun.py       # /roll, /coin
+│       ├── fun.py       # /roll, /coin, /time, /8ball, /countdown
 │       ├── help.py      # /help (paginated)
 │       ├── meta.py      # /ping, /about
 │       ├── observability.py # counts command outcomes and durations

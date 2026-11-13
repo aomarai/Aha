@@ -15,6 +15,8 @@ for how a release is cut.
   the bot token is masked in both formats.
 - Supervised background tasks (`TaskRegistry`) with failure logging, restart back-off and health.
 - Image build, smoke test and Trivy scan on every pull request; versioned images published to GHCR.
+- `/time` (with timezone autocomplete), `/8ball` and `/countdown`; the `tzdata` package so zones
+  resolve in the distroless image.
 - `aha --version`; build identity (`AHA_VERSION`, `AHA_COMMIT`) baked into the image.
 - Architecture decision record for horizontal scaling (`docs/adr/0001-runtime-architecture.md`).
 
