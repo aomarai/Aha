@@ -211,6 +211,24 @@ def test_the_context_menu_follows_the_cogs_lifecycle() -> None:
     assert gone is None
 
 
+def test_the_registered_menu_runs_the_reaction_count() -> None:
+    bot = AhaBot(Settings(token="test-token"))
+    interaction = StubInteraction()
+    message = Named(reactions=[Named(emoji="🎉", count=2)])
+
+    async def scenario() -> None:
+        await bot.add_cog(Polls(bot))
+        menu = bot.tree.get_command("Count reactions", type=discord.AppCommandType.message)
+        assert isinstance(menu, app_commands.ContextMenu)
+        await menu.callback(as_interaction(interaction), cast("Any", message))
+
+    asyncio.run(scenario())
+
+    ((_, content, kwargs),) = interaction.sent
+    assert content == "🎉 2"
+    assert kwargs["ephemeral"] is True
+
+
 def test_setup_registers_the_polls_cog() -> None:
     bot = StubBot()
 

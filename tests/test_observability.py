@@ -475,6 +475,22 @@ def test_a_completed_command_is_written_to_the_audit_log(
     assert record.__dict__["duration_ms"] == 13
 
 
+def test_the_audit_duration_is_in_whole_milliseconds(caplog: pytest.LogCaptureFixture) -> None:
+    bot = _bot()
+    clock = [100.0]
+    bot.metrics._clock = lambda: clock[0]
+
+    async def scenario() -> None:
+        bot.metrics.start_timer()
+        clock[0] = 102.0  # exactly two seconds later
+        await Observability(bot).on_command_completion(as_context(StubContext()))
+
+    with caplog.at_level(logging.INFO, logger=AUDIT_LOGGER):
+        asyncio.run(scenario())
+
+    assert caplog.records[0].__dict__["duration_ms"] == 2000
+
+
 def test_the_audit_log_has_no_duration_without_a_timer(caplog: pytest.LogCaptureFixture) -> None:
     bot = _bot()
 

@@ -62,9 +62,14 @@ class Polls(commands.Cog):
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
-        self._count_menu = app_commands.ContextMenu(
-            name="Count reactions", callback=self.count_reactions
-        )
+
+        # discord.py resolves a context-menu callback's (string) annotations against the
+        # callback's own module globals. Defined here, the thin callback keeps this module's
+        # globals; as a decorated method it would not under the mutation-testing wrapper.
+        async def count(interaction: discord.Interaction, message: discord.Message) -> None:
+            await self.count_reactions(interaction, message)
+
+        self._count_menu = app_commands.ContextMenu(name="Count reactions", callback=count)
 
     async def cog_load(self) -> None:
         """Register the message context menu with the command tree."""
