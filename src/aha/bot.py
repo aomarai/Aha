@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import time
 
 import discord
 from discord import app_commands
@@ -12,7 +14,13 @@ from discord.ext import commands
 from aha.config import Settings
 from aha.ratelimit import RateLimiter
 
-__all__ = ["COG_MODULES", "AhaBot", "AhaTree"]
+__all__ = [
+    "COG_MODULES",
+    "GATEWAY_DISCONNECT_TIMEOUT",
+    "GATEWAY_WATCHDOG_INTERVAL",
+    "AhaBot",
+    "AhaTree",
+]
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +35,12 @@ COG_MODULES: tuple[str, ...] = (
 #: Event dispatched for failed app commands (listeners are ``on_app_command_error``).
 APP_COMMAND_ERROR_EVENT = "app_command_error"
 
+#: Seconds the gateway may stay disconnected before the bot closes itself.
+GATEWAY_DISCONNECT_TIMEOUT = 300.0
+
+#: How often the watchdog re-checks the connection state.
+GATEWAY_WATCHDOG_INTERVAL = 30.0
+
 
 class AhaBot(commands.Bot):
     """The Aha client.
@@ -39,8 +53,15 @@ class AhaBot(commands.Bot):
     GLOBAL_RATE_LIMIT: tuple[int, float] = (10, 10.0)
 
     def __init__(
-        self, settings: Settings, *, rate_limit: tuple[int, float] = GLOBAL_RATE_LIMIT
+        self,
+        settings: Settings,
+        *,
+        rate_limit: tuple[int, float] = GLOBAL_RATE_LIMIT,
+        gateway_timeout: float = GATEWAY_DISCONNECT_TIMEOUT,
+        watchdog_interval: float = GATEWAY_WATCHDOG_INTERVAL,
     ) -> None:
+        if gateway_timeout <= 0 or watchdog_interval <= 0:
+            raise ValueError("gateway_timeout and watchdog_interval must be positive")
         # Default intents only: no privileged intent (notably ``message_content``)
         # is requested, so commands are slash-only. ``commands.Bot`` still needs a
         # prefix; ``when_mentioned`` is the one value that needs no message
@@ -54,7 +75,11 @@ class AhaBot(commands.Bot):
         )
         self.settings = settings
         self.rate_limiter = RateLimiter(rate_limit[0], rate_limit[1])
+        self.gateway_timeout = gateway_timeout
+        self.watchdog_interval = watchdog_interval
         self._sync_lock = asyncio.Lock()
+        self._disconnected_since: float | None = None
+        self._watchdog_task: asyncio.Task[None] | None = None
         self.add_check(self._enforce_rate_limit)
 
     async def _enforce_rate_limit(self, ctx: commands.Context[commands.Bot]) -> bool:
@@ -78,6 +103,66 @@ class AhaBot(commands.Bot):
             log.info("Loaded extension %s", module)
 
         await self.sync_commands()
+        if self._watchdog_task is None:
+            self._watchdog_task = asyncio.create_task(
+                self._watch_gateway(), name="gateway-watchdog"
+            )
+
+    async def close(self) -> None:
+        """Cancel the gateway watchdog, then close the client."""
+        watchdog = self._watchdog_task
+        self._watchdog_task = None
+        if watchdog is not None:
+            watchdog.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watchdog
+        await super().close()
+
+    async def _watch_gateway(self) -> None:
+        """Close the bot when the gateway stays disconnected for too long."""
+        while not await self._check_gateway_timeout():
+            await asyncio.sleep(self.watchdog_interval)
+
+    async def _check_gateway_timeout(self) -> bool:
+        """Return True and close the bot when the disconnect limit is exceeded."""
+        since = self._disconnected_since
+        if since is None:
+            return False
+        elapsed = time.monotonic() - since
+        if elapsed < self.gateway_timeout:
+            return False
+        log.critical(
+            "Gateway has been disconnected for %.1f s (limit %.1f s); closing the bot",
+            elapsed,
+            self.gateway_timeout,
+        )
+        # Clear before closing so ``close`` does not try to cancel this task.
+        self._watchdog_task = None
+        await self.close()
+        return True
+
+    async def on_connect(self) -> None:
+        """Log a fresh gateway session and clear the disconnect clock."""
+        self._disconnected_since = None
+        log.info("Connected to the Discord gateway")
+
+    async def on_disconnect(self) -> None:
+        """Start the disconnect clock (once) and log the lost connection."""
+        if self._disconnected_since is None:
+            self._disconnected_since = time.monotonic()
+        log.warning("Disconnected from the Discord gateway")
+
+    async def on_resumed(self) -> None:
+        """Log how long the gateway was disconnected, then clear the clock."""
+        since = self._disconnected_since
+        self._disconnected_since = None
+        if since is None:
+            log.info("Resumed the Discord gateway session")
+        else:
+            log.info(
+                "Resumed the Discord gateway session after %.1f s",
+                time.monotonic() - since,
+            )
 
     async def sync_commands(self) -> None:
         """Sync the application command tree to Discord.

@@ -286,6 +286,234 @@ def test_global_rate_limit_is_wired_into_bot_checks() -> None:
         asyncio.run(bot.can_run(as_context(ctx)))
 
 
+def test_invalid_watchdog_settings_are_rejected() -> None:
+    message = r"^gateway_timeout and watchdog_interval must be positive$"
+    with pytest.raises(ValueError, match=message):
+        AhaBot(Settings(token="test-token"), gateway_timeout=0)
+    with pytest.raises(ValueError, match=message):
+        AhaBot(Settings(token="test-token"), gateway_timeout=-1)
+    with pytest.raises(ValueError, match=message):
+        AhaBot(Settings(token="test-token"), watchdog_interval=0)
+    with pytest.raises(ValueError, match=message):
+        AhaBot(Settings(token="test-token"), watchdog_interval=-1)
+
+
+def test_minimum_valid_watchdog_settings_are_accepted() -> None:
+    bot = AhaBot(Settings(token="test-token"), gateway_timeout=0.1, watchdog_interval=0.5)
+
+    assert (bot.gateway_timeout, bot.watchdog_interval) == (0.1, 0.5)
+
+
+def test_on_connect_logs_and_clears_the_disconnect_clock(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    bot = _bot()
+    bot._disconnected_since = 123.0
+
+    with caplog.at_level(logging.INFO, logger="aha.bot"):
+        asyncio.run(bot.on_connect())
+
+    assert bot._disconnected_since is None
+    assert [record.getMessage() for record in caplog.records] == [
+        "Connected to the Discord gateway"
+    ]
+
+
+def test_on_disconnect_logs_and_starts_the_clock_once(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    bot = _bot()
+    monkeypatch.setattr("aha.bot.time.monotonic", lambda: 500.0)
+
+    with caplog.at_level(logging.WARNING, logger="aha.bot"):
+        asyncio.run(bot.on_disconnect())
+        monkeypatch.setattr("aha.bot.time.monotonic", lambda: 600.0)
+        asyncio.run(bot.on_disconnect())
+
+    assert bot._disconnected_since == 500.0
+    assert [record.getMessage() for record in caplog.records] == [
+        "Disconnected from the Discord gateway"
+    ] * 2
+
+
+def test_on_resumed_logs_the_outage(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    bot = _bot()
+    bot._disconnected_since = 100.0
+    monkeypatch.setattr("aha.bot.time.monotonic", lambda: 102.5)
+
+    with caplog.at_level(logging.INFO, logger="aha.bot"):
+        asyncio.run(bot.on_resumed())
+
+    assert bot._disconnected_since is None
+    assert [record.getMessage() for record in caplog.records] == [
+        "Resumed the Discord gateway session after 2.5 s"
+    ]
+
+
+def test_on_resumed_without_a_prior_disconnect(caplog: pytest.LogCaptureFixture) -> None:
+    bot = _bot()
+
+    with caplog.at_level(logging.INFO, logger="aha.bot"):
+        asyncio.run(bot.on_resumed())
+
+    assert [record.getMessage() for record in caplog.records] == [
+        "Resumed the Discord gateway session"
+    ]
+
+
+def test_check_gateway_timeout_allows_recent_disconnects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = AhaBot(Settings(token="test-token"), gateway_timeout=60.0)
+    bot._disconnected_since = 100.0
+    monkeypatch.setattr("aha.bot.time.monotonic", lambda: 159.0)
+
+    assert asyncio.run(bot._check_gateway_timeout()) is False
+
+
+def test_check_gateway_timeout_without_a_disconnect() -> None:
+    bot = _bot()
+
+    assert asyncio.run(bot._check_gateway_timeout()) is False
+
+
+def test_check_gateway_timeout_closes_at_the_exact_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = AhaBot(Settings(token="test-token"), gateway_timeout=60.0)
+    bot._disconnected_since = 100.0
+    closed: list[bool] = []
+
+    async def fake_close() -> None:
+        closed.append(True)
+
+    monkeypatch.setattr(bot, "close", fake_close)
+    monkeypatch.setattr("aha.bot.time.monotonic", lambda: 160.0)
+
+    assert asyncio.run(bot._check_gateway_timeout()) is True
+    assert closed == [True]
+
+
+def test_check_gateway_timeout_closes_when_the_limit_is_exceeded(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    bot = AhaBot(Settings(token="test-token"), gateway_timeout=60.0)
+    bot._disconnected_since = 100.0
+    closed: list[bool] = []
+
+    async def fake_close() -> None:
+        closed.append(True)
+
+    monkeypatch.setattr(bot, "close", fake_close)
+    monkeypatch.setattr("aha.bot.time.monotonic", lambda: 161.0)
+
+    with caplog.at_level(logging.CRITICAL, logger="aha.bot"):
+        assert asyncio.run(bot._check_gateway_timeout()) is True
+
+    assert closed == [True]
+    assert bot._watchdog_task is None
+    assert [record.getMessage() for record in caplog.records] == [
+        "Gateway has been disconnected for 61.0 s (limit 60.0 s); closing the bot"
+    ]
+
+
+def test_watch_gateway_sleeps_between_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = AhaBot(Settings(token="test-token"), watchdog_interval=12.5)
+    waits: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        waits.append(delay)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr("aha.bot.asyncio.sleep", fake_sleep)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(bot._watch_gateway())
+
+    assert waits == [12.5]
+
+
+def test_watch_gateway_closes_when_disconnected_too_long(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = AhaBot(Settings(token="test-token"), gateway_timeout=0.01)
+    bot._disconnected_since = 0.0
+    closed: list[bool] = []
+
+    async def fake_close() -> None:
+        closed.append(True)
+
+    monkeypatch.setattr(bot, "close", fake_close)
+
+    asyncio.run(bot._watch_gateway())
+
+    assert closed == [True]
+
+
+def test_setup_hook_starts_the_watchdog_and_close_cancels_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _bot()
+
+    async def fake_load_extension(name: str) -> None:
+        return None
+
+    async def fake_sync_commands() -> None:
+        return None
+
+    monkeypatch.setattr(bot, "load_extension", fake_load_extension)
+    monkeypatch.setattr(bot, "sync_commands", fake_sync_commands)
+
+    async def scenario() -> bool:
+        await bot.setup_hook()
+        task = bot._watchdog_task
+        assert task is not None
+        await bot.close()
+        return task.cancelled()
+
+    assert asyncio.run(scenario()) is True
+    assert bot._watchdog_task is None
+
+
+def test_close_without_a_watchdog_is_a_no_op() -> None:
+    bot = _bot()
+
+    asyncio.run(bot.close())
+
+    assert bot._watchdog_task is None
+
+
+def test_setup_hook_does_not_start_a_second_watchdog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _bot()
+
+    async def fake_load_extension(name: str) -> None:
+        return None
+
+    async def fake_sync_commands() -> None:
+        return None
+
+    monkeypatch.setattr(bot, "load_extension", fake_load_extension)
+    monkeypatch.setattr(bot, "sync_commands", fake_sync_commands)
+
+    async def scenario() -> tuple[asyncio.Task[None] | None, asyncio.Task[None] | None]:
+        await bot.setup_hook()
+        first = bot._watchdog_task
+        await bot.setup_hook()
+        second = bot._watchdog_task
+        await bot.close()
+        return first, second
+
+    first, second = asyncio.run(scenario())
+
+    assert first is not None
+    assert first is second
+    assert first.get_name() == "gateway-watchdog"
+
+
 class _StubUser:
     id = 123456789
 
