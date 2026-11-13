@@ -14,12 +14,15 @@ from aha import __main__ as aha_main
 from aha import __version__
 from aha.bot import AhaBot, SyncResult
 from aha.cmdsync import CommandDiff
+from aha.dbmigrate import Migration, MigrationStatus
 
 #: Environment variables :meth:`Settings.from_env` reads, besides the token.
 _SETTINGS_ENV_VARS = (
     "LOG_LEVEL",
     "LOG_FORMAT",
     "DEV_GUILD_ID",
+    "DATABASE_URL",
+    "DATABASE_URL_FILE",
     "SYNC_ON_STARTUP",
     "HOSTNAME",
     "AHA_VERSION",
@@ -537,7 +540,8 @@ def test_sync_once_logs_in_over_rest_syncs_and_closes() -> None:
 _MAIN_HELP = (
     "usage: aha [-h] [--version] COMMAND ...\n\nRun the Aha Discord bot.\n\n"
     "positional arguments:\n"
-    "  COMMAND\n    sync      sync the slash commands to Discord and exit\n\noptions:\n"
+    "  COMMAND\n    sync      sync the slash commands to Discord and exit\n"
+    "    migrate   apply pending database migrations and exit\n\noptions:\n"
     "  -h, --help  show this help message and exit\n"
     "  --version   show program's version number and exit\n"
 )
@@ -553,14 +557,25 @@ _SYNC_HELP = (
 )
 
 
+_MIGRATE_HELP = (
+    "usage: aha migrate [-h] [--status]\n\n"
+    "Apply the SQL migrations the database is missing, in order, under an advisory lock (so two "
+    "runs\ncannot overlap), then exit. Run it as a deploy Job before the new revision rolls out; "
+    "the bot\nitself never migrates at startup.\n\n"
+    "options:\n  -h, --help  show this help message and exit\n"
+    "  --status    show what is applied and pending; change nothing\n"
+)
+
+
 def test_the_help_text_documents_the_commands(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("COLUMNS", "100")
     monkeypatch.setenv("NO_COLOR", "1")
     parser = aha_main._build_parser()
-    sync_parser = cast("Any", parser)._subparsers._group_actions[0].choices["sync"]
+    choices = cast("Any", parser)._subparsers._group_actions[0].choices
 
     assert parser.format_help() == _MAIN_HELP
-    assert sync_parser.format_help() == _SYNC_HELP
+    assert choices["sync"].format_help() == _SYNC_HELP
+    assert choices["migrate"].format_help() == _MIGRATE_HELP
 
 
 def test_a_bad_guild_id_explains_what_is_wrong(
@@ -603,3 +618,174 @@ def test_version_flag_prints_the_package_version_and_exits(
 
     assert caught.value.code == 0
     assert capsys.readouterr().out == f"aha {__version__}\n"
+
+
+# ------------------------------------------------------------------------------- aha migrate
+
+
+def _fake_migrate_once(
+    monkeypatch: pytest.MonkeyPatch, result: Any, seen: dict[str, Any] | None = None
+) -> None:
+    async def fake(url: str, *, status_only: bool) -> Any:
+        if seen is not None:
+            seen.update(url=url, status_only=status_only)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(aha_main, "_migrate_once", fake)
+    monkeypatch.setattr(aha_main, "configure_logging", lambda level, **kwargs: None)
+
+
+def _status(applied: tuple[int, ...], pending: tuple[Migration, ...]) -> MigrationStatus:
+    return MigrationStatus(applied, pending)
+
+
+def test_migrate_reports_what_it_applied(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:pw@db/aha")
+    seen: dict[str, Any] = {}
+    done = [Migration(2, "add_things", "x"), Migration(3, "more", "y")]
+    _fake_migrate_once(monkeypatch, (done, _status((1, 2, 3), ())), seen)
+
+    assert aha_main.main(["migrate"]) == 0
+
+    assert seen == {"url": "postgresql://u:pw@db/aha", "status_only": False}
+    assert capsys.readouterr().out == "applied 0002_add_things\napplied 0003_more\n"
+
+
+def test_migrate_says_when_there_is_nothing_to_do(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://db/aha")
+    _fake_migrate_once(monkeypatch, ([], _status((1,), ())))
+
+    assert aha_main.main(["migrate"]) == 0
+
+    assert capsys.readouterr().out == "up to date\n"
+
+
+def test_migrate_status_lists_applied_and_pending_and_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://db/aha")
+    seen: dict[str, Any] = {}
+    pending = (Migration(2, "a", "x"), Migration(3, "b", "y"))
+    _fake_migrate_once(monkeypatch, ([], _status((1,), pending)), seen)
+
+    assert aha_main.main(["migrate", "--status"]) == 0
+
+    assert seen["status_only"] is True
+    assert capsys.readouterr().out == "applied: 0001\npending: 0002, 0003\n"
+
+
+def test_migrate_status_of_an_empty_database(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://db/aha")
+    _fake_migrate_once(monkeypatch, ([], _status((), (Migration(1, "baseline", "x"),))))
+
+    assert aha_main.main(["migrate", "--status"]) == 0
+
+    assert capsys.readouterr().out == "applied: none\npending: 0001\n"
+
+
+def test_migrate_without_a_database_url_fails_clearly(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    monkeypatch.setattr(aha_main, "configure_logging", lambda level, **kwargs: None)
+
+    with caplog.at_level(logging.ERROR, logger="aha.__main__"):
+        assert aha_main.main(["migrate"]) == 1
+
+    assert [r.getMessage() for r in caplog.records] == [
+        "DATABASE_URL (or DATABASE_URL_FILE) is not set; there is nothing to migrate."
+    ]
+
+
+def test_a_failed_migration_returns_one_without_logging_the_url(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:hunter2@db/aha")
+    _fake_migrate_once(monkeypatch, RuntimeError("syntax error in 0002"))
+
+    with caplog.at_level(logging.ERROR, logger="aha.__main__"):
+        assert aha_main.main(["migrate"]) == 1
+
+    assert [r.getMessage() for r in caplog.records] == ["Migration failed"]
+    assert "hunter2" not in caplog.text.replace("hunter2@", "") or "hunter2" not in "".join(
+        r.getMessage() for r in caplog.records
+    )
+
+
+def test_the_real_migrate_once_applies_and_closes_the_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    class Conn:
+        async def close(self) -> None:
+            events.append("close")
+
+    async def fake_connect(url: str) -> Conn:
+        events.append(f"connect {url}")
+        return Conn()
+
+    async def fake_migrate(conn: Any, migrations: Any) -> list[Migration]:
+        events.append("migrate")
+        return [Migration(1, "baseline", "x")]
+
+    async def fake_status(conn: Any, migrations: Any) -> MigrationStatus:
+        events.append("status")
+        return _status((1,), ())
+
+    monkeypatch.setattr(aha_main, "connect_once", fake_connect)
+    monkeypatch.setattr(aha_main, "migrate", fake_migrate)
+    monkeypatch.setattr(aha_main, "status", fake_status)
+
+    applied, current = asyncio.run(aha_main._migrate_once("postgresql://db/aha", status_only=False))
+
+    assert ([m.version for m in applied], current.applied) == ([1], (1,))
+    assert events == ["connect postgresql://db/aha", "migrate", "status", "close"]
+
+
+def test_the_real_status_only_path_never_migrates_and_still_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[str] = []
+
+    class Conn:
+        async def close(self) -> None:
+            events.append("close")
+
+    async def fake_connect(url: str) -> Conn:
+        return Conn()
+
+    async def fake_migrate(conn: Any, migrations: Any) -> list[Migration]:
+        raise AssertionError("must not migrate")
+
+    async def fake_status(conn: Any, migrations: Any) -> MigrationStatus:
+        events.append("status")
+        raise RuntimeError("lost connection")
+
+    monkeypatch.setattr(aha_main, "connect_once", fake_connect)
+    monkeypatch.setattr(aha_main, "migrate", fake_migrate)
+    monkeypatch.setattr(aha_main, "status", fake_status)
+
+    with pytest.raises(RuntimeError, match="lost connection"):
+        asyncio.run(aha_main._migrate_once("postgresql://db/aha", status_only=True))
+
+    assert events == ["status", "close"]  # closed even though status failed

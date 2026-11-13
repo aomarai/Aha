@@ -7,6 +7,8 @@ import json
 import logging
 import math
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any, ClassVar, cast
 
 import discord
@@ -19,6 +21,7 @@ from aha.bot import HEALTH_TASK, READINESS_DISCONNECT_GRACE, AhaBot
 from aha.cogs.observability import AUDIT_LOGGER, Observability, outcome_of
 from aha.cogs.observability import setup as observability_setup
 from aha.config import Settings
+from aha.dbmigrate import SchemaError
 from aha.logging_setup import JsonFormatter
 from aha.metrics import ShardState
 from tests.helpers import (
@@ -575,3 +578,132 @@ def test_failures_and_unknown_commands_are_not_audited_as_completions(
         asyncio.run(scenario())
 
     assert caplog.records == []
+
+
+# ----------------------------------------------------------------------- database lifecycle
+
+
+class _FakeDatabase:
+    """Stands in for ``aha.db.Database``: records connect arguments, acquires and closing."""
+
+    instances: ClassVar[list[_FakeDatabase]] = []
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.kwargs: dict[str, Any] = {}
+        self.url = ""
+
+    @classmethod
+    async def connect(cls, url: str, **kwargs: Any) -> _FakeDatabase:
+        database = cls()
+        database.url = url
+        database.kwargs = kwargs
+        cls.instances.append(database)
+        return database
+
+    @asynccontextmanager
+    async def acquire(self) -> AsyncIterator[str]:
+        yield "connection"
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def _database_bot(monkeypatch: pytest.MonkeyPatch, **settings: Any) -> AhaBot:
+    _FakeDatabase.instances.clear()
+    monkeypatch.setattr("aha.bot.Database", _FakeDatabase)
+    bot = AhaBot(Settings(token="test-token", health_port=0, **settings))
+
+    async def fake_load_extension(name: str) -> None:
+        return None
+
+    async def fake_super_close(self: Any) -> None:
+        return None
+
+    monkeypatch.setattr(bot, "load_extension", fake_load_extension)
+    monkeypatch.setattr(commands.AutoShardedBot, "close", fake_super_close)
+    return bot
+
+
+def test_without_a_database_url_the_bot_has_no_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = _database_bot(monkeypatch)
+
+    async def scenario() -> None:
+        await bot.setup_hook()
+        await bot.close()
+
+    asyncio.run(scenario())
+
+    assert bot.db is None
+    assert _FakeDatabase.instances == []
+
+
+def test_a_database_url_opens_a_pool_checks_the_schema_and_closes_it(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    checked: list[tuple[object, object]] = []
+
+    async def fake_require_current(connection: object, migrations: object) -> None:
+        checked.append((connection, migrations))
+
+    monkeypatch.setattr("aha.bot.require_current", fake_require_current)
+    bot = _database_bot(
+        monkeypatch,
+        database_url="postgresql://u:pw@db/aha",
+        db_pool_max=9,
+        db_statement_timeout=1.5,
+    )
+
+    async def scenario() -> None:
+        await bot.setup_hook()
+        assert cast("Any", bot.db) is _FakeDatabase.instances[0]
+        await bot.close()
+
+    with caplog.at_level(logging.INFO, logger="aha.bot"):
+        asyncio.run(scenario())
+
+    (database,) = _FakeDatabase.instances
+    assert database.url == "postgresql://u:pw@db/aha"
+    assert database.kwargs == {"max_size": 9, "statement_timeout": 1.5}
+    assert database.closed is True
+    assert [connection for connection, _ in checked] == ["connection"]
+    assert "Connected to the database; the schema is up to date" in [
+        record.getMessage() for record in caplog.records
+    ]
+
+
+def test_a_schema_that_is_behind_stops_startup_and_the_pool_is_still_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def behind(connection: object, migrations: object) -> None:
+        raise SchemaError("The database schema is behind (pending: 0002). Run 'aha migrate'.")
+
+    monkeypatch.setattr("aha.bot.require_current", behind)
+    bot = _database_bot(monkeypatch, database_url="postgresql://db/aha")
+
+    async def scenario() -> None:
+        with pytest.raises(SchemaError, match="Run 'aha migrate'"):
+            await bot.setup_hook()
+        await bot.close()  # what ``async with bot`` does when startup fails
+
+    asyncio.run(scenario())
+
+    assert _FakeDatabase.instances[0].closed is True
+
+
+def test_the_sync_job_never_opens_the_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    _FakeDatabase.instances.clear()
+    monkeypatch.setattr("aha.bot.Database", _FakeDatabase)
+    bot = AhaBot(
+        Settings(token="t", health_port=0, database_url="postgresql://db/aha"), use_database=False
+    )
+
+    async def fake_load_extension(name: str) -> None:
+        return None
+
+    monkeypatch.setattr(bot, "load_extension", fake_load_extension)
+
+    asyncio.run(bot.setup_hook())
+
+    assert bot.db is None
+    assert _FakeDatabase.instances == []
