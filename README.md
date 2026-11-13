@@ -194,7 +194,8 @@ async def example(ctx: commands.Context[commands.Bot]) -> None: ...
 Replies go through `aha.replies.reply` (or `respond`/`edit_message` for interaction
 responses), which disable mentions, and a bot-wide
 per-user budget (10 invocations per 10 s) applies to every command; `/help` and
-`/sync` also carry their own cooldowns. Permission and cooldown failures reply
+`/sync` also carry their own cooldowns. The budget is kept per process behind a swappable
+`RateLimitBackend`, so with several processes a user can use up to that many invocations per process. Permission and cooldown failures reply
 through the global error handler: ephemeral for slash invocations and a normal
 (public) message for mention invocations, since Discord cannot make a message
 reply private. Guild-only is enforced by Discord for slash invocations and by the
