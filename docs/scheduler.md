@@ -9,11 +9,15 @@ when `DATABASE_URL` is set.
 
 ```python
 # Enqueue (needs a user or a guild: that is how a person's data is found and deleted).
-await JobStore(bot.db).enqueue("reminder", run_at, user_id=ctx.author.id,
-                                payload={"channel": ctx.channel.id, "text": text})
+await JobStore(bot.db).enqueue(
+    "reminder", run_at, user_id=ctx.author.id, payload={"channel": ctx.channel.id, "text": text}
+)
+
 
 # Handle: register once, in the cog's setup. The handler gets a Job.
 async def deliver(job: Job) -> None: ...
+
+
 bot.scheduler.register("reminder", deliver)
 ```
 
