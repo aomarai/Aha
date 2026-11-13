@@ -226,10 +226,8 @@ class AhaBot(commands.Bot):
         resumes in-flight sessions within seconds and a probe should not flap on that.
         """
         since = self._disconnected_since
-        outage = 0.0 if since is None else time.monotonic() - since
-        return [
-            ShardState(0, self.is_ready() and outage <= READINESS_DISCONNECT_GRACE, self.latency)
-        ]
+        down_too_long = since is not None and time.monotonic() - since > READINESS_DISCONNECT_GRACE
+        return [ShardState(0, self.is_ready() and not down_too_long, self.latency)]
 
     def guild_counts(self) -> dict[int, int]:
         """Return the number of cached guilds per owned shard id (zero when it has none)."""

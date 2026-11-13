@@ -131,6 +131,7 @@ def test_each_metrics_instance_has_its_own_registry() -> None:
 def test_the_exposition_text_parses_and_documents_every_metric() -> None:
     metrics = _metrics([ShardState(0, True, 0.05)], {0: 1})
     metrics.record_command("ping", "ok")
+    metrics.reconnects.labels(shard="0").inc()
 
     families = {
         f.name: f
@@ -145,5 +146,40 @@ def test_the_exposition_text_parses_and_documents_every_metric() -> None:
         "aha_gateway_latency_seconds",
         "aha_guilds",
     } <= set(families)  # counters also expose a ``*_created`` series
-    assert families["aha_shard_ready"].documentation == "1 when the shard is connected and ready."
-    assert families["aha_guilds"].documentation == "Guilds served by the shard."
+    documented = {
+        name: family.documentation
+        for name, family in families.items()
+        if not name.endswith("_created")
+    }
+    assert documented == {
+        "aha_commands": "Command invocations by outcome (ok, error, denied, cooldown).",
+        "aha_command_duration_seconds": (
+            "Seconds from a command's entry point to its completion or failure."
+        ),
+        "aha_gateway_reconnects": (
+            "Gateway disconnects (each one is followed by a reconnect attempt)."
+        ),
+        "aha_shard_ready": "1 when the shard is connected and ready.",
+        "aha_gateway_latency_seconds": "Gateway heartbeat latency.",
+        "aha_guilds": "Guilds served by the shard.",
+    }
+
+
+def test_the_duration_histogram_uses_our_buckets_not_the_library_defaults() -> None:
+    clock = FakeClock(0.0)
+    metrics = _metrics(clock=clock)
+
+    async def scenario() -> None:
+        metrics.start_timer()
+        metrics.record_command("ping", "ok")
+
+    asyncio.run(scenario())
+
+    buckets = {"0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "0.5", "1.0", "2.5", "5.0", "10.0"}
+    seen = {
+        sample.labels["le"]
+        for family in metrics.registry.collect()
+        for sample in family.samples
+        if sample.name == "aha_command_duration_seconds_bucket"
+    }
+    assert seen == buckets | {"+Inf"}  # the library defaults would add 0.075, 0.75, 7.5, ...

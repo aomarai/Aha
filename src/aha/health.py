@@ -20,7 +20,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from aiohttp import web
+from aiohttp import hdrs, web
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 if TYPE_CHECKING:
@@ -94,5 +94,5 @@ class HealthServer:
         """Prometheus exposition of the bot's registry."""
         return web.Response(
             body=generate_latest(self._bot.metrics.registry),
-            headers={"Content-Type": CONTENT_TYPE_LATEST},
+            headers={hdrs.CONTENT_TYPE: CONTENT_TYPE_LATEST},
         )
