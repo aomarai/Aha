@@ -249,13 +249,17 @@ Real environment variables take precedence over `.env`.
 
 | Variable            | Required | Default | Purpose                                         |
 |---------------------|----------|---------|-------------------------------------------------|
-| `DISCORD_BOT_TOKEN` | yes      | –       | Bot token from the Developer Portal             |
+| `DISCORD_BOT_TOKEN` | yes*     | –       | Bot token from the Developer Portal             |
+| `DISCORD_BOT_TOKEN_FILE` | yes* | –      | Path of a file holding the token (use instead of the variable above; set exactly one) |
 | `LOG_LEVEL`         | no       | `INFO`  | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `LOG_FORMAT`        | no       | `text`  | `text` (human-readable) or `json` (one object per line) |
 | `DEV_GUILD_ID`      | no       | –       | Sync slash commands instantly to this guild     |
 | `SYNC_ON_STARTUP`   | no       | `false` | Sync commands at every start (single process only) |
 | `HEALTH_BIND`       | no       | `127.0.0.1` | Address of the health/metrics server        |
 | `HEALTH_PORT`       | no       | `8080`  | Port of the health/metrics server; `0` disables it |
+
+\* Exactly one of `DISCORD_BOT_TOKEN` and `DISCORD_BOT_TOKEN_FILE` is required. See the
+[token rotation runbook](docs/runbooks/token-rotation.md).
 
 ### Health, readiness and metrics
 

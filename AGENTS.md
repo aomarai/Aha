@@ -66,7 +66,8 @@ every change must keep:
   Misconfiguration returns exit code 1.
 - `config.Settings` is a frozen dataclass built by `Settings.from_env(env=None)`. Pass an explicit
   mapping in tests instead of mutating `os.environ`. Invalid values raise `ConfigError` at
-  startup rather than silently falling back.
+  startup rather than silently falling back. The token comes from `DISCORD_BOT_TOKEN` or the file named by
+  `DISCORD_BOT_TOKEN_FILE` (exactly one; never put it in an error message or log).
 - `bot.AhaBot.setup_hook` loads every module in `COG_MODULES` and, only when `/sync` is meant to
   exist (`DEV_GUILD_ID` or `SYNC_ON_STARTUP`), `OPERATOR_COG` (`aha.cogs.ops`, the owner-only
   `/sync`). It syncs the command tree at startup only in those same modes

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from aha.config import ConfigError, Settings
@@ -178,3 +180,90 @@ def test_health_port_boundary_values_are_accepted() -> None:
     assert (
         Settings.from_env({"DISCORD_BOT_TOKEN": "s", "HEALTH_PORT": "65535"}).health_port == 65535
     )
+
+
+def _write(tmp_path: Path, content: str | bytes, name: str = "token") -> str:
+    path = tmp_path / name
+    if isinstance(content, bytes):
+        path.write_bytes(content)
+    else:
+        path.write_text(content, encoding="utf-8")
+    return str(path)
+
+
+def test_token_can_be_read_from_a_file(tmp_path: Path) -> None:
+    path = _write(tmp_path, "file-secret\n")  # Kubernetes and editors add a trailing newline
+
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN_FILE": path})
+
+    assert settings.token == "file-secret"
+
+
+def test_token_file_path_is_trimmed(tmp_path: Path) -> None:
+    path = _write(tmp_path, "file-secret")
+
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN_FILE": f"  {path}  "})
+
+    assert settings.token == "file-secret"
+
+
+def test_a_blank_token_file_variable_falls_back_to_the_environment_token() -> None:
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "inline", "DISCORD_BOT_TOKEN_FILE": "  "})
+
+    assert settings.token == "inline"
+
+
+def test_setting_both_the_token_and_a_token_file_is_an_error(tmp_path: Path) -> None:
+    path = _write(tmp_path, "file-secret")
+
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN": "inline", "DISCORD_BOT_TOKEN_FILE": path})
+
+    assert (
+        str(excinfo.value)
+        == "Set only one of DISCORD_BOT_TOKEN and DISCORD_BOT_TOKEN_FILE, not both."
+    )
+
+
+def test_a_missing_token_file_is_reported_with_its_path(tmp_path: Path) -> None:
+    missing = str(tmp_path / "nope")
+
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN_FILE": missing})
+
+    assert str(excinfo.value) == (
+        f"Cannot read DISCORD_BOT_TOKEN_FILE ({missing}): No such file or directory."
+    )
+
+
+def test_a_token_file_that_is_a_directory_is_reported(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match=r"^Cannot read DISCORD_BOT_TOKEN_FILE \(.*\): "):
+        Settings.from_env({"DISCORD_BOT_TOKEN_FILE": str(tmp_path)})
+
+
+def test_a_binary_token_file_is_reported_without_echoing_its_content(tmp_path: Path) -> None:
+    path = _write(tmp_path, b"\xff\xfe\x00secret")
+
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN_FILE": path})
+
+    assert str(excinfo.value) == f"Cannot read DISCORD_BOT_TOKEN_FILE ({path}): not valid UTF-8."
+    assert "secret" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("content", ["", "  \n\t\n"])
+def test_an_empty_token_file_is_rejected(tmp_path: Path, content: str) -> None:
+    path = _write(tmp_path, content)
+
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN_FILE": path})
+
+    assert str(excinfo.value) == f"DISCORD_BOT_TOKEN_FILE ({path}) is empty."
+
+
+def test_a_token_read_from_a_file_is_still_redacted_in_the_repr(tmp_path: Path) -> None:
+    path = _write(tmp_path, "file-secret")
+
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN_FILE": path})
+
+    assert "file-secret" not in repr(settings)
