@@ -207,6 +207,12 @@ Design decisions live in [`docs/adr/`](docs/adr/). Start with
 [ADR 0001](docs/adr/0001-runtime-architecture.md), which covers how the bot scales horizontally
 (shard groups per pod, Postgres for shared state, command sync as a deploy step).
 
+## Releases
+
+Tagged releases publish a versioned image to `ghcr.io/aomarai/aha` (pull requests never publish);
+deploy by digest, not by tag. See [docs/releasing.md](docs/releasing.md) and the
+[changelog](CHANGELOG.md).
+
 ## Project layout
 
 ```
