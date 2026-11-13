@@ -70,7 +70,7 @@ source_paths = ["src/aha"]
 also_copy = ["scripts/", "pyproject.toml"]
 # Pure SQL, verified against a real PostgreSQL by tests/test_postgres_integration.py; mutating SQL
 # strings tells us nothing without a database in the mutation job.
-do_not_mutate = ["src/aha/jobstore.py"]
+do_not_mutate = ["src/aha/jobstore.py", "src/aha/guildsettings_store.py"]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = ["--no-cov", "-q", "-p", "no:cacheprovider"]
 

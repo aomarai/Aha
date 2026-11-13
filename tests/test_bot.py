@@ -15,6 +15,7 @@ from discord.ext import commands
 from aha import logctx
 from aha.bot import COG_MODULES, WATCHDOG_TASK, AhaBot, gateway_intents
 from aha.config import Settings
+from aha.guildsettings import CommandDisabled
 from aha.ratelimit import LocalBackend, RateLimiter
 from aha.tasks import TaskRegistry
 from tests.helpers import (
@@ -784,3 +785,111 @@ def test_switching_the_activity_off_leaves_only_the_status() -> None:
 
     assert bot.activity is None
     assert bot.status is discord.Status.idle
+
+
+# ------------------------------------------------------------ disabled commands (#98)
+
+
+class _FakeSettings:
+    def __init__(self, disabled: set[str], fail: bool = False) -> None:
+        self.disabled = disabled
+        self.fail = fail
+        self.asked: list[int] = []
+
+    async def get(self, guild_id: int) -> Any:
+        self.asked.append(guild_id)
+        if self.fail:
+            raise RuntimeError("db down")
+        return Named(disabled_commands=frozenset(self.disabled))
+
+
+def _settings_bot(settings: _FakeSettings | None) -> AhaBot:
+    bot = _bot()
+    bot.guild_settings = cast("Any", settings)
+    return bot
+
+
+def test_a_disabled_command_is_refused_in_that_guild() -> None:
+    settings = _FakeSettings({"ping"})
+    bot = _settings_bot(settings)
+
+    with pytest.raises(CommandDisabled) as caught:
+        asyncio.run(bot.ensure_command_enabled(11, "ping"))
+
+    assert str(caught.value) == "ping is disabled in this server"
+    assert settings.asked == [11]
+
+
+def test_disabling_a_group_disables_its_subcommands() -> None:
+    bot = _settings_bot(_FakeSettings({"poll"}))
+
+    with pytest.raises(CommandDisabled):
+        asyncio.run(bot.ensure_command_enabled(11, "poll results"))
+
+
+def test_an_enabled_command_and_the_other_commands_pass() -> None:
+    bot = _settings_bot(_FakeSettings({"roll"}))
+
+    asyncio.run(bot.ensure_command_enabled(11, "ping"))
+
+
+def test_the_protected_commands_never_read_the_settings() -> None:
+    settings = _FakeSettings({"help", "config"})
+    bot = _settings_bot(settings)
+
+    asyncio.run(bot.ensure_command_enabled(11, "help"))
+    asyncio.run(bot.ensure_command_enabled(11, "config view"))
+
+    assert settings.asked == []
+
+
+@pytest.mark.parametrize(("guild_id", "command"), [(None, "ping"), (11, None)])
+def test_nothing_to_check_without_a_guild_or_a_command(
+    guild_id: int | None, command: str | None
+) -> None:
+    settings = _FakeSettings({"ping"})
+
+    asyncio.run(_settings_bot(settings).ensure_command_enabled(guild_id, command))
+
+    assert settings.asked == []
+
+
+def test_without_a_database_every_command_is_enabled() -> None:
+    asyncio.run(_settings_bot(None).ensure_command_enabled(11, "ping"))
+
+
+def test_a_settings_outage_fails_open_and_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    bot = _settings_bot(_FakeSettings({"ping"}, fail=True))
+
+    with caplog.at_level(logging.WARNING, logger="aha.bot"):
+        asyncio.run(bot.ensure_command_enabled(11, "ping"))
+
+    assert caplog.messages == ["Could not read guild settings; allowing the command"]
+    assert caplog.records[0].exc_info is not None
+    assert str(caplog.records[0].exc_info[1]) == "db down"
+
+
+def test_a_new_bot_has_no_guild_settings_until_a_database_is_connected() -> None:
+    assert _bot().guild_settings is None
+
+
+def test_the_slash_and_message_surfaces_both_enforce_it() -> None:
+    slash, message = _gated_bot(FakeClock()), _gated_bot(FakeClock())
+    slash.guild_settings = message.guild_settings = cast("Any", _FakeSettings({"ping"}))
+
+    with pytest.raises(CommandDisabled):
+        asyncio.run(slash.tree.interaction_check(as_tree_interaction(StubInteraction())))
+    with pytest.raises(CommandDisabled):
+        asyncio.run(message._enforce_rate_limit(as_context(StubContext())))
+
+
+def test_a_command_without_a_guild_or_name_is_not_checked_on_either_surface() -> None:
+    slash, message = _gated_bot(FakeClock()), _gated_bot(FakeClock())
+    settings = _FakeSettings({"ping"})
+    slash.guild_settings = message.guild_settings = cast("Any", settings)
+    interaction = StubInteraction(command=False, guild=False)
+    ctx = StubContext(command=False, guild=False)
+
+    assert asyncio.run(slash.tree.interaction_check(as_tree_interaction(interaction))) is True
+    assert asyncio.run(message._enforce_rate_limit(as_context(ctx))) is True
+    assert settings.asked == []

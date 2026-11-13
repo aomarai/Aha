@@ -15,6 +15,7 @@ your own copy, **you** are the operator of that copy, and this describes what th
 | Your Discord **user ID**, the **server and channel IDs**, the **command name** and **the names (never the values) of its options**, and when you ran a command | operating and debugging the bot; an audit trail of who ran what | In the operator's **logs** only, for as long as the operator's log store keeps them (the project recommends 30 days). Not in a database. |
 | **Messages that mention the bot** | so that `@Aha command` works | Not stored. Aha does not request the Message Content privileged intent, and ignores every message that does not mention it. |
 | **The link** you give `/url` | to show a preview | The page title and description are cached **in memory for 5 minutes** to avoid re-fetching, then discarded. |
+| Server settings (`/configure`) | to apply a server's choices (log channel, disabled commands) | The server id, the settings and the **id of the admin who last changed them**, until an admin resets them or Aha has been out of the server for **30 days**, then deleted. |
 | Reminders (`/remind`) | to deliver your reminder later | Your user id, server id, channel id and the reminder text are stored **until it is delivered or you cancel it** (`/unremind`); failed deliveries are kept at most 7 days. |
 | Polls and reactions | `/poll` creates a native Discord poll; "Count reactions" reads a message's reaction counts | **Discord** stores polls and votes, not Aha. |
 

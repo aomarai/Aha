@@ -30,6 +30,7 @@ from aha.dbmigrate import (
     require_current,
     status,
 )
+from aha.guildsettings_store import GuildSettings, GuildSettingsStore
 from aha.jobstore import JobStore
 
 URL = os.environ.get("AHA_TEST_DATABASE_URL")
@@ -335,3 +336,58 @@ async def test_user_queries_count_list_and_cancel_only_the_owners_live_jobs(
     assert await store.cancel("reminder", 1, first) is False
     assert await store.count("reminder", 1) == 1
     assert await store.count("reminder", 2) == 1
+
+
+@pytest_asyncio.fixture
+async def settings_store(store: JobStore) -> GuildSettingsStore:
+    """The guild-settings store over the same migrated schema as ``store``."""
+    return GuildSettingsStore(store._db)
+
+
+async def test_guild_settings_default_to_no_row_and_upserts_are_atomic(
+    settings_store: GuildSettingsStore,
+) -> None:
+    assert await settings_store.get(5) is None
+
+    await settings_store.set_log_channel(5, 99, by=7)
+    await settings_store.disable(5, "roll", by=8)
+    await settings_store.disable(5, "coin", by=8)
+    await settings_store.disable(5, "roll", by=9)  # idempotent
+
+    row = await settings_store.get(5)
+    assert row == GuildSettings(5, disabled_commands=frozenset({"roll", "coin"}), log_channel_id=99)
+
+    await settings_store.enable(5, "roll", by=9)
+    await settings_store.enable(5, "never-disabled", by=9)
+    await settings_store.set_log_channel(5, None, by=9)
+    row = await settings_store.get(5)
+    assert row == GuildSettings(5, disabled_commands=frozenset({"coin"}))
+    assert await settings_store.get(6) is None  # guilds are separate
+
+
+async def test_enabling_in_a_guild_with_no_row_creates_nothing(
+    settings_store: GuildSettingsStore,
+) -> None:
+    await settings_store.enable(5, "roll", by=1)
+
+    assert await settings_store.get(5) is None
+
+
+async def test_deleting_guild_settings_reports_whether_there_was_a_row(
+    settings_store: GuildSettingsStore,
+) -> None:
+    await settings_store.set_log_channel(5, 1, by=1)
+
+    assert await settings_store.delete(5) is True
+    assert await settings_store.delete(5) is False
+    assert await settings_store.get(5) is None
+
+
+async def test_the_disabled_command_cap_is_enforced_by_the_database(
+    settings_store: GuildSettingsStore,
+) -> None:
+    for number in range(100):
+        await settings_store.disable(5, f"c{number}", by=1)
+
+    with pytest.raises(asyncpg.CheckViolationError):
+        await settings_store.disable(5, "one-too-many", by=1)

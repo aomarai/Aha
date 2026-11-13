@@ -35,6 +35,14 @@ EXEMPT_TABLES = frozenset({"schema_migrations"})
 
 #: Every other table. Empty until the first stateful feature (#96-#98) adds one.
 INVENTORY: dict[str, TableData] = {
+    "guild_settings": TableData(
+        user_column="updated_by",
+        guild_column="guild_id",
+        retention=(
+            "until a server admin resets it or the bot has been out of the server for 30 days, "
+            "then the row is deleted; updated_by is only the id of the last admin who changed it"
+        ),
+    ),
     "scheduled_jobs": TableData(
         user_column="user_id",
         guild_column="guild_id",

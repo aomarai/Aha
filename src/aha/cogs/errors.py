@@ -18,6 +18,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from aha.guildsettings import CommandDisabled
 from aha.replies import reply, respond
 
 __all__ = ["WRAPPERS", "Errors", "setup"]
@@ -53,6 +54,8 @@ def _describe(error: Exception) -> str | None:
         return f"That command is on cooldown. Try again in {error.retry_after:.1f}s."
     if isinstance(error, (commands.NoPrivateMessage, app_commands.NoPrivateMessage)):
         return "This command can't be used in direct messages."
+    if isinstance(error, CommandDisabled):
+        return "That command is disabled in this server."
     if isinstance(error, (commands.CheckFailure, app_commands.CheckFailure)):
         return "You're not allowed to use that command."
     return None
