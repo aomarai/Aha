@@ -353,6 +353,11 @@ Run the bot inside the container exactly as you would locally:
 uv run aha        # needs DISCORD_BOT_TOKEN in .env (see .env.example)
 ```
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and the quality gates, [SECURITY.md](SECURITY.md)
+to report a vulnerability, and the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## License
 
 MIT -- see [LICENSE](LICENSE).

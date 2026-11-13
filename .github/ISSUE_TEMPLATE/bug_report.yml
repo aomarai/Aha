@@ -1,0 +1,42 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Never paste your bot token.** If a log line contains one, remove it
+        (Aha masks it as `***`, but check). Security problems go through the private link on the
+        issue chooser, not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command or area
+      description: For example `/poll`, `aha sync`, the health endpoints, the container image.
+  - type: textarea
+    id: about
+    attributes:
+      label: Version
+      description: Paste the output of `/about` (or `aha --version`), and say how you run the bot (local, Docker, Kubernetes).
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: With `LOG_FORMAT=json` if you can. Remove anything private.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: I removed any token or private data from what I pasted.
+          required: true
