@@ -101,3 +101,26 @@ def test_blank_log_format_falls_back_to_text() -> None:
 def test_invalid_log_format_is_rejected() -> None:
     with pytest.raises(ConfigError, match=r"^LOG_FORMAT must be 'text' or 'json', got 'yaml'$"):
         Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "LOG_FORMAT": "yaml"})
+
+
+def test_sync_on_startup_defaults_to_false() -> None:
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "secret"}).sync_on_startup is False
+
+
+@pytest.mark.parametrize("raw", ["1", "true", "TRUE", " yes ", "On"])
+def test_sync_on_startup_accepts_truthy_values(raw: str) -> None:
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "SYNC_ON_STARTUP": raw})
+
+    assert settings.sync_on_startup is True
+
+
+@pytest.mark.parametrize("raw", ["0", "false", "False", " no ", "OFF", ""])
+def test_sync_on_startup_accepts_falsy_and_blank_values(raw: str) -> None:
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "SYNC_ON_STARTUP": raw})
+
+    assert settings.sync_on_startup is False
+
+
+def test_invalid_sync_on_startup_is_rejected() -> None:
+    with pytest.raises(ConfigError, match=r"^SYNC_ON_STARTUP must be true or false, got 'maybe'$"):
+        Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "SYNC_ON_STARTUP": "maybe"})

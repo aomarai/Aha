@@ -24,7 +24,6 @@ from tests.helpers import (
     StubInteraction,
     as_context,
     as_tree_interaction,
-    http_error,
 )
 
 
@@ -80,163 +79,11 @@ def test_cog_modules_are_configured_as_extensions() -> None:
     assert all(module.startswith("aha.cogs.") for module in COG_MODULES)
 
 
-async def _setup_and_close(bot: AhaBot, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run ``setup_hook`` then close the bot, so the watchdog is not left to loop teardown."""
-
-    async def fake_super_close(self: commands.Bot) -> None:
-        return None
-
-    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
-    await bot.setup_hook()
-    await bot.close()
-
-
-def test_setup_hook_loads_cogs_and_syncs_globally(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    bot = _bot()
-    loaded: list[str] = []
-    sync_calls: list[dict[str, Any]] = []
-
-    async def fake_load_extension(name: str) -> None:
-        loaded.append(name)
-
-    async def fake_sync(**kwargs: Any) -> list[Any]:
-        sync_calls.append(kwargs)
-        return []
-
-    monkeypatch.setattr(bot, "load_extension", fake_load_extension)
-    monkeypatch.setattr(bot.tree, "sync", fake_sync)
-
-    with caplog.at_level(logging.INFO, logger="aha.bot"):
-        asyncio.run(_setup_and_close(bot, monkeypatch))
-
-    assert loaded == list(COG_MODULES)
-    assert sync_calls == [{}]  # one global sync, no guild argument
-    messages = [r.getMessage() for r in caplog.records]
-    assert messages == [
-        *(f"Loaded extension {module}" for module in COG_MODULES),
-        "Synced global application commands",
-    ]
-
-
-def test_setup_hook_syncs_dev_guild_then_clears_globals(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    bot = _bot(dev_guild_id=123456789012345678)
-    sync_calls: list[dict[str, Any]] = []
-    events: list[str] = []
-
-    async def fake_load_extension(name: str) -> None:
-        return None
-
-    async def fake_sync(**kwargs: Any) -> list[Any]:
-        sync_calls.append(kwargs)
-        events.append("sync")
-        return []
-
-    def fake_clear_commands(**kwargs: Any) -> None:
-        events.append(f"clear:{kwargs}")
-
-    def fake_copy_global_to(**kwargs: Any) -> None:
-        events.append(f"copy:{kwargs['guild'].id}")
-
-    monkeypatch.setattr(bot, "load_extension", fake_load_extension)
-    monkeypatch.setattr(bot.tree, "sync", fake_sync)
-    monkeypatch.setattr(bot.tree, "clear_commands", fake_clear_commands)
-    monkeypatch.setattr(bot.tree, "copy_global_to", fake_copy_global_to)
-
-    with caplog.at_level(logging.INFO, logger="aha.bot"):
-        asyncio.run(_setup_and_close(bot, monkeypatch))
-
-    assert caplog.records[-1].getMessage() == ("Synced commands to dev guild 123456789012345678")
-    assert len(sync_calls) == 2
-    assert sync_calls[0]["guild"].id == 123456789012345678
-    assert sync_calls[1] == {}  # global command set cleared
-    # copy -> guild sync -> clear globals -> global sync, in that order.
-    assert events == [
-        "copy:123456789012345678",
-        "sync",
-        "clear:{'guild': None}",
-        "sync",
-    ]
-
-
-def test_sync_commands_keeps_globals_for_a_second_sync(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    bot = _bot(dev_guild_id=123456789012345678)
-
-    async def fake_sync(**kwargs: Any) -> list[Any]:
-        return []
-
-    async def scenario() -> tuple[list[str], list[str], list[str]]:
-        await bot.load_extension("aha.cogs.meta")
-        monkeypatch.setattr(bot.tree, "sync", fake_sync)
-        before = [command.name for command in bot.tree.get_commands(guild=None)]
-        await bot.sync_commands()
-        after_first = [command.name for command in bot.tree.get_commands(guild=None)]
-        await bot.sync_commands()
-        after_second = [command.name for command in bot.tree.get_commands(guild=None)]
-        return before, after_first, after_second
-
-    before, after_first, after_second = asyncio.run(scenario())
-
-    # The dev-guild purge empties the local global tree to empty the remote set;
-    # it must restore it, or a later sync copies nothing and wipes the guild.
-    assert before == ["ping", "sync"]
-    assert after_first == before
-    assert after_second == before
-
-
 def _gated_bot(clock: FakeClock) -> AhaBot:
     """Build a bot whose gate uses ``clock`` instead of the monotonic clock."""
     bot = AhaBot(Settings(token="test-token"), rate_limit=(1, 60.0))
     bot.rate_limiter = RateLimiter(1, 60.0, clock=clock)
     return bot
-
-
-def test_sync_commands_restores_globals_when_the_purge_sync_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    bot = _bot(dev_guild_id=123456789012345678)
-    calls: list[dict[str, Any]] = []
-
-    async def fake_sync(**kwargs: Any) -> list[Any]:
-        calls.append(kwargs)
-        if len(calls) == 2:  # the global purge sync
-            raise http_error()
-        return []
-
-    async def scenario() -> list[str]:
-        await bot.load_extension("aha.cogs.meta")
-        monkeypatch.setattr(bot.tree, "sync", fake_sync)
-        with pytest.raises(discord.HTTPException):
-            await bot.sync_commands()
-        return [command.name for command in bot.tree.get_commands(guild=None)]
-
-    assert asyncio.run(scenario()) == ["ping", "sync"]
-
-
-def test_sync_commands_serializes_concurrent_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    bot = _bot(dev_guild_id=123456789012345678)
-    events: list[str] = []
-
-    async def fake_sync(**kwargs: Any) -> list[Any]:
-        events.append("start")
-        await asyncio.sleep(0)
-        events.append("end")
-        return []
-
-    async def scenario() -> None:
-        await bot.load_extension("aha.cogs.meta")
-        monkeypatch.setattr(bot.tree, "sync", fake_sync)
-        await asyncio.gather(bot.sync_commands(), bot.sync_commands())
-
-    asyncio.run(scenario())
-
-    # Each call runs two syncs; the lock must keep the pairs from interleaving.
-    assert events == ["start", "end"] * 4
 
 
 def test_tree_interaction_check_binds_the_log_context() -> None:

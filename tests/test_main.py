@@ -11,13 +11,15 @@ from typing import Any, cast
 import pytest
 
 from aha import __main__ as aha_main
-from aha.bot import AhaBot
+from aha.bot import AhaBot, SyncResult
+from aha.cmdsync import CommandDiff
 
 #: Environment variables :meth:`Settings.from_env` reads, besides the token.
 _SETTINGS_ENV_VARS = (
     "LOG_LEVEL",
     "LOG_FORMAT",
     "DEV_GUILD_ID",
+    "SYNC_ON_STARTUP",
     "HOSTNAME",
     "AHA_VERSION",
     "AHA_COMMIT",
@@ -373,3 +375,158 @@ def test_serve_tolerates_loops_without_signal_support(monkeypatch: pytest.Monkey
         asyncio.run(serving)
 
     assert bot.events == ["enter", "start:tok", "close"]
+
+
+def _fake_sync_once(
+    monkeypatch: pytest.MonkeyPatch,
+    results: list[SyncResult] | Exception,
+    seen: dict[str, Any] | None = None,
+) -> None:
+    async def fake(bot: AhaBot, token: str, *, dry_run: bool) -> list[SyncResult]:
+        if seen is not None:
+            seen.update(bot=bot, token=token, dry_run=dry_run)
+        if isinstance(results, Exception):
+            raise results
+        return results
+
+    monkeypatch.setattr(aha_main, "_sync_once", fake)
+    monkeypatch.setattr(aha_main, "configure_logging", lambda level, **kwargs: None)
+
+
+def test_sync_subcommand_syncs_and_prints_the_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    seen: dict[str, Any] = {}
+    diff = CommandDiff(added=("ping",), removed=("old",), changed=("help",))
+    _fake_sync_once(monkeypatch, [SyncResult("global", diff, synced=True)], seen)
+
+    assert aha_main.main(["sync"]) == 0
+
+    assert seen["token"] == "dummy-token"
+    assert seen["dry_run"] is False
+    assert seen["bot"].sync_on_startup is False  # the Job syncs explicitly, once
+    assert seen["bot"].settings.dev_guild_id is None
+    assert capsys.readouterr().out == "global: synced\n  + ping\n  - old\n  ~ help\n"
+
+
+def test_sync_dry_run_is_reported_as_would_change(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    seen: dict[str, Any] = {}
+    results = [
+        SyncResult("global", CommandDiff(added=("ping",)), synced=False),
+        SyncResult("dev guild 5", CommandDiff(), synced=False),
+    ]
+    _fake_sync_once(monkeypatch, results, seen)
+
+    assert aha_main.main(["sync", "--dry-run"]) == 0
+
+    assert seen["dry_run"] is True
+    assert capsys.readouterr().out == (
+        "global: would change (dry run)\n  + ping\ndev guild 5: unchanged\n"
+    )
+
+
+def test_sync_guild_option_overrides_dev_guild_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    monkeypatch.setenv("DEV_GUILD_ID", "111")
+    seen: dict[str, Any] = {}
+    _fake_sync_once(monkeypatch, [], seen)
+
+    assert aha_main.main(["sync", "--guild", "222"]) == 0
+
+    assert seen["bot"].settings.dev_guild_id == 222
+    assert seen["bot"].sync_on_startup is False
+
+
+def test_sync_failure_is_logged_and_returns_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    _fake_sync_once(monkeypatch, RuntimeError("rejected token"))
+
+    with caplog.at_level(logging.ERROR, logger="aha.__main__"):
+        assert aha_main.main(["sync"]) == 1
+
+    assert [r.getMessage() for r in caplog.records] == ["Command sync failed"]
+
+
+def test_sync_without_a_token_returns_one(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+
+    assert aha_main.main(["sync"]) == 1
+
+
+@pytest.mark.parametrize("raw", ["abc", "0", "-5", str(1 << 63)])
+def test_sync_rejects_an_invalid_guild_id(
+    raw: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+
+    with pytest.raises(SystemExit) as caught:
+        aha_main.main(["sync", "--guild", raw])
+
+    assert caught.value.code == 2
+
+
+def test_guild_id_accepts_a_snowflake() -> None:
+    assert aha_main._guild_id("123456789012345678") == 123456789012345678
+
+
+def test_an_unknown_subcommand_is_rejected() -> None:
+    with pytest.raises(SystemExit) as caught:
+        aha_main.main(["bogus"])
+
+    assert caught.value.code == 2
+
+
+def test_cli_passes_the_command_line_to_main(monkeypatch: pytest.MonkeyPatch) -> None:
+    received: list[Any] = []
+
+    def fake_main(argv: Any) -> int:
+        received.append(list(argv))
+        return 3
+
+    monkeypatch.setattr(aha_main, "main", fake_main)
+    monkeypatch.setattr("sys.argv", ["aha", "sync", "--dry-run"])
+
+    assert aha_main.cli() == 3
+    assert received == [["sync", "--dry-run"]]
+
+
+class _FakeJobBot:
+    """Stands in for ``AhaBot`` in ``_sync_once``: an async context manager with login/sync."""
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    async def __aenter__(self) -> _FakeJobBot:
+        self.events.append("enter")
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        self.events.append("exit")
+
+    async def login(self, token: str) -> None:
+        self.events.append(f"login:{token}")
+
+    async def sync_commands(self, *, dry_run: bool) -> list[SyncResult]:
+        self.events.append(f"sync:{dry_run}")
+        return [SyncResult("global", CommandDiff(), synced=False)]
+
+
+def test_sync_once_logs_in_over_rest_syncs_and_closes() -> None:
+    bot = _FakeJobBot()
+
+    results = asyncio.run(aha_main._sync_once(cast("AhaBot", bot), "tok", dry_run=True))
+
+    assert bot.events == ["enter", "login:tok", "sync:True", "exit"]
+    assert [r.target for r in results] == ["global"]

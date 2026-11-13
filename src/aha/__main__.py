@@ -1,20 +1,29 @@
-"""Entry point: ``python -m aha`` or the ``aha`` console script."""
+"""Entry point: ``python -m aha`` or the ``aha`` console script.
+
+``aha`` runs the bot. ``aha sync [--guild ID] [--dry-run]`` syncs the slash-command tree to
+Discord over REST (no gateway connection) and exits; it is the deploy-time sync that replaces
+syncing at every startup (see docs/adr/0001-runtime-architecture.md, section 4).
+"""
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import contextlib
 import logging
 import signal
+import sys
+from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-from aha.bot import AhaBot
-from aha.config import ConfigError, Settings
+from aha.bot import AhaBot, SyncResult
+from aha.config import MAX_SNOWFLAKE, ConfigError, Settings
 from aha.logging_setup import configure_logging, static_fields_from_env
 
-__all__ = ["main"]
+__all__ = ["cli", "main"]
 
 log = logging.getLogger(__name__)
 
@@ -63,12 +72,42 @@ async def _serve(bot: AhaBot, token: str) -> None:
             runner.cancel()
 
 
-def main() -> int:
-    """Load configuration, configure logging, and run the bot.
+def _guild_id(raw: str) -> int:
+    """Parse ``--guild``: a positive Discord snowflake."""
+    try:
+        value = int(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an integer: {raw!r}") from None
+    if not 0 < value <= MAX_SNOWFLAKE:
+        raise argparse.ArgumentTypeError(f"not a positive Discord snowflake: {raw!r}")
+    return value
 
-    Returns a process exit code (0 on clean shutdown, 1 on misconfiguration or
-    an unexpected bot failure such as a rejected token).
-    """
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="aha", description="Run the Aha Discord bot.")
+    commands = parser.add_subparsers(dest="command", metavar="COMMAND")
+    sync = commands.add_parser(
+        "sync",
+        help="sync the slash commands to Discord and exit",
+        description=(
+            "Compare the bot's slash commands with Discord's and sync only if they differ. "
+            "Uses REST only (no gateway connection), so it is safe to run as a deploy Job."
+        ),
+    )
+    sync.add_argument(
+        "--guild",
+        type=_guild_id,
+        metavar="ID",
+        help="sync to this guild (as a dev server) instead of globally; overrides DEV_GUILD_ID",
+    )
+    sync.add_argument(
+        "--dry-run", action="store_true", help="show what would change without syncing"
+    )
+    return parser
+
+
+def _bootstrap() -> Settings | None:
+    """Load ``.env``, read the settings and configure logging; ``None`` on a config error."""
     # Load the project's .env explicitly from the current directory. Passing an
     # explicit path avoids python-dotenv's default behaviour of walking up
     # parent directories, which could silently pick up an unrelated .env.
@@ -80,7 +119,7 @@ def main() -> int:
     except ConfigError as exc:
         logging.basicConfig(level=logging.ERROR)
         log.exception("%s", exc)
-        return 1
+        return None
 
     configure_logging(
         settings.log_level,
@@ -88,7 +127,11 @@ def main() -> int:
         secrets=(settings.token,),
         static=static_fields_from_env(),
     )
+    return settings
 
+
+def _run(settings: Settings) -> int:
+    """Run the bot until it stops; return the process exit code."""
     # bot.start() (unlike bot.run()) never installs a log handler, so
     # logging_setup stays authoritative.
     exit_code = 0
@@ -106,5 +149,58 @@ def main() -> int:
     return exit_code
 
 
+async def _sync_once(bot: AhaBot, token: str, *, dry_run: bool) -> list[SyncResult]:
+    """Log in over REST (which loads the cogs), sync, and close."""
+    async with bot:
+        await bot.login(token)
+        return await bot.sync_commands(dry_run=dry_run)
+
+
+def _print_report(results: list[SyncResult], *, dry_run: bool) -> None:
+    for result in results:
+        if result.diff.unchanged:
+            print(f"{result.target}: unchanged")
+            continue
+        outcome = "would change (dry run)" if dry_run else "synced"
+        print(f"{result.target}: {outcome}")
+        for line in result.diff.lines():
+            print(f"  {line}")
+
+
+def _sync(settings: Settings, *, guild: int | None, dry_run: bool) -> int:
+    """Sync the command tree once; return the process exit code."""
+    if guild is not None:
+        settings = replace(settings, dev_guild_id=guild)
+    # The Job syncs explicitly below; the startup sync must not run a second time.
+    bot = AhaBot(settings, sync_on_startup=False)
+    try:
+        results = asyncio.run(_sync_once(bot, settings.token, dry_run=dry_run))
+    except Exception:
+        log.exception("Command sync failed")
+        return 1
+    _print_report(results, dry_run=dry_run)
+    return 0
+
+
+def main(argv: Sequence[str] = ()) -> int:
+    """Load configuration, configure logging, and run the bot or a subcommand.
+
+    Returns a process exit code (0 on success, 1 on misconfiguration or an
+    unexpected failure such as a rejected token).
+    """
+    args = _build_parser().parse_args(argv)
+    settings = _bootstrap()
+    if settings is None:
+        return 1
+    if args.command == "sync":
+        return _sync(settings, guild=args.guild, dry_run=args.dry_run)
+    return _run(settings)
+
+
+def cli() -> int:
+    """Console-script entry point: :func:`main` with the real command line."""
+    return main(sys.argv[1:])
+
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(cli())

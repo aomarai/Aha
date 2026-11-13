@@ -12,7 +12,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-__all__ = ["LOG_FORMATS", "ConfigError", "Settings"]
+__all__ = ["LOG_FORMATS", "MAX_SNOWFLAKE", "ConfigError", "Settings"]
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FORMAT = "text"
@@ -23,11 +23,30 @@ LOG_FORMATS = frozenset({"text", "json"})
 _TOKEN_ENV = "DISCORD_BOT_TOKEN"
 
 # Discord snowflakes are unsigned 64-bit integers; guild IDs are positive.
-_MAX_SNOWFLAKE = (1 << 63) - 1
+MAX_SNOWFLAKE = (1 << 63) - 1
 
 
 class ConfigError(RuntimeError):
     """Raised when required configuration is missing or malformed."""
+
+
+_TRUE = frozenset({"1", "true", "yes", "on"})
+_FALSE = frozenset({"0", "false", "no", "off"})
+
+
+def _parse_bool(raw: str | None, *, name: str, default: bool = False) -> bool:
+    """Return ``raw`` as a bool (``true/false``, ``1/0``, ``yes/no``, ``on/off``).
+
+    Unset or blank gives ``default``; anything else raises :class:`ConfigError`.
+    """
+    if raw is None or not raw.strip():
+        return default
+    value = raw.strip().lower()
+    if value in _TRUE:
+        return True
+    if value in _FALSE:
+        return False
+    raise ConfigError(f"{name} must be true or false, got {raw!r}")
 
 
 def _parse_optional_int(raw: str | None, *, name: str) -> int | None:
@@ -53,6 +72,7 @@ class Settings:
     log_level: str = DEFAULT_LOG_LEVEL
     dev_guild_id: int | None = None
     log_format: str = DEFAULT_LOG_FORMAT
+    sync_on_startup: bool = False
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -64,8 +84,8 @@ class Settings:
         Raises:
             ConfigError: if ``DISCORD_BOT_TOKEN`` is missing or empty, if
                 ``LOG_LEVEL`` is not a valid level name, if ``LOG_FORMAT`` is not
-                ``text`` or ``json``, or if ``DEV_GUILD_ID``
-                is not a positive Discord snowflake.
+                ``text`` or ``json``, if ``SYNC_ON_STARTUP`` is not a boolean, or if
+                ``DEV_GUILD_ID`` is not a positive Discord snowflake.
         """
         import os
 
@@ -88,15 +108,18 @@ class Settings:
             raise ConfigError(f"LOG_FORMAT must be 'text' or 'json', got {log_format!r}")
 
         dev_guild_id = _parse_optional_int(source.get("DEV_GUILD_ID"), name="DEV_GUILD_ID")
-        if dev_guild_id is not None and not 0 < dev_guild_id <= _MAX_SNOWFLAKE:
+        if dev_guild_id is not None and not 0 < dev_guild_id <= MAX_SNOWFLAKE:
             raise ConfigError(
                 "DEV_GUILD_ID must be a positive Discord snowflake "
-                f"(1..{_MAX_SNOWFLAKE}), got {dev_guild_id}",
+                f"(1..{MAX_SNOWFLAKE}), got {dev_guild_id}",
             )
+
+        sync_on_startup = _parse_bool(source.get("SYNC_ON_STARTUP"), name="SYNC_ON_STARTUP")
 
         return cls(
             token=token,
             log_level=log_level,
             dev_guild_id=dev_guild_id,
             log_format=log_format,
+            sync_on_startup=sync_on_startup,
         )

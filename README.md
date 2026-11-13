@@ -130,19 +130,39 @@ receives the message without the intent.
 
 ### Slash-command syncing
 
-`AhaBot.setup_hook` syncs the command tree on every startup:
+Syncing overwrites the application's remote command set, so it is a **deploy step**, not
+something every process does at startup (see
+[ADR 0001](docs/adr/0001-runtime-architecture.md), section 4):
 
-- With `DEV_GUILD_ID` set, commands are synced to that guild (instant) **and**
-  any previously-synced global commands are cleared, so switching the setting
-  never leaves stale duplicates.
-- Without it, commands are synced globally, which can take up to an hour to
-  propagate.
-- Sync overwrites the application's remote command set, so avoid running two
-  bot revisions at once — whichever syncs last wins.
-- An operator can re-run the same sync from Discord with `/sync` (guild-only,
-  requires Manage Server).
-- Sync is serialized within the process by a lock and restores the local command tree if a
-  purge sync fails; separate bot processes still need the out-of-band sync tracked in #2.
+```bash
+uv run aha sync --dry-run      # show what would change, write nothing
+uv run aha sync                # sync only if the commands differ, then exit
+uv run aha sync --guild ID     # sync to one guild (as a dev server) instead of globally
+```
+
+`aha sync` logs in over REST only (no gateway connection), compares the bot's commands with
+Discord's, and writes only when they differ, so re-running it is free. Run it **once per release,
+after the new revision is serving**, never before: Discord would otherwise route a new or changed
+command to an old process that cannot handle it. Exit code 0 means success (including "nothing to
+do"); 1 means it failed.
+
+At startup the bot does **not** sync unless one of these is set:
+
+- `DEV_GUILD_ID`: commands sync to that guild (instant) **and** any previously-synced global
+  commands are cleared, so switching the setting never leaves stale duplicates. Unchanged
+  targets are skipped.
+- `SYNC_ON_STARTUP=true`: global sync at every start. Only for a single self-hosted process;
+  with more than one process or revision the last writer wins.
+
+Without either, startup logs `Command sync skipped at startup (run 'aha sync')`.
+
+`/sync` exists only in those two modes (it is not even registered otherwise), and only the bot's
+owner with Manage Server may run it, so no guild admin can rewrite the commands every guild sees.
+In a production deployment, use `aha sync`.
+
+Limits: the sync is serialized within one process by a lock and restores the local command tree if
+a purge sync fails. Two *Jobs* that overlap, or a delayed Job from an older release, are not yet
+fenced; that arrives with the database (#84), and until then the deploy must run one sync at a time.
 
 ### Connection health
 
@@ -178,7 +198,7 @@ per-user budget (10 invocations per 10 s) applies to every command; `/help` and
 through the global error handler: ephemeral for slash invocations and a normal
 (public) message for mention invocations, since Discord cannot make a message
 reply private. Guild-only is enforced by Discord for slash invocations and by the
-local check for mentions. `/sync` demonstrates the full pattern; `/ping`,
+local check for mentions. `/sync` (in `cogs/ops.py`) demonstrates the full pattern; `/ping`,
 `/roll`, and `/coin` carry cooldowns.
 
 ## Architecture
@@ -192,8 +212,9 @@ Design decisions live in [`docs/adr/`](docs/adr/). Start with
 ```
 Aha/
 ├── src/aha/
-│   ├── __main__.py      # entry point: load .env, build settings, run the bot
+│   ├── __main__.py      # entry point: `aha` runs the bot, `aha sync` syncs commands
 │   ├── bot.py           # AhaBot (commands.Bot) + setup_hook/on_ready/sync_commands
+│   ├── cmdsync.py       # compare local vs remote command trees (sync only if changed)
 │   ├── config.py        # Settings loaded & validated from the environment
 │   ├── logging_setup.py # text/JSON formatters, token masking
 │   ├── logctx.py        # per-invocation log context (ContextVar)
@@ -202,7 +223,8 @@ Aha/
 │       ├── errors.py    # global error handler
 │       ├── fun.py       # /roll, /coin
 │       ├── help.py      # /help (paginated)
-│       └── meta.py      # /ping, /sync
+│       ├── meta.py      # /ping
+│       └── ops.py       # /sync (owner only; dev guild / SYNC_ON_STARTUP only)
 ├── tests/               # pytest suite
 ├── .devcontainer/       # VS Code dev container (Python 3.14 + uv)
 ├── .github/workflows/   # CI (lint, format, tests)
@@ -222,6 +244,7 @@ Real environment variables take precedence over `.env`.
 | `LOG_LEVEL`         | no       | `INFO`  | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `LOG_FORMAT`        | no       | `text`  | `text` (human-readable) or `json` (one object per line) |
 | `DEV_GUILD_ID`      | no       | –       | Sync slash commands instantly to this guild     |
+| `SYNC_ON_STARTUP`   | no       | `false` | Sync commands at every start (single process only) |
 
 ### Logging
 
