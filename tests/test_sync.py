@@ -16,6 +16,10 @@ from aha.config import Settings
 from tests.helpers import http_error
 
 GUILD_ID = 123456789012345678
+
+#: Every command the harness loads (the meta and fun cogs), sorted. Add new commands here once.
+ALL = ("8ball", "about", "coin", "countdown", "ping", "roll", "time")
+ALL_LINES = ", ".join(f"+ {name}" for name in ALL)
 APPLICATION_ID = 555
 
 
@@ -141,9 +145,9 @@ def test_a_dry_run_reports_changes_and_writes_nothing(
     assert harness.sync_calls == []
     assert result.target == "global"
     assert result.synced is False
-    assert result.diff.added == ("about", "coin", "ping", "roll")
+    assert result.diff.added == ALL
     assert [r.getMessage() for r in caplog.records] == [
-        "Dry run: global commands would change: + about, + coin, + ping, + roll"
+        f"Dry run: global commands would change: {ALL_LINES}"
     ]
 
 
@@ -186,9 +190,9 @@ def test_dev_guild_sync_syncs_the_guild_and_skips_clean_globals(
     ]
     assert (guild_result.target, guild_result.synced) == (f"dev guild {GUILD_ID}", True)
     assert (global_result.target, global_result.synced) == ("global", False)
-    assert harness.names() == ["about", "coin", "ping", "roll"]  # globals restored locally
+    assert harness.names() == list(ALL)  # globals restored locally
     assert [r.getMessage() for r in caplog.records] == [
-        f"Synced dev guild {GUILD_ID} commands: + about, + coin, + ping, + roll",
+        f"Synced dev guild {GUILD_ID} commands: {ALL_LINES}",
         "Skipped sync: global commands are unchanged",
     ]
 
@@ -206,9 +210,9 @@ def test_dev_guild_sync_purges_stale_remote_globals(monkeypatch: pytest.MonkeyPa
 
     assert guild_result.synced is False  # the guild already matches
     assert global_result.synced is True
-    assert global_result.diff.removed == ("about", "coin", "ping", "roll")
+    assert global_result.diff.removed == ALL
     assert harness.sync_calls == [{}]  # only the global purge was written
-    assert harness.names() == ["about", "coin", "ping", "roll"]
+    assert harness.names() == list(ALL)
 
 
 def test_a_fully_synced_dev_guild_makes_no_writes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -238,9 +242,9 @@ def test_a_dev_guild_dry_run_writes_nothing_but_still_restores_globals(
     guild_result, global_result = asyncio.run(scenario())
 
     assert harness.sync_calls == []
-    assert guild_result.diff.added == ("about", "coin", "ping", "roll")
-    assert global_result.diff.removed == ("about", "coin", "ping", "roll")
-    assert harness.names() == ["about", "coin", "ping", "roll"]
+    assert guild_result.diff.added == ALL
+    assert global_result.diff.removed == ALL
+    assert harness.names() == list(ALL)
 
 
 def test_sync_commands_keeps_globals_for_a_second_sync(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -258,7 +262,7 @@ def test_sync_commands_keeps_globals_for_a_second_sync(monkeypatch: pytest.Monke
 
     # The dev-guild purge empties the local global tree to empty the remote set;
     # it must restore it, or a later sync copies nothing and wipes the guild.
-    assert before == ["about", "coin", "ping", "roll"]
+    assert before == list(ALL)
     assert after_first == before
     assert after_second == before
 
@@ -276,7 +280,7 @@ def test_sync_commands_restores_globals_when_the_purge_sync_fails(
             await harness.bot.sync_commands()
         return harness.names()
 
-    assert asyncio.run(scenario()) == ["about", "coin", "ping", "roll"]
+    assert asyncio.run(scenario()) == list(ALL)
 
 
 def test_sync_commands_restores_globals_when_fetching_remote_globals_fails(
@@ -295,7 +299,7 @@ def test_sync_commands_restores_globals_when_fetching_remote_globals_fails(
             await harness.bot.sync_commands()
         return harness.names()
 
-    assert asyncio.run(scenario()) == ["about", "coin", "ping", "roll"]
+    assert asyncio.run(scenario()) == list(ALL)
 
 
 def test_sync_commands_serializes_concurrent_calls(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -455,4 +459,4 @@ def test_the_guild_target_diffs_the_guilds_own_commands(monkeypatch: pytest.Monk
 
     guild_result, _ = asyncio.run(scenario())
 
-    assert guild_result.diff.added == ("about", "coin", "onlyhere", "ping", "roll")
+    assert guild_result.diff.added == tuple(sorted((*ALL, "onlyhere")))

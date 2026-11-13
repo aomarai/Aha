@@ -29,6 +29,10 @@ version="$(docker run --rm "$image" "$python" -m aha --version)"
 [ "$version" = "aha $(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/aha/__init__.py)" ] \
   || fail "unexpected version output: '$version'"
 
+echo "== time zones resolve (the image has no system tzdata, so this needs the tzdata package)"
+docker run --rm "$image" "$python" -c \
+  "from zoneinfo import ZoneInfo; ZoneInfo('Europe/Berlin'); ZoneInfo('Asia/Kolkata')"
+
 echo "== the build identity is baked in"
 source_version="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/aha/__init__.py)"
 identity="$(docker run --rm "$image" "$python" -c \
