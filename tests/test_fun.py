@@ -640,3 +640,12 @@ def test_countdown_rejects_a_date_one_character_over_the_limit_even_if_it_would_
     assert len(over) == 101
     assert ctx.replies[0][1]["ephemeral"] is True
     assert "couldn't read that date" in _description(ctx)
+
+
+def test_roll_declares_native_slash_bounds_and_a_description() -> None:
+    parameters = {p.name: p for p in cast("Any", Fun.roll).app_command.parameters}
+
+    sides = parameters["sides"]
+    assert (sides.min_value, sides.max_value) == (1, 1_000_000)
+    assert sides.description == "How many sides the die has (1 to 1,000,000, default 6)."
+    assert sides.required is False
