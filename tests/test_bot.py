@@ -14,7 +14,9 @@ from discord.ext import commands
 
 from aha.bot import COG_MODULES, AhaBot
 from aha.config import Settings
+from aha.ratelimit import RateLimiter
 from tests.helpers import (
+    FakeClock,
     Named,
     StubContext,
     StubInteraction,
@@ -173,18 +175,30 @@ def test_sync_commands_keeps_globals_for_a_second_sync(
     assert after_second == before
 
 
-def test_global_rate_limit_consumes_for_message_contexts() -> None:
+def _gated_bot(clock: FakeClock) -> AhaBot:
+    """Build a bot whose gate uses ``clock`` instead of the monotonic clock."""
     bot = AhaBot(Settings(token="test-token"), rate_limit=(1, 60.0))
+    bot.rate_limiter = RateLimiter(1, 60.0, clock=clock)
+    return bot
+
+
+def test_global_rate_limit_consumes_for_message_contexts() -> None:
+    clock = FakeClock()
+    bot = _gated_bot(clock)
     ctx = StubContext()
 
     assert asyncio.run(bot._enforce_rate_limit(as_context(ctx))) is True
     with pytest.raises(commands.CommandOnCooldown) as caught:
         asyncio.run(bot._enforce_rate_limit(as_context(ctx)))
-    assert caught.value.retry_after > 0
+    assert caught.value.retry_after == pytest.approx(60.0)
+
+    clock.now += 61.0
+
+    assert asyncio.run(bot._enforce_rate_limit(as_context(ctx))) is True
 
 
 def test_global_rate_limit_is_skipped_for_interaction_contexts() -> None:
-    bot = AhaBot(Settings(token="test-token"), rate_limit=(1, 60.0))
+    bot = _gated_bot(FakeClock())
     ctx = StubContext()
     ctx.interaction = Named(id=1)
 
@@ -193,13 +207,18 @@ def test_global_rate_limit_is_skipped_for_interaction_contexts() -> None:
 
 
 def test_tree_interaction_check_enforces_the_shared_budget() -> None:
-    bot = AhaBot(Settings(token="test-token"), rate_limit=(1, 60.0))
+    clock = FakeClock()
+    bot = _gated_bot(clock)
     interaction = as_tree_interaction(StubInteraction())
 
     assert asyncio.run(bot.tree.interaction_check(interaction)) is True
     with pytest.raises(app_commands.CommandOnCooldown) as caught:
         asyncio.run(bot.tree.interaction_check(interaction))
-    assert caught.value.retry_after > 0
+    assert caught.value.retry_after == pytest.approx(60.0)
+
+    clock.now += 61.0
+
+    assert asyncio.run(bot.tree.interaction_check(interaction)) is True
 
 
 def test_global_rate_limit_is_wired_into_bot_checks() -> None:

@@ -16,6 +16,7 @@ from discord.ext import commands
 from aha.bot import AhaBot
 
 __all__ = [
+    "FakeClock",
     "Named",
     "StubBot",
     "StubContext",
@@ -27,6 +28,16 @@ __all__ = [
     "http_error",
     "stub_command",
 ]
+
+
+class FakeClock:
+    """Deterministic monotonic clock for limiter tests."""
+
+    def __init__(self, now: float = 100.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
 
 
 class Named:

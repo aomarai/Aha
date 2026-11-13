@@ -3,20 +3,11 @@
 from __future__ import annotations
 
 from aha.ratelimit import RateLimiter
-
-
-class _Clock:
-    """Deterministic clock for refill tests."""
-
-    def __init__(self) -> None:
-        self.now = 100.0
-
-    def __call__(self) -> float:
-        return self.now
+from tests.helpers import FakeClock
 
 
 def test_allows_up_to_the_rate_then_reports_the_wait() -> None:
-    clock = _Clock()
+    clock = FakeClock()
     limiter = RateLimiter(2, 10.0, clock=clock)
 
     assert limiter.consume(1) is None
@@ -27,7 +18,7 @@ def test_allows_up_to_the_rate_then_reports_the_wait() -> None:
 
 
 def test_tokens_refill_after_the_window() -> None:
-    clock = _Clock()
+    clock = FakeClock()
     limiter = RateLimiter(1, 10.0, clock=clock)
     assert limiter.consume(1) is None
     assert limiter.consume(1) is not None
@@ -38,7 +29,7 @@ def test_tokens_refill_after_the_window() -> None:
 
 
 def test_buckets_are_per_key() -> None:
-    clock = _Clock()
+    clock = FakeClock()
     limiter = RateLimiter(1, 10.0, clock=clock)
 
     assert limiter.consume(1) is None
