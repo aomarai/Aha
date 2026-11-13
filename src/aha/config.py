@@ -28,6 +28,7 @@ LOG_FORMATS = frozenset({"text", "json"})
 
 _TOKEN_ENV = "DISCORD_BOT_TOKEN"
 _TOKEN_FILE_ENV = "DISCORD_BOT_TOKEN_FILE"
+_TOKEN_ENCODING = "utf-8"
 
 # Discord snowflakes are unsigned 64-bit integers; guild IDs are positive.
 MAX_SNOWFLAKE = (1 << 63) - 1
@@ -70,7 +71,7 @@ def _read_token(source: Mapping[str, str]) -> str:
         raise ConfigError(f"Set only one of {_TOKEN_ENV} and {_TOKEN_FILE_ENV}, not both.")
     if path:
         try:
-            token = Path(path).read_text(encoding="utf-8").strip()
+            token = Path(path).read_bytes().decode(_TOKEN_ENCODING).strip()
         except (OSError, UnicodeDecodeError) as exc:
             reason = exc.strerror if isinstance(exc, OSError) else "not valid UTF-8"
             raise ConfigError(f"Cannot read {_TOKEN_FILE_ENV} ({path}): {reason}.") from exc

@@ -218,6 +218,7 @@ def test_category_comes_from_extras_and_defaults_to_other() -> None:
     assert category_of(stub_command("a", category="Fun")) == "Fun"
     assert category_of(stub_command("a")) == DEFAULT_CATEGORY == "Other"
     assert category_of(Named(extras=None)) == "Other"
+    assert category_of(Named()) == "Other"  # no ``extras`` attribute at all
     assert category_of(Named(extras={"category": ""})) == "Other"
     assert category_of(Named(extras={"category": 5})) == "5"
 
@@ -358,3 +359,37 @@ def test_every_real_command_declares_a_known_category() -> None:
     assert {name for name, _ in found} >= {"ping", "about", "help", "roll", "coin", "sync"}
     # A new command without ``extras={"category": ...}`` would silently land in "Other".
     assert [name for name, category in found if category not in CATEGORY_ORDER] == []
+
+
+def test_a_line_that_exactly_fills_the_room_is_not_truncated() -> None:
+    # Room beside "**Info** (continued)" and a newline at limit 40 is 40 - 20 - 1 = 19.
+    exact = "x" * 19
+    pages = paginate_sections([("Info", [exact]), ("Fun", ["y"])], limit=40)
+
+    assert pages == [f"**Info**\n{exact}\n**Fun**\ny"]
+
+
+def test_a_line_one_over_the_room_is_truncated() -> None:
+    pages = paginate_sections([("Info", ["x" * 20]), ("Fun", ["y"])], limit=40)
+
+    assert pages == ["**Info**\n" + "x" * 18 + "…\n**Fun**\ny"]
+
+
+def test_a_page_that_exactly_fills_the_limit_is_not_split() -> None:
+    first = "**Info**\naaaaaaaaaa"  # 19 characters
+    second = "**Fun**\nbbbbbbbbb"  # 17 characters; joined with a newline they total 37
+
+    assert paginate_sections([("Info", ["aaaaaaaaaa"]), ("Fun", ["bbbbbbbbb"])], limit=37) == [
+        f"{first}\n{second}"
+    ]
+    assert paginate_sections([("Info", ["aaaaaaaaaa"]), ("Fun", ["bbbbbbbbb"])], limit=36) == [
+        first,
+        second,
+    ]
+
+
+def test_a_limit_too_small_for_any_text_degrades_to_ellipses_not_errors() -> None:
+    pages = paginate_sections([("Info", ["abc"]), ("Fun", ["def"])], limit=20)
+
+    # "**Info** (continued)" alone is 20 characters, so there is no room for text.
+    assert pages == ["**Info**\n…\n**Fun**\n…"]

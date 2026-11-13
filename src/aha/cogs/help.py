@@ -43,24 +43,20 @@ def category_of(command: Any) -> str:
     return str(declared) if declared else DEFAULT_CATEGORY
 
 
-def _category_rank(category: str) -> tuple[int, int, str]:
-    if category in CATEGORY_ORDER:
-        return (0, CATEGORY_ORDER.index(category), category)
-    if category == DEFAULT_CATEGORY:
-        return (2, 0, category)
-    return (1, 0, category)
-
-
 def group_by_category(commands_: Iterable[Any]) -> list[tuple[str, list[str]]]:
     """Group ``/name — description`` lines by category, in display order.
 
-    Commands keep their registration order inside a category.
+    Known categories come first (in :data:`CATEGORY_ORDER`), then any others alphabetically, then
+    :data:`DEFAULT_CATEGORY`. Commands keep their registration order inside a category.
     """
     grouped: dict[str, list[str]] = {}
     for command in commands_:
         line = f"`/{command.qualified_name}` — {command.description or 'No description'}"
         grouped.setdefault(category_of(command), []).append(line)
-    return [(name, grouped[name]) for name in sorted(grouped, key=_category_rank)]
+    known = [name for name in CATEGORY_ORDER if name in grouped]
+    others = sorted(name for name in grouped if name not in (*CATEGORY_ORDER, DEFAULT_CATEGORY))
+    last = [DEFAULT_CATEGORY] if DEFAULT_CATEGORY in grouped else []
+    return [(name, grouped[name]) for name in (*known, *others, *last)]
 
 
 def paginate_sections(
@@ -78,20 +74,19 @@ def paginate_sections(
     current: list[str] = []
     for name, lines in sections:
         header = f"**{name}**"
+        continued = f"{header} (continued)"
         # A line must fit beside the longest header it can be paired with.
-        room = max(limit - len(f"{header} (continued)") - 1, 1)
-        started = False  # whether this section already has a line on an earlier page
+        room = limit - len(continued) - 1
         pending = [header]
-        for line in lines:
+        for position, line in enumerate(lines):
             if len(line) > room:
-                line = line[: room - 1] + "…"
+                line = line[: max(room, 1) - 1] + "…"
             if current and len("\n".join([*current, *pending, line])) > limit:
                 pages.append("\n".join(current))
                 current = []
-                pending = [f"**{name}** (continued)"] if started else [header]
+                pending = [header if position == 0 else continued]
             current.extend([*pending, line])
             pending = []
-            started = True
     if current:
         pages.append("\n".join(current))
     return pages

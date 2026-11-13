@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 from typing import Any, ClassVar, cast
 
 import pytest
@@ -170,7 +171,9 @@ def test_setup_registers_the_cog_and_its_listeners_on_a_real_bot() -> None:
 
     asyncio.run(observability_setup(bot))
 
-    assert isinstance(bot.get_cog("Observability"), Observability)
+    cog = bot.get_cog("Observability")
+    assert isinstance(cog, Observability)
+    assert cog.bot is bot
     for event in ("on_command_completion", "on_command_error", "on_app_command_error"):
         assert len(bot.extra_events[event]) == 1
 
@@ -347,3 +350,61 @@ def test_setup_hook_skips_the_health_server_when_the_port_is_zero(
 
     assert _RecordingServer.created == []
     assert running == []
+
+
+def test_started_at_is_the_time_the_bot_was_created(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("aha.bot.time.time", lambda: 1_700_000_123.5)
+
+    assert _bot().started_at == 1_700_000_123.5
+
+
+def test_a_bot_started_for_real_has_a_current_start_time() -> None:
+    before = time.time()
+    bot = _bot()
+
+    assert before <= bot.started_at <= time.time()
+
+
+class _CrashingOnceServer:
+    """A health server whose first run crashes, as a failed bind would."""
+
+    runs = 0
+
+    def __init__(self, bot: AhaBot, host: str, port: int) -> None:
+        pass
+
+    async def run(self) -> None:
+        _CrashingOnceServer.runs += 1
+        if _CrashingOnceServer.runs == 1:
+            raise OSError("address already in use")
+        await asyncio.Event().wait()
+
+
+def test_the_health_server_is_a_critical_restartable_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    _CrashingOnceServer.runs = 0
+    monkeypatch.setattr("aha.bot.HealthServer", _CrashingOnceServer)
+    bot = _bot()
+
+    async def fake_load_extension(name: str) -> None:
+        return None
+
+    async def fake_super_close(self: Any) -> None:
+        return None
+
+    monkeypatch.setattr(bot, "load_extension", fake_load_extension)
+    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+
+    async def scenario() -> tuple[frozenset[str], frozenset[str], int]:
+        await bot.setup_hook()
+        for _ in range(10):
+            await asyncio.sleep(0)
+        result = (bot.tasks.degraded, bot.tasks.failed, _CrashingOnceServer.runs)
+        await bot.close()
+        return result
+
+    degraded, failed, runs = asyncio.run(scenario())
+
+    # Critical and restartable: parked in back-off (degraded, so readiness reports it), not dead.
+    assert degraded == frozenset({HEALTH_TASK})
+    assert failed == frozenset()
+    assert runs == 1

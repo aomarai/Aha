@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import math
+import socket
 
 import aiohttp
 import pytest
@@ -248,3 +249,38 @@ def test_a_recovering_critical_task_fails_readiness_but_not_liveness(
     assert payload["status"] == "not ready"
     assert payload["failed_tasks"] == []
     assert payload["degraded_tasks"] == ["gateway-watchdog"]
+
+
+def _free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+def test_run_binds_the_configured_port_and_does_not_log_each_request(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    bot = _bot(monkeypatch, [ShardState(0, True, 0.05)])
+    port = _free_port()
+    server = HealthServer(bot, "127.0.0.1", port)
+
+    async def scenario() -> int:
+        task = asyncio.create_task(server.run())
+        while server.bound_port is None:
+            await asyncio.sleep(0.01)
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(f"http://127.0.0.1:{port}/livez") as response,
+        ):
+            status = response.status
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        return status
+
+    with caplog.at_level(logging.DEBUG, logger="aiohttp.access"):
+        status = asyncio.run(scenario())
+
+    assert status == 200
+    assert server.bound_port == port
+    assert [r for r in caplog.records if r.name == "aiohttp.access"] == []  # probes are chatty
