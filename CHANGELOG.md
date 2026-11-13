@@ -17,6 +17,9 @@ for how a release is cut.
 - Image build, smoke test and Trivy scan on every pull request; versioned images published to GHCR.
 - `/privacy`, draft privacy policy and terms, and a data inventory rule: a test fails when a
   migration creates a table that is not declared with its owner columns and retention.
+- `/remind`, `/reminders`, `/unremind`: reminders stored in PostgreSQL and delivered by whichever
+  pod runs the scheduler (needs `DATABASE_URL`). Delivery pings only the invoker, falls back to a
+  DM, and drops the reminder if neither works. Limits: 25 per user, 1 year ahead, 1,000 characters.
 - Durable job scheduler on PostgreSQL (`scheduled_jobs`): any pod claims due jobs with
   `FOR UPDATE SKIP LOCKED`, at-least-once delivery, retry with back-off, dead-lettering,
   `aha_scheduler_lag_seconds` and an alert.
