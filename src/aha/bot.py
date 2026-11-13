@@ -163,7 +163,8 @@ class AhaBot(commands.Bot):
         self.settings = settings
         #: The PostgreSQL pool, opened in ``setup_hook`` when ``DATABASE_URL`` is set.
         self.db: Database | None = None
-        self._use_database = use_database
+        #: False for short-lived jobs (``aha sync``) that must not open the database.
+        self.use_database = use_database
         #: Unix time the bot object was created, shown by ``/about`` as the start of its uptime.
         self.started_at = time.time()
         #: Whether ``setup_hook`` starts the health server. ``aha sync`` passes False: a short
@@ -209,7 +210,7 @@ class AhaBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         """Load cogs and sync application commands. Runs once, before login."""
-        if self._use_database and self.settings.database_url is not None:
+        if self.use_database and self.settings.database_url is not None:
             await self._connect_database(self.settings.database_url)
 
         for module in COG_MODULES:

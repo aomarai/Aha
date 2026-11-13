@@ -472,3 +472,10 @@ def test_the_statement_timeout_boundaries_are_accepted() -> None:
     tiny = Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DB_STATEMENT_TIMEOUT": "0.001"})
 
     assert (settings.db_statement_timeout, tiny.db_statement_timeout) == (60.0, 0.001)
+
+
+def test_a_pool_size_that_is_not_a_number_names_the_variable() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DB_POOL_MAX": "lots"})
+
+    assert str(excinfo.value) == "DB_POOL_MAX must be an integer, got 'lots'"

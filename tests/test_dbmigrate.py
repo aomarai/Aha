@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -283,3 +283,49 @@ def test_a_schema_that_is_behind_fails_the_startup_check_naming_what_is_missing(
 def test_a_database_with_no_schema_at_all_fails_the_startup_check() -> None:
     with pytest.raises(SchemaError, match=r"pending: 0001\)\. Run 'aha migrate'"):
         asyncio.run(require_current(FakeConnection(applied=None), [A]))
+
+
+class _Entry:
+    """A directory entry whose ``read_text`` insists on the encoding it is asked for."""
+
+    def __init__(self, name: str, text: str) -> None:
+        self.name = name
+        self._text = text
+
+    def read_text(self, encoding: str | None = None) -> str:
+        assert encoding == "utf-8", f"expected utf-8, got {encoding!r}"
+        return self._text
+
+
+class _Dir:
+    """Lists its entries in the order given (the real file system promises no order)."""
+
+    def __init__(self, *entries: _Entry) -> None:
+        self._entries = entries
+
+    def iterdir(self) -> Any:
+        return iter(self._entries)
+
+
+def test_migrations_are_ordered_by_file_name_whatever_order_the_directory_lists_them() -> None:
+    folder = _Dir(_Entry("0003_c.sql", "c"), _Entry("0001_a.sql", "a"), _Entry("0002_b.sql", "b"))
+
+    migrations = load_migrations(cast("Any", folder))
+
+    assert [(m.version, m.sql) for m in migrations] == [(1, "a"), (2, "b"), (3, "c")]
+
+
+def test_sql_is_read_as_utf8_so_non_ascii_text_survives() -> None:
+    folder = _Dir(_Entry("0001_a.sql", "-- caf\u00e9\nSELECT 1;"))
+
+    (migration,) = load_migrations(cast("Any", folder))
+
+    assert migration.sql == "-- caf\u00e9\nSELECT 1;"
+
+
+def test_a_non_sql_entry_that_sorts_first_does_not_hide_the_migrations() -> None:
+    folder = _Dir(
+        _Entry("0000_notes.txt", "x"), _Entry("0001_a.sql", "a"), _Entry("0002_b.sql", "b")
+    )
+
+    assert [m.version for m in load_migrations(cast("Any", folder))] == [1, 2]

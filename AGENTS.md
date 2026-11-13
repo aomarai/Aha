@@ -140,6 +140,11 @@ every change must keep:
   and bounds time, redirects and bytes. Untrusted text (user input, remote page titles) goes through
   `aha.textutil.plain`/`code` before it is shown. A production deployment should also restrict
   egress at the network layer (#109); this is the application layer, not a substitute.
+- Database: `DATABASE_URL`(`_FILE`) is optional; when set, `setup_hook` opens `bot.db` (a pooled,
+  statement-timeout-bounded `aha.db.Database`) and refuses to start if the schema is behind. The
+  schema changes only through `src/aha/migrations/NNNN_*.sql`, applied by `aha migrate` as a deploy
+  Job and never at startup, forward-only and expand/contract (see `docs/migrations.md`). Every new
+  table needs a user/guild purge path (#99).
 - Audit trail: `cogs/observability.py` writes one `aha.audit` INFO record per completed command
   (`extra={event, outcome, arguments, duration_ms}`; who/where come from the log context). Log
   argument **names** only, never values, and never use `args`, `msg`, `message` or the other
@@ -153,8 +158,9 @@ every change must keep:
   state is process-local and safe because no critical section awaits; `sync_commands`
   serializes with an `asyncio.Lock` and restores the local tree in a `finally`. In-process
   `AutoShardedClient` shards share that state; separate processes need #2.
-- Tests are plain pytest functions; async code is driven with `asyncio.run(...)` (no
-  pytest-asyncio). Discord collaborators are replaced with `monkeypatch.setattr` fakes that
+- Tests are plain pytest functions; async code is driven with `asyncio.run(...)`. The one exception
+  is `tests/test_postgres_integration.py`, which uses pytest-asyncio (strict mode, opt-in per module)
+  and runs only when `AHA_TEST_DATABASE_URL` points at a real PostgreSQL. Discord collaborators are replaced with `monkeypatch.setattr` fakes that
   record calls; logs are checked with `caplog` against the `aha.*` logger.
 - Mutmut copies the repo to `mutants/` and runs `tests/` there with `--no-cov`; `scripts/` is in
   `also_copy` because `tests/test_mutation_score.py` imports the gate module. Keep that in mind

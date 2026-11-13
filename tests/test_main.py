@@ -14,7 +14,7 @@ from aha import __main__ as aha_main
 from aha import __version__
 from aha.bot import AhaBot, SyncResult
 from aha.cmdsync import CommandDiff
-from aha.dbmigrate import Migration, MigrationStatus
+from aha.dbmigrate import Migration, MigrationStatus, load_migrations
 
 #: Environment variables :meth:`Settings.from_env` reads, besides the token.
 _SETTINGS_ENV_VARS = (
@@ -412,6 +412,7 @@ def test_sync_subcommand_syncs_and_prints_the_report(
     assert seen["dry_run"] is False
     assert seen["bot"].sync_on_startup is False  # the Job syncs explicitly, once
     assert seen["bot"].health_server_enabled is False  # a short REST-only Job must not listen
+    assert seen["bot"].use_database is False  # nor open the database
     assert seen["bot"].settings.dev_guild_id is None
     assert capsys.readouterr().out == "global: synced\n  + ping\n  - old\n  ~ help\n"
 
@@ -744,12 +745,16 @@ def test_the_real_migrate_once_applies_and_closes_the_connection(
         events.append(f"connect {url}")
         return Conn()
 
+    seen: list[tuple[str, Any, Any]] = []
+
     async def fake_migrate(conn: Any, migrations: Any) -> list[Migration]:
         events.append("migrate")
+        seen.append(("migrate", conn, migrations))
         return [Migration(1, "baseline", "x")]
 
     async def fake_status(conn: Any, migrations: Any) -> MigrationStatus:
         events.append("status")
+        seen.append(("status", conn, migrations))
         return _status((1,), ())
 
     monkeypatch.setattr(aha_main, "connect_once", fake_connect)
@@ -760,6 +765,11 @@ def test_the_real_migrate_once_applies_and_closes_the_connection(
 
     assert ([m.version for m in applied], current.applied) == ([1], (1,))
     assert events == ["connect postgresql://db/aha", "migrate", "status", "close"]
+    packaged = load_migrations()
+    assert [(kind, type(conn).__name__, migrations) for kind, conn, migrations in seen] == [
+        ("migrate", "Conn", packaged),
+        ("status", "Conn", packaged),
+    ]
 
 
 def test_the_real_status_only_path_never_migrates_and_still_closes(
@@ -778,7 +788,7 @@ def test_the_real_status_only_path_never_migrates_and_still_closes(
         raise AssertionError("must not migrate")
 
     async def fake_status(conn: Any, migrations: Any) -> MigrationStatus:
-        events.append("status")
+        events.append(f"status {type(conn).__name__} {len(migrations)}")
         raise RuntimeError("lost connection")
 
     monkeypatch.setattr(aha_main, "connect_once", fake_connect)
@@ -788,4 +798,20 @@ def test_the_real_status_only_path_never_migrates_and_still_closes(
     with pytest.raises(RuntimeError, match="lost connection"):
         asyncio.run(aha_main._migrate_once("postgresql://db/aha", status_only=True))
 
-    assert events == ["status", "close"]  # closed even though status failed
+    assert events == [
+        f"status Conn {len(load_migrations())}",
+        "close",
+    ]  # closed despite the failure
+
+
+def test_migrate_status_joins_several_versions_and_says_none_pending(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://db/aha")
+    _fake_migrate_once(monkeypatch, ([], _status((1, 2, 3), ())))
+
+    assert aha_main.main(["migrate", "--status"]) == 0
+
+    assert capsys.readouterr().out == "applied: 0001, 0002, 0003\npending: none\n"

@@ -68,6 +68,8 @@ def test_connect_opens_a_small_pool_with_a_server_side_statement_timeout(
         )
     ]
     assert isinstance(database, Database)
+    assert asyncio.run(database.ping()) is True  # it wraps the pool that was created
+    assert pool.acquired == 1
     assert APPLICATION_NAME == "aha"
 
 

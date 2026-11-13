@@ -19,8 +19,8 @@ from __future__ import annotations
 import re
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from importlib import resources
 from importlib.resources.abc import Traversable
+from pathlib import Path
 from typing import Any, Protocol
 
 __all__ = [
@@ -63,13 +63,17 @@ class SchemaError(Exception):
 class Connection(Protocol):
     """The slice of ``asyncpg.Connection`` this module uses (so tests can fake it)."""
 
-    async def execute(self, query: str, *args: Any) -> str: ...
+    async def execute(self, query: str, *args: Any) -> str:
+        """Run a statement."""
 
-    async def fetch(self, query: str, *args: Any) -> list[Any]: ...
+    async def fetch(self, query: str, *args: Any) -> list[Any]:
+        """Run a query and return all its rows."""
 
-    async def fetchval(self, query: str, *args: Any) -> Any: ...
+    async def fetchval(self, query: str, *args: Any) -> Any:
+        """Run a query and return the first column of the first row."""
 
-    def transaction(self) -> AbstractAsyncContextManager[Any]: ...
+    def transaction(self) -> AbstractAsyncContextManager[Any]:
+        """Return an async context manager that wraps a transaction."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +100,7 @@ def load_migrations(directory: Traversable | None = None) -> list[Migration]:
         MigrationError: for a ``.sql`` file with a malformed name, a duplicate version, or a gap
             (versions must run 1, 2, 3, ...: a gap is almost always a missing file).
     """
-    folder = directory if directory is not None else resources.files("aha") / "migrations"
+    folder = directory if directory is not None else Path(__file__).parent / "migrations"
     found: list[Migration] = []
     for entry in sorted(folder.iterdir(), key=lambda item: item.name):
         if not entry.name.endswith(".sql"):

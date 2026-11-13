@@ -229,6 +229,9 @@ Aha/
 │   ├── __main__.py      # entry point: `aha` runs the bot, `aha sync` syncs commands
 │   ├── bot.py           # AhaBot (commands.Bot) + setup_hook/on_ready/sync_commands
 │   ├── botinfo.py       # build identity (version/commit) and latency formatting
+│   ├── db.py            # PostgreSQL pool (statement timeout, application_name)
+│   ├── dbmigrate.py     # plain-SQL migration runner (see docs/migrations.md)
+│   ├── migrations/      # NNNN_description.sql
 │   ├── cmdsync.py       # compare local vs remote command trees (sync only if changed)
 │   ├── components.py    # shared button/menu helpers (see docs/components.md)
 │   ├── config.py        # Settings loaded & validated from the environment
@@ -272,6 +275,9 @@ Real environment variables take precedence over `.env`.
 | `BOT_ACTIVITY`      | no       | `/help` | Activity text under the bot's name; `off` shows none (max 128 chars) |
 | `BOT_ACTIVITY_TYPE` | no       | `listening` | `playing`, `listening`, `watching` or `competing` |
 | `BOT_STATUS`        | no       | `online` | `online`, `idle`, `dnd` or `invisible`      |
+| `DATABASE_URL`      | no       | –       | PostgreSQL URL (or `DATABASE_URL_FILE`); see [docs/runbooks/postgres.md](docs/runbooks/postgres.md) |
+| `DB_POOL_MAX`       | no       | `5`     | Database connections per process               |
+| `DB_STATEMENT_TIMEOUT` | no    | `2.0`   | Seconds before a slow query is cancelled        |
 | `HEALTH_BIND`       | no       | `127.0.0.1` | Address of the health/metrics server        |
 | `HEALTH_PORT`       | no       | `8080`  | Port of the health/metrics server; `0` disables it |
 
