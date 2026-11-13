@@ -251,6 +251,7 @@ Aha/
 │       ├── meta.py      # /ping, /about
 │       ├── observability.py # counts command outcomes and durations
 │       ├── web.py       # /url link preview
+│       ├── config.py    # /config, /configure (per-server settings, needs DATABASE_URL)
 │       ├── remind.py    # /remind, /reminders, /unremind (durable, needs DATABASE_URL)
 │       ├── polls.py     # /poll (native Discord polls), Count reactions menu
 │       └── ops.py       # /sync (owner only; dev guild / SYNC_ON_STARTUP only)

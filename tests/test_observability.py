@@ -22,6 +22,7 @@ from aha.cogs.observability import AUDIT_LOGGER, Observability, outcome_of
 from aha.cogs.observability import setup as observability_setup
 from aha.config import Settings
 from aha.dbmigrate import SchemaError, load_migrations
+from aha.guildsettings import GuildSettingsCache
 from aha.logging_setup import JsonFormatter
 from aha.metrics import ShardState
 from tests.helpers import (
@@ -666,6 +667,9 @@ def test_a_database_url_opens_a_pool_checks_the_schema_and_closes_it(
     assert database.url == "postgresql://u:pw@db/aha"
     assert database.kwargs == {"max_size": 9, "statement_timeout": 1.5}
     assert database.closed is True
+    settings = cast("Any", bot.guild_settings)
+    assert isinstance(settings, GuildSettingsCache)
+    assert cast("Any", settings._store)._db is database
     assert [connection for connection, _ in checked] == ["connection"]
     assert [migrations for _, migrations in checked] == [load_migrations()]
     assert load_migrations()  # the packaged migrations really were passed, not an empty list

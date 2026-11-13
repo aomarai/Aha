@@ -16,6 +16,7 @@ from aha.bot import AhaBot
 from aha.cogs.errors import Errors
 from aha.cogs.errors import setup as errors_setup
 from aha.config import Settings
+from aha.guildsettings import CommandDisabled
 from aha.logging_setup import JsonFormatter
 from tests.helpers import (
     Named,
@@ -133,6 +134,7 @@ def test_prefix_dm_and_missing_command_context_are_logged_as_none(
         ),
         (commands.NoPrivateMessage(), "This command can't be used in direct messages."),
         (commands.CheckFailure(), "You're not allowed to use that command."),
+        (CommandDisabled("x"), "That command is disabled in this server."),
         (
             app_commands.MissingPermissions(["kick_members"]),
             "You need these permissions to do that: kick members.",

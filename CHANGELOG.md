@@ -20,6 +20,10 @@ for how a release is cut.
 - `/remind`, `/reminders`, `/unremind`: reminders stored in PostgreSQL and delivered by whichever
   pod runs the scheduler (needs `DATABASE_URL`). Delivery pings only the invoker, falls back to a
   DM, and drops the reminder if neither works. Limits: 25 per user, 1 year ahead, 1,000 characters.
+- Per-server settings: `/config` shows them and `/configure` changes them (Manage Server only): a log
+  channel and per-command disabling (`config`, `configure` and `help` can never be disabled). Stored
+  in `guild_settings` with a 60 s per-pod cache; a server that removes the bot has its data deleted
+  after 30 days unless it is re-invited. Needs `DATABASE_URL`.
 - Durable job scheduler on PostgreSQL (`scheduled_jobs`): any pod claims due jobs with
   `FOR UPDATE SKIP LOCKED`, at-least-once delivery, retry with back-off, dead-lettering,
   `aha_scheduler_lag_seconds` and an alert.

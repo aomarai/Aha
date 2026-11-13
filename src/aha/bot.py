@@ -18,6 +18,8 @@ from aha.cmdsync import CommandDiff, diff_commands
 from aha.config import Settings
 from aha.db import Database
 from aha.dbmigrate import load_migrations, require_current
+from aha.guildsettings import PROTECTED_COMMANDS, CommandDisabled, GuildSettingsCache
+from aha.guildsettings_store import GuildSettingsStore
 from aha.health import HealthServer
 from aha.jobstore import JobStore
 from aha.metrics import Metrics, ShardState
@@ -51,6 +53,7 @@ COG_MODULES: tuple[str, ...] = (
     "aha.cogs.polls",
     "aha.cogs.web",
     "aha.cogs.remind",
+    "aha.cogs.config",
     "aha.cogs.observability",
 )
 
@@ -172,6 +175,7 @@ class AhaBot(commands.Bot):
         self.db: Database | None = None
         #: Runs durable jobs from the database; ``None`` without one. Cogs register handlers on it.
         self.scheduler: Scheduler | None = None
+        self.guild_settings: GuildSettingsCache | None = None
         #: False for short-lived jobs (``aha sync``) that must not open the database.
         self.use_database = use_database
         #: Unix time the bot object was created, shown by ``/about`` as the start of its uptime.
@@ -210,12 +214,34 @@ class AhaBot(commands.Bot):
         self.metrics.start_timer()
         retry_after = await self.rate_limiter.consume(ctx.author.id)
         if retry_after is None:
+            await self.ensure_command_enabled(
+                ctx.guild.id if ctx.guild else None,
+                ctx.command.qualified_name if ctx.command else None,
+            )
             return True
         raise commands.CommandOnCooldown(
             commands.Cooldown(self.rate_limiter.rate, self.rate_limiter.per),
             retry_after,
             commands.BucketType.user,
         )
+
+    async def ensure_command_enabled(self, guild_id: int | None, command: str | None) -> None:
+        """Raise :class:`CommandDisabled` when an admin turned ``command`` off in this guild.
+
+        Fails open: a settings outage must not take every command down with it.
+        """
+        if guild_id is None or command is None or self.guild_settings is None:
+            return
+        root = command.partition(" ")[0]
+        if root in PROTECTED_COMMANDS:
+            return
+        try:
+            settings = await self.guild_settings.get(guild_id)
+        except Exception:
+            log.warning("Could not read guild settings; allowing the command", exc_info=True)
+            return
+        if command in settings.disabled_commands or root in settings.disabled_commands:
+            raise CommandDisabled(f"{command} is disabled in this server")
 
     async def setup_hook(self) -> None:
         """Load cogs and sync application commands. Runs once, before login."""
@@ -256,6 +282,7 @@ class AhaBot(commands.Bot):
         async with self.db.acquire() as connection:
             await require_current(connection, load_migrations())
         self.scheduler = Scheduler(JobStore(self.db), on_lag=self.metrics.scheduler_lag.set)
+        self.guild_settings = GuildSettingsCache(GuildSettingsStore(self.db))
         log.info("Connected to the database; the schema is up to date")
 
     async def close(self) -> None:
@@ -447,6 +474,10 @@ class AhaTree(app_commands.CommandTree[AhaBot]):
         bot.metrics.start_timer()
         retry_after = await bot.rate_limiter.consume(interaction.user.id)
         if retry_after is None:
+            await bot.ensure_command_enabled(
+                interaction.guild_id,
+                interaction.command.qualified_name if interaction.command else None,
+            )
             return True
         raise app_commands.CommandOnCooldown(
             app_commands.Cooldown(bot.rate_limiter.rate, bot.rate_limiter.per), retry_after
