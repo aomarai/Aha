@@ -42,3 +42,14 @@ groups:
           severity: warn
         annotations:
           summary: "More than 5% of commands are failing with unexpected errors"
+
+      - alert: AhaSchedulerLag
+        expr: max(aha_scheduler_lag_seconds) > 120
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Scheduled jobs are running more than two minutes late"
+          description: >-
+            Due jobs (reminders and similar) are not being claimed. Check that a pod is running the
+            scheduler task, the database is reachable, and handlers are not timing out.

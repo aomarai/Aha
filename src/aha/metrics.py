@@ -17,7 +17,7 @@ from collections.abc import Callable, Iterable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
 
-from prometheus_client import CollectorRegistry, Counter, Histogram
+from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 from prometheus_client.core import GaugeMetricFamily, Metric
 from prometheus_client.registry import Collector
 
@@ -96,6 +96,11 @@ class Metrics:
             "aha_gateway_reconnects_total",
             "Gateway disconnects (each one is followed by a reconnect attempt).",
             ["shard"],
+            registry=self.registry,
+        )
+        self.scheduler_lag = Gauge(
+            "aha_scheduler_lag_seconds",
+            "Seconds the oldest due scheduled job has been waiting to be claimed.",
             registry=self.registry,
         )
         self.registry.register(_BotCollector(shards, guilds))

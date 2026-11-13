@@ -160,6 +160,7 @@ def test_the_exposition_text_parses_and_documents_every_metric() -> None:
         "aha_shard_ready",
         "aha_gateway_latency_seconds",
         "aha_guilds",
+        "aha_scheduler_lag_seconds",
     } <= set(families)  # counters also expose a ``*_created`` series
     documented = {
         name: family.documentation
@@ -177,6 +178,9 @@ def test_the_exposition_text_parses_and_documents_every_metric() -> None:
         "aha_shard_ready": "1 when the shard is connected and ready.",
         "aha_gateway_latency_seconds": "Gateway heartbeat latency.",
         "aha_guilds": "Guilds served by the shard.",
+        "aha_scheduler_lag_seconds": (
+            "Seconds the oldest due scheduled job has been waiting to be claimed."
+        ),
     }
 
 
