@@ -26,8 +26,7 @@ def test_roll_reports_the_result(monkeypatch: pytest.MonkeyPatch) -> None:
     content, kwargs = ctx.replies[0]
     assert content is None
     embed = kwargs["embed"]
-    assert "4" in embed.description
-    assert "d6" in embed.description
+    assert embed.description == "Rolled **4** on a d6."
 
 
 def test_roll_default_is_d6(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -43,16 +42,20 @@ def test_roll_default_is_d6(monkeypatch: pytest.MonkeyPatch) -> None:
     content, kwargs = ctx.replies[0]
     assert content is None
     embed = kwargs["embed"]
-    assert "3" in embed.description
-    assert "d6" in embed.description
+    assert embed.description == "Rolled **3** on a d6."
 
 
 def test_roll_respects_the_sides_argument(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[int, int]] = []
+
+    def spy(a: int, b: int) -> int:
+        calls.append((a, b))
+        return b
+
+    monkeypatch.setattr(random, "randint", spy)
     bot = StubBot()
     cog = Fun(as_bot(bot))
     ctx = StubContext()
-
-    monkeypatch.setattr(random, "randint", lambda a, b: b)
 
     callback = cast("Any", cog.roll.callback)
     asyncio.run(callback(cog, as_context(ctx), sides=20))
@@ -60,15 +63,42 @@ def test_roll_respects_the_sides_argument(monkeypatch: pytest.MonkeyPatch) -> No
     content, kwargs = ctx.replies[0]
     assert content is None
     embed = kwargs["embed"]
-    assert "d20" in embed.description
+    assert embed.description == "Rolled **20** on a d20."
+    assert calls == [(1, 20)]
 
 
-def test_roll_uses_an_info_embed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_roll_rejects_nonpositive_sides() -> None:
     bot = StubBot()
     cog = Fun(as_bot(bot))
     ctx = StubContext()
 
+    callback = cast("Any", cog.roll.callback)
+    asyncio.run(callback(cog, as_context(ctx), sides=0))
+
+    content, kwargs = ctx.replies[0]
+    assert content == "sides must be at least 1."
+    assert "embed" not in kwargs
+
+
+def test_roll_falls_back_to_plain_text_when_embed_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(random, "randint", lambda a, b: 4)
+    bot = StubBot()
+    cog = Fun(as_bot(bot))
+    ctx = StubContext(reject_embeds=True)
+
+    callback = cast("Any", cog.roll.callback)
+    asyncio.run(callback(cog, as_context(ctx), sides=6))
+
+    assert ctx.replies == [("Rolled **4** on a d6.", {})]
+
+
+def test_roll_uses_an_info_embed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(random, "randint", lambda a, b: 1)
+    bot = StubBot()
+    cog = Fun(as_bot(bot))
+    ctx = StubContext()
 
     callback = cast("Any", cog.roll.callback)
     asyncio.run(callback(cog, as_context(ctx), sides=6))
@@ -101,11 +131,10 @@ def test_roll_calls_randint_with_the_right_range(monkeypatch: pytest.MonkeyPatch
 
 
 def test_coin_reports_heads_or_tails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(random, "choice", lambda seq: "heads")
     bot = StubBot()
     cog = Fun(as_bot(bot))
     ctx = StubContext()
-
-    monkeypatch.setattr(random, "choice", lambda seq: "heads")
 
     callback = cast("Any", cog.coin.callback)
     asyncio.run(callback(cog, as_context(ctx)))
@@ -113,15 +142,14 @@ def test_coin_reports_heads_or_tails(monkeypatch: pytest.MonkeyPatch) -> None:
     content, kwargs = ctx.replies[0]
     assert content is None
     embed = kwargs["embed"]
-    assert "Heads" in embed.description
+    assert embed.description == "Heads!"
 
 
 def test_coin_reports_tails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(random, "choice", lambda seq: "tails")
     bot = StubBot()
     cog = Fun(as_bot(bot))
     ctx = StubContext()
-
-    monkeypatch.setattr(random, "choice", lambda seq: "tails")
 
     callback = cast("Any", cog.coin.callback)
     asyncio.run(callback(cog, as_context(ctx)))
@@ -129,15 +157,28 @@ def test_coin_reports_tails(monkeypatch: pytest.MonkeyPatch) -> None:
     content, kwargs = ctx.replies[0]
     assert content is None
     embed = kwargs["embed"]
-    assert "Tails" in embed.description
+    assert embed.description == "Tails!"
+
+
+def test_coin_falls_back_to_plain_text_when_embed_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(random, "choice", lambda seq: "heads")
+    bot = StubBot()
+    cog = Fun(as_bot(bot))
+    ctx = StubContext(reject_embeds=True)
+
+    callback = cast("Any", cog.coin.callback)
+    asyncio.run(callback(cog, as_context(ctx)))
+
+    assert ctx.replies == [("Heads!", {})]
 
 
 def test_coin_uses_an_info_embed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(random, "choice", lambda seq: "tails")
     bot = StubBot()
     cog = Fun(as_bot(bot))
     ctx = StubContext()
-
-    monkeypatch.setattr(random, "choice", lambda seq: "tails")
 
     callback = cast("Any", cog.coin.callback)
     asyncio.run(callback(cog, as_context(ctx)))
