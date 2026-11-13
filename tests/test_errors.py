@@ -21,6 +21,8 @@ from tests.helpers import (
     as_context,
     as_interaction,
     as_tree_interaction,
+    assert_no_mentions,
+    assert_reply,
     http_error,
 )
 
@@ -39,7 +41,7 @@ def test_prefix_expected_error_gets_a_targeted_reply(
         asyncio.run(_cog().on_command_error(as_context(ctx), error))
 
     # A message context cannot reply privately, so no meaningless ``ephemeral``.
-    assert ctx.replies == [("You need these permissions to do that: manage messages.", {})]
+    assert_reply(ctx.replies, "You need these permissions to do that: manage messages.")
     assert caplog.records == []
 
 
@@ -50,9 +52,11 @@ def test_hybrid_slash_failure_replies_ephemerally() -> None:
 
     asyncio.run(_cog().on_command_error(as_context(ctx), error))
 
-    assert ctx.replies == [
-        ("You need these permissions to do that: manage messages.", {"ephemeral": True})
-    ]
+    assert_reply(
+        ctx.replies,
+        "You need these permissions to do that: manage messages.",
+        ephemeral=True,
+    )
 
 
 def test_prefix_unexpected_error_is_logged_with_context_and_hides_internals(
@@ -75,12 +79,10 @@ def test_prefix_unexpected_error_is_logged_with_context_and_hides_internals(
     assert cast("tuple[Any, ...]", record.args) == ("ping", error_id, 11, 22, 33)
     assert record.exc_info is not None
     assert record.exc_info[1] is boom
-    assert ctx.replies == [
-        (
-            f"Something went wrong. If it keeps happening, quote error ID `{error_id}`.",
-            {},
-        )
-    ]
+    assert_reply(
+        ctx.replies,
+        f"Something went wrong. If it keeps happening, quote error ID `{error_id}`.",
+    )
     content = ctx.replies[0][0]
     assert isinstance(content, str)
     assert "secret" not in content
@@ -146,7 +148,7 @@ def test_expected_errors_map_to_messages(error: Exception, expected: str) -> Non
 
     asyncio.run(_cog().on_command_error(as_context(ctx), cast("commands.CommandError", error)))
 
-    assert ctx.replies == [(expected, {})]
+    assert_reply(ctx.replies, expected)
 
 
 def test_app_cooldown_message() -> None:
@@ -155,9 +157,10 @@ def test_app_cooldown_message() -> None:
 
     asyncio.run(_cog().on_app_command_error(as_interaction(interaction), error))
 
-    assert interaction.sent == [
-        ("response", "That command is on cooldown. Try again in 4.0s.", {"ephemeral": True})
-    ]
+    ((kind, content, kwargs),) = interaction.sent
+    assert (kind, content) == ("response", "That command is on cooldown. Try again in 4.0s.")
+    assert kwargs["ephemeral"] is True
+    assert_no_mentions(kwargs["allowed_mentions"])
 
 
 def test_app_unexpected_error_replies_and_logs_context(
@@ -180,13 +183,11 @@ def test_app_unexpected_error_replies_and_logs_context(
     assert cast("tuple[Any, ...]", record.args) == ("ping", error_id, 11, 22, 33)
     assert record.exc_info is not None
     assert record.exc_info[1] is boom
-    assert interaction.sent == [
-        (
-            "response",
-            f"Something went wrong. If it keeps happening, quote error ID `{error_id}`.",
-            {"ephemeral": True},
-        )
-    ]
+    ((kind, content, kwargs),) = interaction.sent
+    assert kind == "response"
+    assert content == (f"Something went wrong. If it keeps happening, quote error ID `{error_id}`.")
+    assert kwargs["ephemeral"] is True
+    assert_no_mentions(kwargs["allowed_mentions"])
 
 
 def test_app_error_uses_followup_when_response_already_sent() -> None:
@@ -196,9 +197,10 @@ def test_app_error_uses_followup_when_response_already_sent() -> None:
         _cog().on_app_command_error(as_interaction(interaction), app_commands.CheckFailure())
     )
 
-    assert interaction.sent == [
-        ("followup", "You're not allowed to use that command.", {"ephemeral": True})
-    ]
+    ((kind, content, kwargs),) = interaction.sent
+    assert (kind, content) == ("followup", "You're not allowed to use that command.")
+    assert kwargs["ephemeral"] is True
+    assert_no_mentions(kwargs["allowed_mentions"])
 
 
 def test_hybrid_wrapper_is_unwrapped(caplog: pytest.LogCaptureFixture) -> None:
@@ -211,7 +213,7 @@ def test_hybrid_wrapper_is_unwrapped(caplog: pytest.LogCaptureFixture) -> None:
 
     asyncio.run(_cog().on_command_error(as_context(ctx), error))
 
-    assert ctx.replies == [("This command can't be used in direct messages.", {})]
+    assert_reply(ctx.replies, "This command can't be used in direct messages.")
     assert caplog.records == []
 
 

@@ -9,6 +9,7 @@ from discord.ext import commands
 from aha import embeds
 from aha.bot import AhaBot
 from aha.commands import hybrid_command
+from aha.replies import reply
 
 __all__ = ["Meta", "setup"]
 
@@ -26,15 +27,16 @@ class Meta(commands.Cog):
         latency_ms = round(self.bot.latency * 1000)
         text = f"WebSocket latency: {latency_ms} ms"
         try:
-            await ctx.reply(embed=embeds.status(text))
+            await reply(ctx, embed=embeds.status(text))
         except discord.HTTPException:
             # The channel may lack embed permission; keep the reply alive.
-            await ctx.reply(text)
+            await reply(ctx, text)
 
     @hybrid_command(
         name="sync",
         description="Re-sync the slash commands (requires Manage Server).",
     )
+    @commands.cooldown(1, 60, commands.BucketType.user)
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.checks.has_permissions(manage_guild=True)
     @commands.guild_only()
@@ -52,9 +54,9 @@ class Meta(commands.Cog):
         await self.bot.sync_commands()
         text = "Application commands synced."
         try:
-            await ctx.reply(embed=embeds.success(text))
+            await reply(ctx, embed=embeds.success(text))
         except discord.HTTPException:
-            await ctx.reply(text)
+            await reply(ctx, text)
 
 
 async def setup(bot: AhaBot) -> None:

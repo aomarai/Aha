@@ -6,6 +6,7 @@ import asyncio
 from typing import Any, cast
 
 import pytest
+from discord.ext import commands
 
 from aha.cogs import help as help_module
 from aha.cogs.help import Help, HelpPaginator, paginate
@@ -17,6 +18,8 @@ from tests.helpers import (
     as_bot,
     as_context,
     as_interaction,
+    assert_no_mentions,
+    assert_reply,
     stub_command,
 )
 
@@ -68,9 +71,11 @@ def test_help_lists_visible_commands_privately_without_a_view() -> None:
 
     _run_help(cog, ctx)
 
-    assert ctx.replies == [
-        ("`/ping` — Check latency.\n`/bare` — No description", {"ephemeral": True})
-    ]
+    assert_reply(
+        ctx.replies,
+        "`/ping` — Check latency.\n`/bare` — No description",
+        ephemeral=True,
+    )
 
 
 def test_help_with_no_visible_commands_says_so() -> None:
@@ -78,7 +83,7 @@ def test_help_with_no_visible_commands_says_so() -> None:
 
     _run_help(_cog([stub_command("secret", hidden=True)]), ctx)
 
-    assert ctx.replies == [("No commands available.", {"ephemeral": True})]
+    assert_reply(ctx.replies, "No commands available.", ephemeral=True)
 
 
 def test_help_paginates_when_the_list_is_too_long(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -121,11 +126,15 @@ def test_next_and_previous_flip_pages_and_toggle_buttons() -> None:
 
     view, steps = asyncio.run(scenario())
 
-    assert [s.edited for s in steps] == [
-        [{"content": "b\n\nPage 2/3", "view": view}],
-        [{"content": "c\n\nPage 3/3", "view": view}],
-        [{"content": "b\n\nPage 2/3", "view": view}],
+    edited = [step.edited[0] for step in steps]
+    assert [entry["content"] for entry in edited] == [
+        "b\n\nPage 2/3",
+        "c\n\nPage 3/3",
+        "b\n\nPage 2/3",
     ]
+    assert [entry["view"] for entry in edited] == [view, view, view]
+    for entry in edited:
+        assert_no_mentions(entry["allowed_mentions"])
     assert view.index == 1
     assert view.previous_page.disabled is False
     assert view.next_page.disabled is False
@@ -158,7 +167,17 @@ def test_only_the_owner_may_use_the_buttons() -> None:
 
     assert owner_ok is True
     assert stranger_ok is False
-    assert stranger.sent == [("response", "This help menu isn't yours.", {"ephemeral": True})]
+    ((kind, content, kwargs),) = stranger.sent
+    assert (kind, content) == ("response", "This help menu isn't yours.")
+    assert kwargs["ephemeral"] is True
+    assert_no_mentions(kwargs["allowed_mentions"])
+
+
+def test_help_has_a_per_user_cooldown() -> None:
+    cooldown = Help.help.cooldown
+    assert cooldown is not None
+    assert (cooldown.rate, cooldown.per) == (3, 10)
+    assert Help.help._buckets.type is commands.BucketType.user
 
 
 def test_setup_registers_the_help_cog() -> None:

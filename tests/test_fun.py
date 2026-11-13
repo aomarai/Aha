@@ -11,7 +11,7 @@ from discord.ext import commands
 
 from aha.cogs.fun import Fun
 from aha.cogs.fun import setup as fun_setup
-from tests.helpers import StubBot, StubContext, as_bot, as_context
+from tests.helpers import StubBot, StubContext, as_bot, as_context, assert_reply
 
 
 def test_roll_reports_the_result(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -112,7 +112,7 @@ def test_roll_falls_back_to_plain_text_when_embed_is_rejected(
     callback = cast("Any", cog.roll.callback)
     asyncio.run(callback(cog, as_context(ctx), sides=6))
 
-    assert ctx.replies == [("Rolled **4** on a d6.", {})]
+    assert_reply(ctx.replies, "Rolled **4** on a d6.")
 
 
 def test_roll_uses_an_info_embed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -192,7 +192,7 @@ def test_coin_falls_back_to_plain_text_when_embed_is_rejected(
     callback = cast("Any", cog.coin.callback)
     asyncio.run(callback(cog, as_context(ctx)))
 
-    assert ctx.replies == [("Heads!", {})]
+    assert_reply(ctx.replies, "Heads!")
 
 
 def test_coin_uses_an_info_embed(monkeypatch: pytest.MonkeyPatch) -> None:

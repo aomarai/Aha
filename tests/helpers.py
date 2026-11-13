@@ -16,6 +16,7 @@ from discord.ext import commands
 from aha.bot import AhaBot
 
 __all__ = [
+    "FakeClock",
     "Named",
     "StubBot",
     "StubContext",
@@ -24,9 +25,43 @@ __all__ = [
     "as_context",
     "as_interaction",
     "as_tree_interaction",
+    "assert_no_mentions",
+    "assert_reply",
     "http_error",
     "stub_command",
 ]
+
+
+def assert_no_mentions(allowed: discord.AllowedMentions) -> None:
+    """Assert every mention type is disabled."""
+    assert allowed.everyone is False
+    assert allowed.users is False
+    assert allowed.roles is False
+    assert allowed.replied_user is False
+
+
+def assert_reply(
+    replies: list[tuple[str | None, dict[str, Any]]],
+    content: str | None,
+    **kwargs: Any,
+) -> None:
+    """Assert a single recorded reply has ``content``, ``kwargs``, and no mentions."""
+    ((actual_content, actual_kwargs),) = replies
+    assert actual_content == content
+    assert {key: value for key, value in actual_kwargs.items() if key != "allowed_mentions"} == (
+        kwargs
+    )
+    assert_no_mentions(actual_kwargs["allowed_mentions"])
+
+
+class FakeClock:
+    """Deterministic monotonic clock for limiter tests."""
+
+    def __init__(self, now: float = 100.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
 
 
 class Named:
@@ -101,7 +136,7 @@ class StubInteraction:
         self.guild_id = 11
         self.channel_id = 22
         self.user = Named(id=user_id)
-        self.sent: list[tuple[str, str, dict[str, Any]]] = []
+        self.sent: list[tuple[str, str | None, dict[str, Any]]] = []
         self.edited: list[dict[str, Any]] = []
         outer = self
 
@@ -109,14 +144,14 @@ class StubInteraction:
             def is_done(self) -> bool:
                 return done
 
-            async def send_message(self, content: str, **kwargs: Any) -> None:
+            async def send_message(self, content: str | None, **kwargs: Any) -> None:
                 outer.sent.append(("response", content, kwargs))
 
             async def edit_message(self, **kwargs: Any) -> None:
                 outer.edited.append(kwargs)
 
         class _Followup:
-            async def send(self, content: str, **kwargs: Any) -> None:
+            async def send(self, content: str | None = None, **kwargs: Any) -> None:
                 outer.sent.append(("followup", content, kwargs))
 
         self.response = _Response()

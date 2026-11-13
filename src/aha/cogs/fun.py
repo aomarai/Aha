@@ -9,6 +9,7 @@ from discord.ext import commands
 
 from aha import embeds
 from aha.commands import hybrid_command
+from aha.replies import reply
 
 __all__ = ["Fun", "setup"]
 
@@ -24,14 +25,14 @@ class Fun(commands.Cog):
     async def roll(self, ctx: commands.Context[commands.Bot], sides: int = 6) -> None:
         """Roll a die with the given number of sides (default d6)."""
         if sides < 1:
-            await ctx.reply(embed=embeds.error("`sides` must be at least 1."), ephemeral=True)
+            await reply(ctx, embed=embeds.error("`sides` must be at least 1."), ephemeral=True)
             return
         result = random.randint(1, sides)
         text = f"Rolled **{result}** on a d{sides}."
         try:
-            await ctx.reply(embed=embeds.info(text))
+            await reply(ctx, embed=embeds.info(text))
         except discord.HTTPException:
-            await ctx.reply(text)
+            await reply(ctx, text)
 
     @hybrid_command(name="coin", description="Flip a coin.")
     @commands.cooldown(1, 5, commands.BucketType.user)
@@ -40,9 +41,9 @@ class Fun(commands.Cog):
         result = random.choice(("heads", "tails"))
         text = f"{result.title()}!"
         try:
-            await ctx.reply(embed=embeds.info(text))
+            await reply(ctx, embed=embeds.info(text))
         except discord.HTTPException:
-            await ctx.reply(text)
+            await reply(ctx, text)
 
 
 async def setup(bot: commands.Bot) -> None:

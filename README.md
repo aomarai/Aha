@@ -141,6 +141,8 @@ receives the message without the intent.
   bot revisions at once — whichever syncs last wins.
 - An operator can re-run the same sync from Discord with `/sync` (guild-only,
   requires Manage Server).
+- Sync is serialized within the process by a lock and restores the local command tree if a
+  purge sync fails; separate bot processes still need the out-of-band sync tracked in #2.
 
 ### Command access control
 
@@ -160,12 +162,15 @@ Discord shows and enforces at interaction time. Apply the decorators **below**
 async def example(ctx: commands.Context[commands.Bot]) -> None: ...
 ```
 
-Permission and cooldown failures reply through the global error handler:
-ephemeral for slash invocations, and a normal (public) message for mention
-invocations, since Discord cannot make a message reply private. Guild-only is
-enforced by Discord for slash invocations and by the local check for mentions.
-`/sync` demonstrates the full pattern; `/ping`, `/roll`, and `/coin` carry
-cooldowns.
+Replies go through `aha.replies.reply` (or `respond`/`edit_message` for interaction
+responses), which disable mentions, and a bot-wide
+per-user budget (10 invocations per 10 s) applies to every command; `/help` and
+`/sync` also carry their own cooldowns. Permission and cooldown failures reply
+through the global error handler: ephemeral for slash invocations and a normal
+(public) message for mention invocations, since Discord cannot make a message
+reply private. Guild-only is enforced by Discord for slash invocations and by the
+local check for mentions. `/sync` demonstrates the full pattern; `/ping`,
+`/roll`, and `/coin` carry cooldowns.
 
 ## Project layout
 

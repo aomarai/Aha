@@ -9,10 +9,21 @@ from typing import Any, cast
 
 import discord
 import pytest
+from discord import app_commands
 from discord.ext import commands
 
 from aha.bot import COG_MODULES, AhaBot
 from aha.config import Settings
+from aha.ratelimit import RateLimiter
+from tests.helpers import (
+    FakeClock,
+    Named,
+    StubContext,
+    StubInteraction,
+    as_context,
+    as_tree_interaction,
+    http_error,
+)
 
 
 def _bot(**kwargs: Any) -> AhaBot:
@@ -44,6 +55,7 @@ def test_bot_passes_default_intents_explicitly(monkeypatch: pytest.MonkeyPatch) 
 
     def fake_init(self: Any, **kwargs: Any) -> None:
         captured.update(kwargs)
+        self._checks = []
 
     monkeypatch.setattr(commands.Bot, "__init__", fake_init)
 
@@ -162,6 +174,116 @@ def test_sync_commands_keeps_globals_for_a_second_sync(
     assert before == ["ping", "sync"]
     assert after_first == before
     assert after_second == before
+
+
+def _gated_bot(clock: FakeClock) -> AhaBot:
+    """Build a bot whose gate uses ``clock`` instead of the monotonic clock."""
+    bot = AhaBot(Settings(token="test-token"), rate_limit=(1, 60.0))
+    bot.rate_limiter = RateLimiter(1, 60.0, clock=clock)
+    return bot
+
+
+def test_sync_commands_restores_globals_when_the_purge_sync_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _bot(dev_guild_id=123456789012345678)
+    calls: list[dict[str, Any]] = []
+
+    async def fake_sync(**kwargs: Any) -> list[Any]:
+        calls.append(kwargs)
+        if len(calls) == 2:  # the global purge sync
+            raise http_error()
+        return []
+
+    async def scenario() -> list[str]:
+        await bot.load_extension("aha.cogs.meta")
+        monkeypatch.setattr(bot.tree, "sync", fake_sync)
+        with pytest.raises(discord.HTTPException):
+            await bot.sync_commands()
+        return [command.name for command in bot.tree.get_commands(guild=None)]
+
+    assert asyncio.run(scenario()) == ["ping", "sync"]
+
+
+def test_sync_commands_serializes_concurrent_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = _bot(dev_guild_id=123456789012345678)
+    events: list[str] = []
+
+    async def fake_sync(**kwargs: Any) -> list[Any]:
+        events.append("start")
+        await asyncio.sleep(0)
+        events.append("end")
+        return []
+
+    async def scenario() -> None:
+        await bot.load_extension("aha.cogs.meta")
+        monkeypatch.setattr(bot.tree, "sync", fake_sync)
+        await asyncio.gather(bot.sync_commands(), bot.sync_commands())
+
+    asyncio.run(scenario())
+
+    # Each call runs two syncs; the lock must keep the pairs from interleaving.
+    assert events == ["start", "end"] * 4
+
+
+def test_global_rate_limit_consumes_for_message_contexts() -> None:
+    clock = FakeClock()
+    bot = _gated_bot(clock)
+    ctx = StubContext()
+
+    assert asyncio.run(bot._enforce_rate_limit(as_context(ctx))) is True
+    with pytest.raises(commands.CommandOnCooldown) as caught:
+        asyncio.run(bot._enforce_rate_limit(as_context(ctx)))
+    assert caught.value.retry_after == pytest.approx(60.0)
+    assert caught.value.cooldown is not None
+    assert (caught.value.cooldown.rate, caught.value.cooldown.per) == (1, 60.0)
+    assert caught.value.type is commands.BucketType.user
+
+    other = StubContext()
+    other.author = Named(id=44)
+    assert asyncio.run(bot._enforce_rate_limit(as_context(other))) is True
+
+    clock.now += 61.0
+
+    assert asyncio.run(bot._enforce_rate_limit(as_context(ctx))) is True
+
+
+def test_global_rate_limit_is_skipped_for_interaction_contexts() -> None:
+    bot = _gated_bot(FakeClock())
+    ctx = StubContext()
+    ctx.interaction = Named(id=1)
+
+    assert asyncio.run(bot._enforce_rate_limit(as_context(ctx))) is True
+    assert asyncio.run(bot._enforce_rate_limit(as_context(ctx))) is True
+
+
+def test_tree_interaction_check_enforces_the_shared_budget() -> None:
+    clock = FakeClock()
+    bot = _gated_bot(clock)
+    interaction = as_tree_interaction(StubInteraction())
+
+    assert asyncio.run(bot.tree.interaction_check(interaction)) is True
+    with pytest.raises(app_commands.CommandOnCooldown) as caught:
+        asyncio.run(bot.tree.interaction_check(interaction))
+    assert caught.value.retry_after == pytest.approx(60.0)
+    assert caught.value.cooldown is not None
+    assert (caught.value.cooldown.rate, caught.value.cooldown.per) == (1, 60.0)
+
+    other = as_tree_interaction(StubInteraction(user_id=2))
+    assert asyncio.run(bot.tree.interaction_check(other)) is True
+
+    clock.now += 61.0
+
+    assert asyncio.run(bot.tree.interaction_check(interaction)) is True
+
+
+def test_global_rate_limit_is_wired_into_bot_checks() -> None:
+    bot = AhaBot(Settings(token="test-token"), rate_limit=(1, 60.0))
+    ctx = StubContext()
+
+    assert asyncio.run(bot.can_run(as_context(ctx))) is True
+    with pytest.raises(commands.CommandOnCooldown):
+        asyncio.run(bot.can_run(as_context(ctx)))
 
 
 class _StubUser:
