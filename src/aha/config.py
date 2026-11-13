@@ -12,9 +12,13 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-__all__ = ["ConfigError", "Settings"]
+__all__ = ["LOG_FORMATS", "ConfigError", "Settings"]
 
 DEFAULT_LOG_LEVEL = "INFO"
+DEFAULT_LOG_FORMAT = "text"
+
+#: Supported ``LOG_FORMAT`` values.
+LOG_FORMATS = frozenset({"text", "json"})
 
 _TOKEN_ENV = "DISCORD_BOT_TOKEN"
 
@@ -48,6 +52,7 @@ class Settings:
     token: str = field(repr=False)
     log_level: str = DEFAULT_LOG_LEVEL
     dev_guild_id: int | None = None
+    log_format: str = DEFAULT_LOG_FORMAT
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -58,7 +63,8 @@ class Settings:
 
         Raises:
             ConfigError: if ``DISCORD_BOT_TOKEN`` is missing or empty, if
-                ``LOG_LEVEL`` is not a valid level name, or if ``DEV_GUILD_ID``
+                ``LOG_LEVEL`` is not a valid level name, if ``LOG_FORMAT`` is not
+                ``text`` or ``json``, or if ``DEV_GUILD_ID``
                 is not a positive Discord snowflake.
         """
         import os
@@ -77,6 +83,10 @@ class Settings:
         if not logging.getLevelNamesMapping().get(log_level):
             raise ConfigError(f"LOG_LEVEL must be a valid level name, got {log_level!r}")
 
+        log_format = (source.get("LOG_FORMAT") or DEFAULT_LOG_FORMAT).strip().lower()
+        if log_format not in LOG_FORMATS:
+            raise ConfigError(f"LOG_FORMAT must be 'text' or 'json', got {log_format!r}")
+
         dev_guild_id = _parse_optional_int(source.get("DEV_GUILD_ID"), name="DEV_GUILD_ID")
         if dev_guild_id is not None and not 0 < dev_guild_id <= _MAX_SNOWFLAKE:
             raise ConfigError(
@@ -88,4 +98,5 @@ class Settings:
             token=token,
             log_level=log_level,
             dev_guild_id=dev_guild_id,
+            log_format=log_format,
         )

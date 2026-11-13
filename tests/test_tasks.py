@@ -8,6 +8,7 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 
+from aha import logctx
 from aha.tasks import TaskRegistry
 from tests.helpers import FakeClock
 
@@ -503,3 +504,19 @@ def test_a_cancelled_task_that_closes_in_cleanup_does_not_cancel_the_first_close
 
 async def _forever() -> None:
     await asyncio.sleep(3600)
+
+
+def test_a_spawned_task_does_not_inherit_the_invocation_log_context() -> None:
+    registry = _registry()
+    seen: list[dict[str, object]] = []
+
+    async def background() -> None:
+        seen.append(dict(logctx.current()))
+
+    async def scenario() -> dict[str, object]:
+        logctx.bind(user_id=5, command="remind")  # as if spawned from inside a command
+        await registry.spawn(background, name="job")
+        return dict(logctx.current())
+
+    assert asyncio.run(scenario()) == {"user_id": 5, "command": "remind"}
+    assert seen == [{}]

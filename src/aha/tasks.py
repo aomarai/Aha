@@ -11,6 +11,7 @@ tasks have died for the readiness probe, and cancels everything at shutdown.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import math
 import time
@@ -124,7 +125,13 @@ class TaskRegistry:
             raise ValueError(f"a task named {name!r} is already running")
         # A replacement for a task that died for good makes the registry healthy again.
         self._failed.discard(name)
-        task = asyncio.create_task(self._supervise(factory, name, restart, critical), name=name)
+        # Run in a clean context: a task spawned while handling a command must not carry that
+        # invocation's log fields (user, guild, command) for the rest of its life.
+        task = asyncio.create_task(
+            self._supervise(factory, name, restart, critical),
+            name=name,
+            context=contextvars.Context(),
+        )
         self._tasks[name] = task
         task.add_done_callback(lambda _done: self._forget(name))
         return task

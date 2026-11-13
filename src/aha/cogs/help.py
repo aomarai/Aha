@@ -5,6 +5,7 @@ from __future__ import annotations
 import discord
 from discord.ext import commands
 
+from aha import logctx
 from aha.commands import hybrid_command
 from aha.replies import edit_message, reply, respond
 
@@ -56,6 +57,8 @@ class HelpPaginator(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Only the user who asked for help may flip its pages."""
+        # Button clicks never pass the command tree's check, so bind the log context here.
+        logctx.bind_interaction(interaction)
         if interaction.user.id == self.owner_id:
             return True
         await respond(interaction, "This help menu isn't yours.", ephemeral=True)

@@ -195,7 +195,8 @@ Aha/
 │   ├── __main__.py      # entry point: load .env, build settings, run the bot
 │   ├── bot.py           # AhaBot (commands.Bot) + setup_hook/on_ready/sync_commands
 │   ├── config.py        # Settings loaded & validated from the environment
-│   ├── logging_setup.py # logging configuration
+│   ├── logging_setup.py # text/JSON formatters, token masking
+│   ├── logctx.py        # per-invocation log context (ContextVar)
 │   ├── tasks.py         # TaskRegistry: supervised background tasks
 │   └── cogs/            # command groups, each exposing async setup(bot)
 │       ├── errors.py    # global error handler
@@ -219,7 +220,18 @@ Real environment variables take precedence over `.env`.
 |---------------------|----------|---------|-------------------------------------------------|
 | `DISCORD_BOT_TOKEN` | yes      | –       | Bot token from the Developer Portal             |
 | `LOG_LEVEL`         | no       | `INFO`  | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `LOG_FORMAT`        | no       | `text`  | `text` (human-readable) or `json` (one object per line) |
 | `DEV_GUILD_ID`      | no       | –       | Sync slash commands instantly to this guild     |
+
+### Logging
+
+`LOG_FORMAT=json` writes one JSON object per line to stdout for a log store such as Loki. Every
+record carries `ts` (UTC, ISO 8601), `level`, `logger` and `msg`, plus `exc` for a traceback. When
+set in the environment, `HOSTNAME` (as `pod`), `AHA_VERSION` (`version`) and `AHA_COMMIT`
+(`commit`) are added to every record. While a command is being handled, its records also carry
+`shard_id`, `guild_id`, `channel_id`, `user_id`, `interaction_id` (or `message_id` for `@Aha`
+mentions) and `command`. The bot token is replaced with `***` in both formats, including inside
+tracebacks.
 
 ## Development
 

@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sys
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
-from aha.logging_setup import configure_logging
+from aha import logctx
+from aha.logging_setup import (
+    JsonFormatter,
+    TextFormatter,
+    configure_logging,
+    static_fields_from_env,
+)
 
 #: Named loggers whose level ``configure_logging`` mutates.
 _NAMED_LOGGERS = ("discord", "aiohttp")
@@ -92,3 +100,175 @@ def test_configure_logging_formats_records(capsys: pytest.CaptureFixture[str]) -
         r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} INFO     aha\.sample: hello\n",
         capsys.readouterr().out,
     )
+
+
+def _record(
+    message: str = "hello", *args: object, exc_info: Any = None, **extra: object
+) -> logging.LogRecord:
+    record = logging.LogRecord("aha.sample", logging.WARNING, __file__, 1, message, args, exc_info)
+    record.created = 1_700_000_000.123456
+    for key, value in extra.items():
+        setattr(record, key, value)
+    return record
+
+
+def test_json_formatter_emits_the_fixed_keys() -> None:
+    line = JsonFormatter().format(_record("count=%d", 3))
+
+    assert json.loads(line) == {
+        "ts": "2023-11-14T22:13:20.123+00:00",
+        "level": "WARNING",
+        "logger": "aha.sample",
+        "msg": "count=3",
+    }
+
+
+def test_json_formatter_is_a_single_line() -> None:
+    line = JsonFormatter().format(_record("line one\nline two"))
+
+    assert "\n" not in line
+    assert json.loads(line)["msg"] == "line one\nline two"
+
+
+def test_json_formatter_adds_static_and_context_fields() -> None:
+    token = logctx.bind(shard_id=1, guild_id=2, user_id=3, command="ping")
+    try:
+        line = JsonFormatter(static={"pod": "aha-0", "version": "1.2.3"}).format(_record())
+    finally:
+        logctx.reset(token)
+
+    payload = json.loads(line)
+    assert payload["pod"] == "aha-0"
+    assert payload["version"] == "1.2.3"
+    assert (payload["shard_id"], payload["guild_id"], payload["user_id"]) == (1, 2, 3)
+    assert payload["command"] == "ping"
+
+
+def test_json_formatter_includes_extra_fields_but_not_logrecord_internals() -> None:
+    payload = json.loads(JsonFormatter().format(_record(outcome="ok", duration_ms=12)))
+
+    assert payload["outcome"] == "ok"
+    assert payload["duration_ms"] == 12
+    assert set(payload) == {"ts", "level", "logger", "msg", "outcome", "duration_ms"}
+
+
+def test_json_formatter_renders_non_serialisable_extras_as_strings() -> None:
+    payload = json.loads(JsonFormatter().format(_record(thing=frozenset({1}))))
+
+    assert payload["thing"] == "frozenset({1})"
+
+
+def test_json_formatter_includes_a_traceback() -> None:
+    try:
+        raise ValueError("kaput")
+    except ValueError:
+        record = _record("failed", exc_info=sys.exc_info())
+
+    payload = json.loads(JsonFormatter().format(record))
+
+    assert payload["exc"].startswith("Traceback (most recent call last):")
+    assert payload["exc"].endswith("ValueError: kaput")
+
+
+def test_json_formatter_reuses_cached_exception_text() -> None:
+    record = _record("failed")
+    record.exc_text = "cached traceback"
+
+    assert json.loads(JsonFormatter().format(record))["exc"] == "cached traceback"
+
+
+def test_json_formatter_masks_secrets_in_messages_and_tracebacks() -> None:
+    try:
+        raise ValueError("bad token s3cr3t.token")
+    except ValueError:
+        record = _record("login with %s", "s3cr3t.token", exc_info=sys.exc_info())
+
+    line = JsonFormatter(secrets=("s3cr3t.token",)).format(record)
+
+    assert "s3cr3t.token" not in line
+    payload = json.loads(line)
+    assert payload["msg"] == "login with ***"
+    assert payload["exc"].endswith("ValueError: bad token ***")
+
+
+def test_text_formatter_masks_secrets() -> None:
+    line = TextFormatter(secrets=("s3cr3t",)).format(_record("token=%s", "s3cr3t"))
+
+    assert line.endswith("WARNING  aha.sample: token=***")
+
+
+def test_masking_ignores_empty_secrets_and_masks_the_longest_first() -> None:
+    line = TextFormatter(secrets=("", "abc", "abcdef")).format(_record("abcdef and abc"))
+
+    assert line.endswith("*** and ***")
+
+
+def test_configure_logging_json_writes_json_lines_with_masked_token(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO", log_format="json", secrets=("tok.en",), static={"pod": "aha-0"})
+
+    logging.getLogger("aha.sample").info("using %s", "tok.en")
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["msg"] == "using ***"
+    assert payload["pod"] == "aha-0"
+    assert payload["logger"] == "aha.sample"
+
+
+def test_configure_logging_text_masks_the_token(capsys: pytest.CaptureFixture[str]) -> None:
+    configure_logging("INFO", secrets=("tok.en",))
+
+    logging.getLogger("aha.sample").info("using %s", "tok.en")
+
+    assert capsys.readouterr().out.endswith("INFO     aha.sample: using ***\n")
+
+
+def test_static_fields_come_from_the_environment() -> None:
+    env = {"HOSTNAME": "aha-1", "AHA_VERSION": "0.2.0", "AHA_COMMIT": "abc123", "OTHER": "x"}
+
+    assert static_fields_from_env(env) == {"pod": "aha-1", "version": "0.2.0", "commit": "abc123"}
+
+
+def test_static_fields_skip_unset_and_empty_variables() -> None:
+    assert static_fields_from_env({"HOSTNAME": "", "AHA_VERSION": "0.2.0"}) == {"version": "0.2.0"}
+
+
+def test_static_fields_default_to_the_process_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOSTNAME", "from-environ")
+    monkeypatch.delenv("AHA_VERSION", raising=False)
+    monkeypatch.delenv("AHA_COMMIT", raising=False)
+
+    assert static_fields_from_env() == {"pod": "from-environ"}
+
+
+def test_extra_fields_cannot_overwrite_authoritative_fields() -> None:
+    token = logctx.bind(user_id=3, command="ping")
+    try:
+        line = JsonFormatter(static={"pod": "aha-0"}).format(
+            _record(
+                "real message",
+                ts="spoofed",
+                level="spoofed",
+                logger="spoofed",
+                pod="spoofed",
+                user_id=999,
+            )
+        )
+    finally:
+        logctx.reset(token)
+
+    payload = json.loads(line)
+    assert payload["ts"] == "2023-11-14T22:13:20.123+00:00"
+    assert payload["level"] == "WARNING"
+    assert payload["logger"] == "aha.sample"
+    assert payload["msg"] == "real message"
+    assert payload["pod"] == "aha-0"
+    assert payload["user_id"] == 3
+
+
+def test_configure_logging_rejects_an_unsupported_format() -> None:
+    with pytest.raises(
+        ValueError, match=r"^log_format must be one of \['json', 'text'\], got 'JSON'$"
+    ):
+        configure_logging("INFO", log_format="JSON")

@@ -81,3 +81,23 @@ def test_settings_repr_redacts_the_token() -> None:
     assert "super-secret" not in rendered
     assert "log_level='DEBUG'" in rendered
     assert "dev_guild_id=42" in rendered
+
+
+def test_log_format_defaults_to_text() -> None:
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "secret"}).log_format == "text"
+
+
+@pytest.mark.parametrize("raw", ["json", "JSON", " Json "])
+def test_log_format_json_is_accepted_case_insensitively(raw: str) -> None:
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "LOG_FORMAT": raw})
+
+    assert settings.log_format == "json"
+
+
+def test_blank_log_format_falls_back_to_text() -> None:
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "LOG_FORMAT": ""}).log_format == "text"
+
+
+def test_invalid_log_format_is_rejected() -> None:
+    with pytest.raises(ConfigError, match=r"^LOG_FORMAT must be 'text' or 'json', got 'yaml'$"):
+        Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "LOG_FORMAT": "yaml"})

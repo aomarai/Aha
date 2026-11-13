@@ -12,6 +12,7 @@ import pytest
 from discord import app_commands
 from discord.ext import commands
 
+from aha import logctx
 from aha.bot import COG_MODULES, WATCHDOG_TASK, AhaBot
 from aha.config import Settings
 from aha.ratelimit import RateLimiter
@@ -236,6 +237,67 @@ def test_sync_commands_serializes_concurrent_calls(monkeypatch: pytest.MonkeyPat
 
     # Each call runs two syncs; the lock must keep the pairs from interleaving.
     assert events == ["start", "end"] * 4
+
+
+def test_tree_interaction_check_binds_the_log_context() -> None:
+    bot = _gated_bot(FakeClock())
+    interaction = as_tree_interaction(StubInteraction())
+
+    async def scenario() -> dict[str, object]:
+        await bot.tree.interaction_check(interaction)
+        return dict(logctx.current())
+
+    assert asyncio.run(scenario()) == {
+        "shard_id": 2,
+        "guild_id": 11,
+        "channel_id": 22,
+        "user_id": 33,
+        "interaction_id": 777,
+        "command": "ping",
+    }
+
+
+def test_the_log_context_is_bound_even_when_the_rate_limit_rejects() -> None:
+    bot = _gated_bot(FakeClock())
+    interaction = as_tree_interaction(StubInteraction())
+
+    async def scenario() -> dict[str, object]:
+        await bot.tree.interaction_check(interaction)
+        with pytest.raises(app_commands.CommandOnCooldown):
+            await bot.tree.interaction_check(interaction)
+        return dict(logctx.current())
+
+    assert asyncio.run(scenario())["user_id"] == 33
+
+
+def test_message_context_check_binds_the_log_context() -> None:
+    bot = _gated_bot(FakeClock())
+    ctx = StubContext()
+
+    async def scenario() -> dict[str, object]:
+        await bot._enforce_rate_limit(as_context(ctx))
+        return dict(logctx.current())
+
+    assert asyncio.run(scenario()) == {
+        "shard_id": 2,
+        "guild_id": 11,
+        "channel_id": 22,
+        "user_id": 33,
+        "message_id": 44,
+        "command": "ping",
+    }
+
+
+def test_message_context_check_leaves_slash_invocations_to_the_tree() -> None:
+    bot = _gated_bot(FakeClock())
+    ctx = StubContext()
+    ctx.interaction = StubInteraction()
+
+    async def scenario() -> dict[str, object]:
+        await bot._enforce_rate_limit(as_context(ctx))
+        return dict(logctx.current())
+
+    assert asyncio.run(scenario()) == {}
 
 
 def test_global_rate_limit_consumes_for_message_contexts() -> None:
