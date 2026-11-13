@@ -216,14 +216,17 @@ Aha/
 │   ├── bot.py           # AhaBot (commands.Bot) + setup_hook/on_ready/sync_commands
 │   ├── cmdsync.py       # compare local vs remote command trees (sync only if changed)
 │   ├── config.py        # Settings loaded & validated from the environment
+│   ├── health.py        # /livez, /readyz, /metrics HTTP server
 │   ├── logging_setup.py # text/JSON formatters, token masking
 │   ├── logctx.py        # per-invocation log context (ContextVar)
+│   ├── metrics.py       # Prometheus registry and instruments
 │   ├── tasks.py         # TaskRegistry: supervised background tasks
 │   └── cogs/            # command groups, each exposing async setup(bot)
 │       ├── errors.py    # global error handler
 │       ├── fun.py       # /roll, /coin
 │       ├── help.py      # /help (paginated)
 │       ├── meta.py      # /ping
+│       ├── observability.py # counts command outcomes and durations
 │       └── ops.py       # /sync (owner only; dev guild / SYNC_ON_STARTUP only)
 ├── tests/               # pytest suite
 ├── .devcontainer/       # VS Code dev container (Python 3.14 + uv)
@@ -245,6 +248,26 @@ Real environment variables take precedence over `.env`.
 | `LOG_FORMAT`        | no       | `text`  | `text` (human-readable) or `json` (one object per line) |
 | `DEV_GUILD_ID`      | no       | –       | Sync slash commands instantly to this guild     |
 | `SYNC_ON_STARTUP`   | no       | `false` | Sync commands at every start (single process only) |
+| `HEALTH_BIND`       | no       | `127.0.0.1` | Address of the health/metrics server        |
+| `HEALTH_PORT`       | no       | `8080`  | Port of the health/metrics server; `0` disables it |
+
+### Health, readiness and metrics
+
+Each process serves a small read-only HTTP server (default `127.0.0.1:8080`, set `HEALTH_BIND` and
+`HEALTH_PORT`; `HEALTH_PORT=0` turns it off). There is no authentication: access control is the bind
+address and, in a cluster, a NetworkPolicy, so bind `0.0.0.0` only inside a pod network.
+
+| Endpoint | Meaning | Use for |
+|----------|---------|---------|
+| `GET /livez` | The event loop answers and no critical background task has died for good. | liveness probe |
+| `GET /readyz` | Every shard this process owns is connected and ready (a disconnect shorter than 30 s does not count), and no critical task has died. `503` until the first READY. | readiness / startup probe; gates StatefulSet rollouts |
+| `GET /metrics` | Prometheus text exposition. | scrape |
+
+Metrics: `aha_commands_total{command,outcome}` (`ok`, `error`, `denied`, `cooldown`),
+`aha_command_duration_seconds{command}`, `aha_gateway_latency_seconds{shard}`,
+`aha_shard_ready{shard}`, `aha_gateway_reconnects_total{shard}` and `aha_guilds{shard}`. Commands are
+counted in one place (`cogs/observability.py`), so a new command is covered automatically. Alert
+rules for the metrics that exist today are in [`deploy/alerts/aha.rules.yml`](deploy/alerts/aha.rules.yml).
 
 ### Logging
 

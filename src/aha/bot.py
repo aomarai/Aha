@@ -6,6 +6,7 @@ import asyncio
 import logging
 import math
 import time
+from collections import Counter
 from dataclasses import dataclass
 
 import discord
@@ -15,6 +16,8 @@ from discord.ext import commands
 from aha import logctx
 from aha.cmdsync import CommandDiff, diff_commands
 from aha.config import Settings
+from aha.health import HealthServer
+from aha.metrics import Metrics, ShardState
 from aha.ratelimit import RateLimiter
 from aha.tasks import TaskRegistry
 
@@ -22,7 +25,9 @@ __all__ = [
     "COG_MODULES",
     "GATEWAY_DISCONNECT_TIMEOUT",
     "GATEWAY_WATCHDOG_INTERVAL",
+    "HEALTH_TASK",
     "OPERATOR_COG",
+    "READINESS_DISCONNECT_GRACE",
     "WATCHDOG_TASK",
     "AhaBot",
     "AhaTree",
@@ -37,6 +42,7 @@ COG_MODULES: tuple[str, ...] = (
     "aha.cogs.errors",
     "aha.cogs.help",
     "aha.cogs.fun",
+    "aha.cogs.observability",
 )
 
 #: Cog holding the operator-only ``/sync`` command; loaded only when ``/sync`` is meant to exist
@@ -48,6 +54,12 @@ APP_COMMAND_ERROR_EVENT = "app_command_error"
 
 #: Seconds the gateway may stay disconnected before the bot closes itself.
 GATEWAY_DISCONNECT_TIMEOUT = 300.0
+
+#: Name of the health/metrics server task in the registry.
+HEALTH_TASK = "health-server"
+
+#: Seconds a gateway disconnect may last before the pod stops reporting ready.
+READINESS_DISCONNECT_GRACE = 30.0
 
 #: Name of the gateway watchdog task in the registry.
 WATCHDOG_TASK = "gateway-watchdog"
@@ -118,6 +130,7 @@ class AhaBot(commands.Bot):
         self._disconnected_since: float | None = None
         #: Supervised background tasks; cogs must spawn through this, never ``create_task``.
         self.tasks = TaskRegistry()
+        self.metrics = Metrics(self.shard_states, self.guild_counts)
         #: Process exit code; the watchdog sets 1 so a supervisor restarts the bot.
         self.exit_code = 0
         self.add_check(self._enforce_rate_limit)
@@ -128,6 +141,7 @@ class AhaBot(commands.Bot):
             # Slash invocations are gated once by ``AhaTree.interaction_check``.
             return True
         logctx.bind_context(ctx)
+        self.metrics.start_timer()
         retry_after = self.rate_limiter.consume(ctx.author.id)
         if retry_after is None:
             return True
@@ -151,6 +165,9 @@ class AhaBot(commands.Bot):
             await self.sync_commands()
         else:
             log.info("Command sync skipped at startup (run 'aha sync')")
+        if self.settings.health_port != 0 and HEALTH_TASK not in self.tasks:
+            server = HealthServer(self, self.settings.health_bind, self.settings.health_port)
+            self.tasks.spawn(server.run, name=HEALTH_TASK, restart=True, critical=True)
         if WATCHDOG_TASK not in self.tasks:
             self.tasks.spawn(self._watch_gateway, name=WATCHDOG_TASK, restart=True, critical=True)
 
@@ -195,8 +212,26 @@ class AhaBot(commands.Bot):
         """
         log.info("Connected to the Discord gateway")
 
+    def shard_states(self) -> list[ShardState]:
+        """Snapshot every shard this process owns, for readiness and metrics.
+
+        A plain ``commands.Bot`` is a single shard 0. A disconnect shorter than
+        :data:`READINESS_DISCONNECT_GRACE` does not make the shard unready: discord.py
+        resumes in-flight sessions within seconds and a probe should not flap on that.
+        """
+        since = self._disconnected_since
+        outage = 0.0 if since is None else time.monotonic() - since
+        return [
+            ShardState(0, self.is_ready() and outage <= READINESS_DISCONNECT_GRACE, self.latency)
+        ]
+
+    def guild_counts(self) -> dict[int, int]:
+        """Return the number of cached guilds per shard id."""
+        return dict(Counter(guild.shard_id for guild in self.guilds))
+
     async def on_disconnect(self) -> None:
         """Start the disconnect clock (once) and log the lost connection."""
+        self.metrics.reconnects.labels(shard="0").inc()
         if self._disconnected_since is None:
             self._disconnected_since = time.monotonic()
         # ``ws`` is None once the connection is torn down and may not carry a
@@ -318,6 +353,7 @@ class AhaTree(app_commands.CommandTree[AhaBot]):
         """
         logctx.bind_interaction(interaction)
         bot = self.client
+        bot.metrics.start_timer()
         retry_after = bot.rate_limiter.consume(interaction.user.id)
         if retry_after is None:
             return True

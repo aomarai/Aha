@@ -107,6 +107,13 @@ every change must keep:
   formatter (`LOG_FORMAT=json`) adds them to every record, so do not repeat those ids in log
   messages. Structured extras go in `extra={...}`. Both formatters mask the bot token. Never log
   `settings.token` deliberately, and keep new log fields free of user-supplied free text.
+- Health and metrics: `aha.health.HealthServer` (started by `setup_hook` as the critical,
+  restartable `health-server` task unless `HEALTH_PORT=0`) serves `/livez`, `/readyz`, `/metrics`;
+  readiness is `bot.shard_states()` plus `bot.tasks.healthy`. Metrics live in the per-bot
+  registry `bot.metrics`; commands are counted only in `cogs/observability.py` (from
+  `command_completion`, `command_error`, `app_command_error`; not `app_command_completion`,
+  which discord.py also fires for hybrid commands and would double-count), so never increment
+  `aha_commands_total` from a cog. Tests get an idle fake server from `tests/conftest.py`.
 - Background tasks: never call `asyncio.create_task` in a cog or hook for long-running work. Use
   `bot.tasks.spawn(factory, name=..., restart=..., critical=...)` (`aha.tasks.TaskRegistry`): it
   keeps a strong reference, logs failures with the task name, restarts with capped back-off when
