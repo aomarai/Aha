@@ -1,6 +1,8 @@
-"""Tests for the per-user token-bucket limiter."""
+"""Tests for the per-user sliding-window limiter."""
 
 from __future__ import annotations
+
+import pytest
 
 from aha.ratelimit import RateLimiter
 from tests.helpers import FakeClock
@@ -12,9 +14,7 @@ def test_allows_up_to_the_rate_then_reports_the_wait() -> None:
 
     assert limiter.consume(1) is None
     assert limiter.consume(1) is None
-    retry_after = limiter.consume(1)
-    assert retry_after is not None
-    assert 0 < retry_after <= 10.0
+    assert limiter.consume(1) == pytest.approx(10.0)
 
 
 def test_tokens_refill_after_the_window() -> None:
@@ -28,6 +28,51 @@ def test_tokens_refill_after_the_window() -> None:
     assert limiter.consume(1) is None
 
 
+def test_window_is_sliding_not_fixed() -> None:
+    clock = FakeClock(0.0)
+    limiter = RateLimiter(2, 10.0, clock=clock)
+    assert limiter.consume(1) is None  # t=0
+    clock.now = 9.0
+    assert limiter.consume(1) is None  # t=9, budget full
+    clock.now = 10.5
+    # t=0 fell out of the window; the t=9 event still counts.
+    assert limiter.consume(1) is None
+    assert limiter.consume(1) == pytest.approx(8.5)
+
+
+def test_events_expire_at_the_window_boundary() -> None:
+    clock = FakeClock(0.0)
+    limiter = RateLimiter(1, 10.0, clock=clock)
+    assert limiter.consume(1) is None
+
+    clock.now = 10.0
+
+    assert limiter.consume(1) is None
+
+
+def test_stale_events_are_dropped_at_the_boundary() -> None:
+    clock = FakeClock(0.0)
+    limiter = RateLimiter(3, 10.0, clock=clock)
+    assert limiter.consume(1) is None  # t=0
+    clock.now = 9.0
+    assert limiter.consume(1) is None  # t=9
+    clock.now = 10.0
+    assert limiter.consume(1) is None  # t=0 expires here
+    # A second call at the same instant must not see the expired t=0 event.
+    assert limiter.consume(1) is None
+
+
+def test_prune_runs_at_the_exact_boundary() -> None:
+    clock = FakeClock(0.0)
+    limiter = RateLimiter(1, 10.0, clock=clock)
+    assert limiter.consume(1) is None
+
+    clock.now = 10.0
+    assert limiter.consume(2) is None
+
+    assert list(limiter._events) == [2]
+
+
 def test_buckets_are_per_key() -> None:
     clock = FakeClock()
     limiter = RateLimiter(1, 10.0, clock=clock)
@@ -35,3 +80,27 @@ def test_buckets_are_per_key() -> None:
     assert limiter.consume(1) is None
     assert limiter.consume(2) is None
     assert limiter.consume(1) is not None
+
+
+def test_idle_keys_are_pruned() -> None:
+    clock = FakeClock()
+    limiter = RateLimiter(1, 10.0, clock=clock)
+    assert limiter.consume(1) is None
+
+    clock.now += 11.0
+    assert limiter.consume(2) is None
+
+    assert list(limiter._events) == [2]
+
+
+def test_active_keys_survive_pruning() -> None:
+    clock = FakeClock()
+    limiter = RateLimiter(3, 10.0, clock=clock)
+    assert limiter.consume(1) is None  # t=100
+    clock.now = 105.0
+    assert limiter.consume(1) is None  # t=105, still inside the window at t=110
+
+    clock.now = 110.0
+    assert limiter.consume(2) is None
+
+    assert set(limiter._events) == {1, 2}

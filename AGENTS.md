@@ -76,7 +76,8 @@ removing or mutating the code under test fails the test.
   `allowed_mentions=AllowedMentions.none()`; never call `ctx.reply` directly, or user text can
   ping roles or `@everyone`. A bot-wide per-user budget is enforced by
   `AhaTree.interaction_check` (slash) and `AhaBot._enforce_rate_limit` (mentions), so a new
-  command inherits rate limiting without its own decorator. Interaction responses use
+  command inherits rate limiting without its own decorator. The budget is per process; a
+  multi-process deployment needs shared state (see #2). Interaction responses use
   `aha.replies.respond` / `edit_message`, which apply the same mention policy.
 - Tests are plain pytest functions; async code is driven with `asyncio.run(...)` (no
   pytest-asyncio). Discord collaborators are replaced with `monkeypatch.setattr` fakes that

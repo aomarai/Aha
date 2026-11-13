@@ -34,6 +34,7 @@ class AhaBot(commands.Bot):
     """
 
     #: Bot-wide per-user budget: invocations allowed per window, across commands.
+    #: Enforced per process; sharding (#2) needs shared state.
     GLOBAL_RATE_LIMIT: tuple[int, float] = (10, 10.0)
 
     def __init__(
