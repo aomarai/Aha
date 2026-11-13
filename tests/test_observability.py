@@ -9,6 +9,7 @@ import math
 import time
 from typing import Any, ClassVar, cast
 
+import discord
 import pytest
 from discord import app_commands
 from discord.ext import commands
@@ -38,6 +39,40 @@ def _count(bot: AhaBot, command: str, outcome: str) -> float | None:
     return bot.metrics.registry.get_sample_value(
         "aha_commands_total", {"command": command, "outcome": outcome}
     )
+
+
+def test_a_completed_context_menu_is_counted_and_audited(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    bot = _bot()
+    menu = app_commands.ContextMenu(name="Count reactions", callback=_menu_callback)
+
+    with caplog.at_level(logging.INFO, logger=AUDIT_LOGGER):
+        asyncio.run(
+            Observability(bot).on_app_command_completion(as_interaction(StubInteraction()), menu)
+        )
+
+    assert _count(bot, "Count reactions", "ok") == 1
+    (record,) = caplog.records
+    assert record.getMessage() == "Command /Count reactions completed"
+    assert record.__dict__["arguments"] == []
+
+
+def test_a_hybrid_commands_app_completion_is_not_counted_twice() -> None:
+    bot = _bot()
+    hybrid_app_command = cast("Any", Named(qualified_name="ping"))
+
+    asyncio.run(
+        Observability(bot).on_app_command_completion(
+            as_interaction(StubInteraction()), hybrid_app_command
+        )
+    )
+
+    assert _count(bot, "ping", "ok") is None
+
+
+async def _menu_callback(interaction: discord.Interaction, message: discord.Message) -> None:
+    return None
 
 
 def test_a_completed_command_is_counted_ok() -> None:

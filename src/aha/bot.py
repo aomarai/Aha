@@ -42,6 +42,7 @@ COG_MODULES: tuple[str, ...] = (
     "aha.cogs.errors",
     "aha.cogs.help",
     "aha.cogs.fun",
+    "aha.cogs.polls",
     "aha.cogs.observability",
 )
 

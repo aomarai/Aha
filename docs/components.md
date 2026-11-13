@@ -37,6 +37,12 @@ current commands, edits the message, and returns a new set of buttons carrying t
 numbers. `tests/test_help.py` builds a button from a `custom_id` alone and clicks it on a fresh
 handler to prove it survives a restart.
 
+## Native polls and context menus
+
+Prefer Discord's own features over a custom component when one fits: `/poll` uses a native poll
+(Discord stores the votes and closes it), and "Count reactions" is a message context menu, which
+receives the message without the privileged Message Content intent. Neither keeps any state.
+
 ## Naming
 
 Prefix every `custom_id` with `aha:<feature>:` so templates never collide.
