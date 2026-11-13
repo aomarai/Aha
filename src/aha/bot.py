@@ -19,6 +19,7 @@ COG_MODULES: tuple[str, ...] = (
     "aha.cogs.meta",
     "aha.cogs.errors",
     "aha.cogs.help",
+    "aha.cogs.fun",
 )
 
 #: Event dispatched for failed app commands (listeners are ``on_app_command_error``).
