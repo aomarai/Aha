@@ -29,9 +29,9 @@ passes — that is the global `--cov-fail-under=95` in `addopts`, not a real fai
 
 `.github/workflows/ci.yml`: ruff lint, ruff format check, pre-commit (incl. gitleaks), mypy
 strict, pytest with 95% branch coverage, then a **mutation-testing job** that fails if the
-mutmut score drops below `THRESHOLD` in `scripts/mutation_score.py` (currently 0.60, a ratchet
-meant to be raised as surviving mutants are killed). Separate workflows run security checks and
-SonarQube.
+mutmut score drops below `THRESHOLD` in `scripts/mutation_score.py` (currently 0.98 against a
+measured 100%, a ratchet meant to be raised as surviving mutants are killed). Separate workflows
+run security checks and SonarQube.
 
 Consequence: tests must be *assertive*, not just covering. A test that executes a line but would
 still pass if that line were deleted or altered lets the mutant survive. When writing or fixing

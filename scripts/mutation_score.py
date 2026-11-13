@@ -46,11 +46,11 @@ from typing import Any
 
 STATS_PATH = Path("mutants/mutmut-cicd-stats.json")
 
-# Ratchet: the campaign currently scores ~66% (125/189 measured locally with
-# mutmut 3.8.0). Keep the gate a few points below that so refactors have room
-# while a real regression still trips it. Raise this as the surviving-mutant
-# backlog is worked down.
-THRESHOLD = 0.60
+# Ratchet: the campaign scores 100% (433 killed + 3 mutant-induced timeouts of
+# 436 scored, mutmut 3.8.1) after the last four survivors in ``embeds`` were
+# killed. The gate sits a little below the measured score so a refactor has
+# room -- 0.98 of 436 allows 8 survivors -- while a regression still trips it.
+THRESHOLD = 0.98
 
 # At most this fraction of enumerated mutants may be excluded (skipped) before
 # the campaign is considered unrepresentative and rejected.
