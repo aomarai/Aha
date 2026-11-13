@@ -27,8 +27,20 @@ jobs:
     # ARC's Kubernetes container mode sets ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER=true,
     # so the job MUST declare a container. The actions-runner image brings git,
     # curl, sudo and apt; the step below adds the JRE plus gpg/dirmngr.
+    #
+    # Pinned by digest: this image executes the job -- including the step that
+    # receives SONAR_TOKEN -- on the self-hosted runner, so a moved `latest` tag
+    # is a supply-chain path to the scanner credential and the in-cluster
+    # SonarQube service (2.338.2 was `latest` when this was pinned).
+    #
+    # Dependabot cannot update `jobs.<id>.container.image`
+    # (https://github.com/dependabot/dependabot-core/issues/5819), so bump this
+    # by hand when a new actions-runner release ships and keep tag + digest in
+    # sync:
+    #   docker buildx imagetools inspect ghcr.io/actions/actions-runner:<tag> \
+    #     --format '{{.Manifest.Digest}}'
     container:
-      image: ghcr.io/actions/actions-runner:latest
+      image: ghcr.io/actions/actions-runner:2.338.2@sha256:6d0b2d80d80f143f77dcb676e50920100bbb547e39e883454d57f45ab8c31300
     env:
       # In-cluster Service DNS. The sq.homelab.local name is LAN-only and signed
       # by the private homelab CA, so CI cannot resolve or trust it.
