@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Hashable
+
 import pytest
 
-from aha.ratelimit import RateLimiter
+from aha.ratelimit import LocalBackend, RateLimitBackend, RateLimiter
 from tests.helpers import FakeClock
 
 
@@ -130,3 +133,114 @@ def test_active_keys_survive_pruning() -> None:
     assert limiter.consume(2) is None
 
     assert set(limiter._events) == {1, 2}
+
+
+def _backend(rate: int = 2, per: float = 10.0, clock: FakeClock | None = None) -> LocalBackend:
+    return LocalBackend(RateLimiter(rate, per, clock=clock or FakeClock()))
+
+
+def test_the_local_backend_exposes_the_limiters_rate_and_window() -> None:
+    backend: RateLimitBackend = _backend(rate=3, per=7.5)
+
+    assert (backend.rate, backend.per) == (3, 7.5)
+
+
+def test_the_local_backend_allows_up_to_the_rate_then_reports_the_wait() -> None:
+    clock = FakeClock(100.0)
+    backend = _backend(rate=2, per=10.0, clock=clock)
+
+    async def scenario() -> list[float | None]:
+        first = await backend.consume("user")
+        clock.now += 4.0
+        second = await backend.consume("user")
+        third = await backend.consume("user")
+        clock.now += 6.0  # the first call leaves the window
+        fourth = await backend.consume("user")
+        return [first, second, third, fourth]
+
+    assert asyncio.run(scenario()) == [None, None, pytest.approx(6.0), None]
+
+
+def test_the_local_backend_keeps_a_separate_budget_per_key() -> None:
+    backend = _backend(rate=1)
+
+    async def scenario() -> list[float | None]:
+        return [await backend.consume("a"), await backend.consume("b"), await backend.consume("a")]
+
+    results = asyncio.run(scenario())
+
+    assert results[0] is None
+    assert results[1] is None
+    assert results[2] is not None
+
+
+def test_concurrent_callers_cannot_exceed_the_budget() -> None:
+    # The check-and-record must stay atomic on the event loop even when callers interleave.
+    backend = _backend(rate=3, per=60.0)
+
+    async def scenario() -> list[float | None]:
+        return list(await asyncio.gather(*(backend.consume("user") for _ in range(20))))
+
+    results = asyncio.run(scenario())
+
+    assert sum(result is None for result in results) == 3
+
+
+def test_separate_backends_do_not_share_a_budget() -> None:
+    # The per-process semantics a shared backend would replace: two processes, two budgets.
+    first, second = _backend(rate=1), _backend(rate=1)
+
+    async def scenario() -> tuple[float | None, float | None, float | None]:
+        return await first.consume("u"), await second.consume("u"), await first.consume("u")
+
+    allowed_first, allowed_second, refused = asyncio.run(scenario())
+
+    assert (allowed_first, allowed_second) == (None, None)
+    assert refused is not None
+
+
+class _AlwaysBusy:
+    """A stand-in for a shared backend, to show the bot depends only on the protocol."""
+
+    rate = 5
+    per = 30.0
+
+    def __init__(self) -> None:
+        self.keys: list[Hashable] = []
+
+    async def consume(self, key: Hashable) -> float | None:
+        self.keys.append(key)
+        return 12.5
+
+
+def test_any_object_with_the_protocol_can_be_the_bots_backend() -> None:
+    from discord import app_commands
+    from discord.ext import commands
+
+    from aha.bot import AhaBot
+    from aha.config import Settings
+    from tests.helpers import (
+        StubContext,
+        StubInteraction,
+        as_context,
+        as_tree_interaction,
+    )
+
+    bot = AhaBot(Settings(token="test-token"))
+    backend = _AlwaysBusy()
+    bot.rate_limiter = backend
+
+    async def scenario() -> tuple[commands.CommandOnCooldown, app_commands.CommandOnCooldown]:
+        with pytest.raises(commands.CommandOnCooldown) as message_error:
+            await bot._enforce_rate_limit(as_context(StubContext()))
+        with pytest.raises(app_commands.CommandOnCooldown) as slash_error:
+            await bot.tree.interaction_check(as_tree_interaction(StubInteraction()))
+        return message_error.value, slash_error.value
+
+    message_error, slash_error = asyncio.run(scenario())
+
+    assert backend.keys == [33, 33]  # the user id, from both surfaces
+    for error in (message_error, slash_error):
+        assert error.retry_after == 12.5
+        assert error.cooldown is not None
+        assert (error.cooldown.rate, error.cooldown.per) == (5, 30.0)

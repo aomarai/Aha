@@ -18,7 +18,7 @@ from aha.cmdsync import CommandDiff, diff_commands
 from aha.config import Settings
 from aha.health import HealthServer
 from aha.metrics import Metrics, ShardState
-from aha.ratelimit import RateLimiter
+from aha.ratelimit import LocalBackend, RateLimitBackend, RateLimiter
 from aha.tasks import TaskRegistry
 
 __all__ = [
@@ -150,7 +150,10 @@ class AhaBot(commands.Bot):
         self.sync_on_startup = (
             self.sync_command_enabled if sync_on_startup is None else sync_on_startup
         )
-        self.rate_limiter = RateLimiter(rate_limit[0], rate_limit[1])
+        #: Per-process today; a shared backend can replace it without touching the checks.
+        self.rate_limiter: RateLimitBackend = LocalBackend(
+            RateLimiter(rate_limit[0], rate_limit[1])
+        )
         self.gateway_timeout = gateway_timeout
         self.watchdog_interval = watchdog_interval
         self._sync_lock = asyncio.Lock()
@@ -169,7 +172,7 @@ class AhaBot(commands.Bot):
             return True
         logctx.bind_context(ctx)
         self.metrics.start_timer()
-        retry_after = self.rate_limiter.consume(ctx.author.id)
+        retry_after = await self.rate_limiter.consume(ctx.author.id)
         if retry_after is None:
             return True
         raise commands.CommandOnCooldown(
@@ -381,7 +384,7 @@ class AhaTree(app_commands.CommandTree[AhaBot]):
         logctx.bind_interaction(interaction)
         bot = self.client
         bot.metrics.start_timer()
-        retry_after = bot.rate_limiter.consume(interaction.user.id)
+        retry_after = await bot.rate_limiter.consume(interaction.user.id)
         if retry_after is None:
             return True
         raise app_commands.CommandOnCooldown(

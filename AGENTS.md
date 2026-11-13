@@ -109,8 +109,11 @@ every change must keep:
   `allowed_mentions=AllowedMentions.none()`; never call `ctx.reply` directly, or user text can
   ping roles or `@everyone`. A bot-wide per-user budget is enforced by
   `AhaTree.interaction_check` (slash) and `AhaBot._enforce_rate_limit` (mentions), so a new
-  command inherits rate limiting without its own decorator. The budget is per process; a
-  multi-process deployment needs shared state (see #2). Interaction responses use
+  command inherits rate limiting without its own decorator. The budget lives behind
+  `aha.ratelimit.RateLimitBackend` (async `consume`; `bot.rate_limiter`) and is per process today
+  (`LocalBackend`): a user whose interactions reach several processes can use up to `rate` times
+  the number of processes per window. A shared (Redis) backend implements the same protocol and
+  should fail open; it is deferred until a measured need (#102, ADR 0001). Interaction responses use
   `aha.replies.respond` / `edit_message`, which apply the same mention policy.
 - Logging: `aha.logctx` carries the per-invocation fields (`shard_id`, `guild_id`, `channel_id`,
   `user_id`, `interaction_id`/`message_id`, `command`) in a `ContextVar`, bound by

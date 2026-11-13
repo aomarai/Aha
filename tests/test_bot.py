@@ -15,7 +15,7 @@ from discord.ext import commands
 from aha import logctx
 from aha.bot import COG_MODULES, WATCHDOG_TASK, AhaBot
 from aha.config import Settings
-from aha.ratelimit import RateLimiter
+from aha.ratelimit import LocalBackend, RateLimiter
 from aha.tasks import TaskRegistry
 from tests.helpers import (
     FakeClock,
@@ -82,7 +82,7 @@ def test_cog_modules_are_configured_as_extensions() -> None:
 def _gated_bot(clock: FakeClock) -> AhaBot:
     """Build a bot whose gate uses ``clock`` instead of the monotonic clock."""
     bot = AhaBot(Settings(token="test-token"), rate_limit=(1, 60.0))
-    bot.rate_limiter = RateLimiter(1, 60.0, clock=clock)
+    bot.rate_limiter = LocalBackend(RateLimiter(1, 60.0, clock=clock))
     return bot
 
 
