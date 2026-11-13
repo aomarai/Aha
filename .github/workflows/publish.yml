@@ -22,9 +22,6 @@ concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  IMAGE: ghcr.io/${{ github.repository }}
-
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -40,6 +37,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # The repository is "aomarai/Aha" but image names must be lowercase.
+      - name: Compute the image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Read the package version
         id: version
@@ -74,7 +76,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ${{ env.IMAGE }}
+          images: ${{ steps.image.outputs.name }}
           # No `edge` or branch tags: every published tag is either immutable (sha, X.Y.Z)
           # or a deliberate pointer to the newest release (X.Y, latest).
           tags: |
@@ -101,6 +103,7 @@ jobs:
 
       - name: Summarise the published image
         env:
+          IMAGE: ${{ steps.image.outputs.name }}
           DIGEST: ${{ steps.build.outputs.digest }}
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
