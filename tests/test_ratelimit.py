@@ -8,6 +8,32 @@ from aha.ratelimit import RateLimiter
 from tests.helpers import FakeClock
 
 
+def test_zero_rate_is_rejected() -> None:
+    with pytest.raises(ValueError, match="rate must be at least 1, got 0"):
+        RateLimiter(0, 10.0)
+
+
+def test_negative_rate_is_rejected() -> None:
+    with pytest.raises(ValueError, match="rate must be at least 1, got -1"):
+        RateLimiter(-1, 10.0)
+
+
+def test_non_positive_window_is_rejected() -> None:
+    with pytest.raises(ValueError, match="per must be positive, got 0"):
+        RateLimiter(1, 0.0)
+
+
+def test_negative_window_is_rejected() -> None:
+    with pytest.raises(ValueError, match=r"per must be positive, got -5\.0"):
+        RateLimiter(1, -5.0)
+
+
+def test_boundary_valid_limits_are_accepted() -> None:
+    limiter = RateLimiter(1, 0.001, clock=FakeClock())
+
+    assert (limiter.rate, limiter.per) == (1, 0.001)
+
+
 def test_allows_up_to_the_rate_then_reports_the_wait() -> None:
     clock = FakeClock()
     limiter = RateLimiter(2, 10.0, clock=clock)

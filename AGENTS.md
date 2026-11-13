@@ -79,6 +79,10 @@ removing or mutating the code under test fails the test.
   command inherits rate limiting without its own decorator. The budget is per process; a
   multi-process deployment needs shared state (see #2). Interaction responses use
   `aha.replies.respond` / `edit_message`, which apply the same mention policy.
+- Concurrency: every process is one asyncio event loop. `RateLimiter` and `sync_commands`
+  state is process-local and safe because no critical section awaits; `sync_commands`
+  serializes with an `asyncio.Lock` and restores the local tree in a `finally`. In-process
+  `AutoShardedClient` shards share that state; separate processes need #2.
 - Tests are plain pytest functions; async code is driven with `asyncio.run(...)` (no
   pytest-asyncio). Discord collaborators are replaced with `monkeypatch.setattr` fakes that
   record calls; logs are checked with `caplog` against the `aha.*` logger.

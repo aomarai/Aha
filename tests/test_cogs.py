@@ -15,8 +15,7 @@ from aha.bot import AhaBot
 from aha.cogs.meta import Meta
 from aha.cogs.meta import setup as meta_setup
 from aha.config import Settings
-from aha.replies import NO_MENTIONS
-from tests.helpers import Named, StubContext, as_context
+from tests.helpers import Named, StubContext, as_context, assert_reply
 
 
 def _bot() -> AhaBot:
@@ -64,7 +63,7 @@ def test_ping_falls_back_to_plain_text_when_embed_is_rejected(
 
     _run(cog, ctx, "ping")
 
-    assert ctx.replies == [("WebSocket latency: 42 ms", {"allowed_mentions": NO_MENTIONS})]
+    assert_reply(ctx.replies, "WebSocket latency: 42 ms")
 
 
 def test_ping_has_a_per_user_cooldown() -> None:
@@ -114,7 +113,7 @@ def test_sync_falls_back_to_plain_text_when_embed_is_rejected(
 
     _run(cog, ctx, "sync")
 
-    assert ctx.replies == [("Application commands synced.", {"allowed_mentions": NO_MENTIONS})]
+    assert_reply(ctx.replies, "Application commands synced.")
     assert ctx.deferred == [True]
 
 

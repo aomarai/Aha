@@ -141,6 +141,8 @@ receives the message without the intent.
   bot revisions at once — whichever syncs last wins.
 - An operator can re-run the same sync from Discord with `/sync` (guild-only,
   requires Manage Server).
+- Sync is serialized within the process by a lock and restores the local command tree if a
+  purge sync fails; separate bot processes still need the out-of-band sync tracked in #2.
 
 ### Command access control
 

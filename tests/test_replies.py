@@ -1,4 +1,4 @@
-"""Tests for the shared reply helper."""
+"""Tests for the shared reply helpers."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from tests.helpers import (
     StubInteraction,
     as_context,
     as_interaction,
+    assert_no_mentions,
 )
 
 
@@ -23,11 +24,7 @@ def test_reply_disables_mentions_by_default() -> None:
 
     content, kwargs = ctx.replies[0]
     assert content == "hi @everyone"
-    allowed = kwargs["allowed_mentions"]
-    assert allowed.everyone is False
-    assert allowed.users is False
-    assert allowed.roles is False
-    assert allowed.replied_user is False
+    assert_no_mentions(kwargs["allowed_mentions"])
 
 
 def test_respond_sends_with_mentions_disabled() -> None:
@@ -38,7 +35,7 @@ def test_respond_sends_with_mentions_disabled() -> None:
     kind, content, kwargs = interaction.sent[0]
     assert (kind, content) == ("response", "hi @everyone")
     assert kwargs["ephemeral"] is True
-    assert kwargs["allowed_mentions"].everyone is False
+    assert_no_mentions(kwargs["allowed_mentions"])
 
 
 def test_respond_uses_a_followup_after_acknowledgement() -> None:
@@ -50,7 +47,7 @@ def test_respond_uses_a_followup_after_acknowledgement() -> None:
     assert kind == "followup"
     assert content == "later"
     assert kwargs["ephemeral"] is False
-    assert kwargs["allowed_mentions"].everyone is False
+    assert_no_mentions(kwargs["allowed_mentions"])
 
 
 def test_respond_forwards_embed_only_followups() -> None:
@@ -63,7 +60,7 @@ def test_respond_forwards_embed_only_followups() -> None:
     assert (kind, content) == ("followup", None)
     assert kwargs["embed"] is embed
     assert kwargs["ephemeral"] is False
-    assert kwargs["allowed_mentions"].everyone is False
+    assert_no_mentions(kwargs["allowed_mentions"])
 
 
 def test_edit_message_keeps_the_mention_policy() -> None:
@@ -74,7 +71,7 @@ def test_edit_message_keeps_the_mention_policy() -> None:
     (edited,) = interaction.edited
     assert edited["content"] == "page 2"
     assert edited["view"] is None
-    assert edited["allowed_mentions"].everyone is False
+    assert_no_mentions(edited["allowed_mentions"])
 
 
 def test_reply_overrides_a_caller_mention_policy() -> None:
@@ -83,8 +80,7 @@ def test_reply_overrides_a_caller_mention_policy() -> None:
     asyncio.run(reply(as_context(ctx), "hi", allowed_mentions=discord.AllowedMentions.all()))
 
     _, kwargs = ctx.replies[0]
-    assert kwargs["allowed_mentions"].everyone is False
-    assert kwargs["allowed_mentions"].users is False
+    assert_no_mentions(kwargs["allowed_mentions"])
 
 
 def test_reply_forwards_other_keywords() -> None:
@@ -97,4 +93,22 @@ def test_reply_forwards_other_keywords() -> None:
     assert content is None
     assert kwargs["embed"] is embed
     assert kwargs["ephemeral"] is True
-    assert kwargs["allowed_mentions"].everyone is False
+    assert_no_mentions(kwargs["allowed_mentions"])
+
+
+def test_each_reply_gets_a_fresh_policy() -> None:
+    first = StubContext()
+    second = StubContext()
+
+    asyncio.run(reply(as_context(first), "a"))
+    asyncio.run(reply(as_context(second), "b"))
+
+    first_policy = first.replies[0][1]["allowed_mentions"]
+    second_policy = second.replies[0][1]["allowed_mentions"]
+    assert first_policy is not second_policy
+
+    # Mutating one call's policy must not affect the next reply.
+    first_policy.users = True
+    third = StubContext()
+    asyncio.run(reply(as_context(third), "c"))
+    assert_no_mentions(third.replies[0][1]["allowed_mentions"])

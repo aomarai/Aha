@@ -25,9 +25,33 @@ __all__ = [
     "as_context",
     "as_interaction",
     "as_tree_interaction",
+    "assert_no_mentions",
+    "assert_reply",
     "http_error",
     "stub_command",
 ]
+
+
+def assert_no_mentions(allowed: discord.AllowedMentions) -> None:
+    """Assert every mention type is disabled."""
+    assert allowed.everyone is False
+    assert allowed.users is False
+    assert allowed.roles is False
+    assert allowed.replied_user is False
+
+
+def assert_reply(
+    replies: list[tuple[str | None, dict[str, Any]]],
+    content: str | None,
+    **kwargs: Any,
+) -> None:
+    """Assert a single recorded reply has ``content``, ``kwargs``, and no mentions."""
+    ((actual_content, actual_kwargs),) = replies
+    assert actual_content == content
+    assert {key: value for key, value in actual_kwargs.items() if key != "allowed_mentions"} == (
+        kwargs
+    )
+    assert_no_mentions(actual_kwargs["allowed_mentions"])
 
 
 class FakeClock:

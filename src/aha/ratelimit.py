@@ -26,6 +26,10 @@ class RateLimiter:
     def __init__(
         self, rate: int, per: float, *, clock: Callable[[], float] = time.monotonic
     ) -> None:
+        if rate < 1:
+            raise ValueError(f"rate must be at least 1, got {rate}")
+        if per <= 0:
+            raise ValueError(f"per must be positive, got {per}")
         self.rate = rate
         self.per = per
         self._clock = clock

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import discord
@@ -53,6 +54,7 @@ class AhaBot(commands.Bot):
         )
         self.settings = settings
         self.rate_limiter = RateLimiter(rate_limit[0], rate_limit[1])
+        self._sync_lock = asyncio.Lock()
         self.add_check(self._enforce_rate_limit)
 
     async def _enforce_rate_limit(self, ctx: commands.Context[commands.Bot]) -> bool:
@@ -84,26 +86,30 @@ class AhaBot(commands.Bot):
         tree. Run only one revision at a time -- if two start together, whichever
         syncs last wins (and an older revision can clobber newer definitions).
         """
-        if self.settings.dev_guild_id is not None:
-            # Guild-scoped sync is instant, which is ideal while developing
-            # (global sync can take up to an hour to propagate).
-            guild = discord.Object(id=self.settings.dev_guild_id)
-            self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-            # Purge any remotely-synced global commands so enabling, changing, or
-            # removing DEV_GUILD_ID later does not leave stale duplicates behind.
-            # Clearing the *local* tree is what makes the purge work, so keep the
-            # commands and put them back afterwards: a later sync (the `/sync`
-            # command) must still have globals to copy to the dev guild.
-            global_commands = self.tree.get_commands(guild=None)
-            self.tree.clear_commands(guild=None)
-            await self.tree.sync()
-            for command in global_commands:
-                self.tree.add_command(command)
-            log.info("Synced commands to dev guild %s", self.settings.dev_guild_id)
-        else:
-            await self.tree.sync()
-            log.info("Synced global application commands")
+        async with self._sync_lock:
+            if self.settings.dev_guild_id is not None:
+                # Guild-scoped sync is instant, which is ideal while developing
+                # (global sync can take up to an hour to propagate).
+                guild = discord.Object(id=self.settings.dev_guild_id)
+                self.tree.copy_global_to(guild=guild)
+                await self.tree.sync(guild=guild)
+                # Purge any remotely-synced global commands so enabling, changing,
+                # or removing DEV_GUILD_ID later does not leave stale duplicates
+                # behind. Clearing the *local* tree is what makes the purge work,
+                # so keep the commands and put them back afterwards: a later sync
+                # (the `/sync` command) must still have globals to copy to the dev
+                # guild, and a failed or cancelled sync must not leave it empty.
+                global_commands = self.tree.get_commands(guild=None)
+                self.tree.clear_commands(guild=None)
+                try:
+                    await self.tree.sync()
+                finally:
+                    for command in global_commands:
+                        self.tree.add_command(command)
+                log.info("Synced commands to dev guild %s", self.settings.dev_guild_id)
+            else:
+                await self.tree.sync()
+                log.info("Synced global application commands")
 
     async def on_ready(self) -> None:
         """

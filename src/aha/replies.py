@@ -12,10 +12,7 @@ from typing import Any
 import discord
 from discord.ext import commands
 
-__all__ = ["NO_MENTIONS", "edit_message", "reply", "respond"]
-
-#: Reusable policy: never parse mentions in reply content.
-NO_MENTIONS = discord.AllowedMentions.none()
+__all__ = ["edit_message", "reply", "respond"]
 
 
 async def reply(
@@ -28,7 +25,7 @@ async def reply(
         content: Message content, if any. Embed-only replies pass ``embed=``.
         **kwargs: Forwarded to :meth:`discord.ext.commands.Context.reply`.
     """
-    kwargs["allowed_mentions"] = NO_MENTIONS
+    kwargs["allowed_mentions"] = discord.AllowedMentions.none()
     await ctx.reply(content, **kwargs)
 
 
@@ -50,7 +47,7 @@ async def respond(
         ephemeral: Whether the response is visible only to the invoker.
         **kwargs: Forwarded to ``send_message`` / ``followup.send``.
     """
-    kwargs["allowed_mentions"] = NO_MENTIONS
+    kwargs["allowed_mentions"] = discord.AllowedMentions.none()
     if interaction.response.is_done():
         if content is None:
             await interaction.followup.send(ephemeral=ephemeral, **kwargs)
@@ -64,5 +61,5 @@ async def edit_message(
     interaction: discord.Interaction, content: str | None = None, **kwargs: Any
 ) -> None:
     """Edit the interaction's message with mentions disabled."""
-    kwargs["allowed_mentions"] = NO_MENTIONS
+    kwargs["allowed_mentions"] = discord.AllowedMentions.none()
     await interaction.response.edit_message(content=content, **kwargs)

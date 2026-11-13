@@ -22,6 +22,7 @@ from tests.helpers import (
     StubInteraction,
     as_context,
     as_tree_interaction,
+    http_error,
 )
 
 
@@ -180,6 +181,49 @@ def _gated_bot(clock: FakeClock) -> AhaBot:
     bot = AhaBot(Settings(token="test-token"), rate_limit=(1, 60.0))
     bot.rate_limiter = RateLimiter(1, 60.0, clock=clock)
     return bot
+
+
+def test_sync_commands_restores_globals_when_the_purge_sync_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _bot(dev_guild_id=123456789012345678)
+    calls: list[dict[str, Any]] = []
+
+    async def fake_sync(**kwargs: Any) -> list[Any]:
+        calls.append(kwargs)
+        if len(calls) == 2:  # the global purge sync
+            raise http_error()
+        return []
+
+    async def scenario() -> list[str]:
+        await bot.load_extension("aha.cogs.meta")
+        monkeypatch.setattr(bot.tree, "sync", fake_sync)
+        with pytest.raises(discord.HTTPException):
+            await bot.sync_commands()
+        return [command.name for command in bot.tree.get_commands(guild=None)]
+
+    assert asyncio.run(scenario()) == ["ping", "sync"]
+
+
+def test_sync_commands_serializes_concurrent_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = _bot(dev_guild_id=123456789012345678)
+    events: list[str] = []
+
+    async def fake_sync(**kwargs: Any) -> list[Any]:
+        events.append("start")
+        await asyncio.sleep(0)
+        events.append("end")
+        return []
+
+    async def scenario() -> None:
+        await bot.load_extension("aha.cogs.meta")
+        monkeypatch.setattr(bot.tree, "sync", fake_sync)
+        await asyncio.gather(bot.sync_commands(), bot.sync_commands())
+
+    asyncio.run(scenario())
+
+    # Each call runs two syncs; the lock must keep the pairs from interleaving.
+    assert events == ["start", "end"] * 4
 
 
 def test_global_rate_limit_consumes_for_message_contexts() -> None:
