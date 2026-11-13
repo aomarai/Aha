@@ -225,16 +225,19 @@ Aha/
 │   ├── components.py    # shared button/menu helpers (see docs/components.md)
 │   ├── config.py        # Settings loaded & validated from the environment
 │   ├── health.py        # /livez, /readyz, /metrics HTTP server
+│   ├── net.py           # SSRF-safe URL fetching (address policy, resolver, limits)
 │   ├── logging_setup.py # text/JSON formatters, token masking
 │   ├── logctx.py        # per-invocation log context (ContextVar)
 │   ├── metrics.py       # Prometheus registry and instruments
 │   ├── tasks.py         # TaskRegistry: supervised background tasks
+│   ├── textutil.py      # neutralise untrusted text before showing it
 │   └── cogs/            # command groups, each exposing async setup(bot)
 │       ├── errors.py    # global error handler
 │       ├── fun.py       # /roll, /coin, /time, /8ball, /countdown
 │       ├── help.py      # /help (paginated)
 │       ├── meta.py      # /ping, /about
 │       ├── observability.py # counts command outcomes and durations
+│       ├── web.py       # /url link preview
 │       ├── polls.py     # /poll (native Discord polls), Count reactions menu
 │       └── ops.py       # /sync (owner only; dev guild / SYNC_ON_STARTUP only)
 ├── tests/               # pytest suite

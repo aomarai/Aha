@@ -127,6 +127,13 @@ every change must keep:
 - Components (buttons, menus) follow `docs/components.md`: state in the `custom_id` via a
   registered `DynamicItem`, invoker re-checked on every click with `aha.components.require_invoker`,
   no per-process `View` state for anything that must survive a restart. `HelpButton` is the example.
+- **Never fetch a user-supplied URL any way but `aha.net.fetch_preview`** (or build on its
+  `SafeResolver`/`validate_url`/`FetchPolicy`): it refuses private, loopback, link-local, multicast
+  and reserved addresses (judged on what the name *resolves* to, then connected to those same
+  addresses), re-validates every redirect, allows only http(s) on ports 80/443 with no credentials,
+  and bounds time, redirects and bytes. Untrusted text (user input, remote page titles) goes through
+  `aha.textutil.plain`/`code` before it is shown. A production deployment should also restrict
+  egress at the network layer (#109); this is the application layer, not a substitute.
 - Audit trail: `cogs/observability.py` writes one `aha.audit` INFO record per completed command
   (`extra={event, outcome, arguments, duration_ms}`; who/where come from the log context). Log
   argument **names** only, never values, and never use `args`, `msg`, `message` or the other
