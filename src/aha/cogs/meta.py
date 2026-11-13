@@ -11,7 +11,11 @@ from aha.botinfo import build_info, format_latency
 from aha.commands import hybrid_command
 from aha.replies import reply
 
-__all__ = ["Meta", "setup"]
+__all__ = ["PRIVACY_URL", "TERMS_URL", "Meta", "setup"]
+
+#: Where the policy and terms live until they are published somewhere more formal.
+PRIVACY_URL = "https://github.com/aomarai/Aha/blob/main/docs/privacy.md"
+TERMS_URL = "https://github.com/aomarai/Aha/blob/main/docs/terms.md"
 
 
 class Meta(commands.Cog):
@@ -68,6 +72,25 @@ class Meta(commands.Cog):
         except discord.HTTPException:
             # The channel may lack embed permission; keep the reply alive.
             await reply(ctx, "\n".join(f"{name}: {value}" for name, value in fields))
+
+    @hybrid_command(
+        name="privacy",
+        description="Show what the bot stores and where the policy is.",
+        extras={"category": "Info"},
+    )
+    @commands.cooldown(1, 10, commands.BucketType.user)
+    async def privacy(self, ctx: commands.Context[commands.Bot]) -> None:
+        """Summarise the privacy policy and link to it (private to the invoker)."""
+        text = (
+            "Aha does **not** store your messages or the text of your commands, and nothing "
+            "personal is kept in a database yet. Operational logs record who ran which command "
+            "(IDs and option *names*, never values).\n\n"
+            f"Read the full policy: <{PRIVACY_URL}>\nTerms: <{TERMS_URL}>"
+        )
+        try:
+            await reply(ctx, embed=embeds.info(text, title="Privacy"), ephemeral=True)
+        except discord.HTTPException:
+            await reply(ctx, text, ephemeral=True)
 
 
 async def setup(bot: AhaBot) -> None:

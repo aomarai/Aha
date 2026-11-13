@@ -18,7 +18,7 @@ from tests.helpers import http_error
 GUILD_ID = 123456789012345678
 
 #: Every command the harness loads (the meta and fun cogs), sorted. Add new commands here once.
-ALL = ("8ball", "about", "coin", "countdown", "ping", "roll", "time")
+ALL = ("8ball", "about", "coin", "countdown", "ping", "privacy", "roll", "time")
 ALL_LINES = ", ".join(f"+ {name}" for name in ALL)
 APPLICATION_ID = 555
 
