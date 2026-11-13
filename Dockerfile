@@ -94,6 +94,14 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONSAFEPATH=1 \
     PYTHONNOUSERSITE=1
 
+# Build identity, passed by CI (`--build-arg AHA_VERSION=... --build-arg AHA_COMMIT=...`). It is
+# read at runtime for the `version`/`commit` log fields and `/about`; a plain local build says
+# "unknown". Declared last so changing it never invalidates the layers above.
+ARG AHA_VERSION=unknown
+ARG AHA_COMMIT=unknown
+ENV AHA_VERSION=${AHA_VERSION} \
+    AHA_COMMIT=${AHA_COMMIT}
+
 WORKDIR /app
 # Numeric so Kubernetes `runAsNonRoot` can verify it.
 USER 65532:65532

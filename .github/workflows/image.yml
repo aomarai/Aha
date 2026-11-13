@@ -36,14 +36,17 @@ jobs:
           persist-credentials: false
 
       - name: Build runtime image
-        run: >-
-          docker build
-          --tag aha:ci
-          --label "org.opencontainers.image.revision=${{ github.sha }}"
-          .
+        run: |
+          version="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/aha/__init__.py)"
+          docker build \
+            --tag aha:ci \
+            --build-arg "AHA_VERSION=${version}" \
+            --build-arg "AHA_COMMIT=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            .
 
       - name: Smoke-test the image
-        run: scripts/smoke_image.sh aha:ci
+        run: scripts/smoke_image.sh aha:ci "${GITHUB_SHA}"
 
       # SARIF first, never failing, so findings reach code scanning even when the gate below
       # trips. The gate then prints a readable table and fails the job.

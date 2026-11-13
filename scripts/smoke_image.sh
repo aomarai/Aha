@@ -2,10 +2,13 @@
 # Smoke-test the built runtime image. The image is distroless (no shell), so every check
 # overrides the command with the image's own interpreter.
 #
-# Usage: scripts/smoke_image.sh [IMAGE]   (default: aha:ci)
+# Usage: scripts/smoke_image.sh [IMAGE [EXPECTED_COMMIT]]   (default image: aha:ci)
+#
+# With EXPECTED_COMMIT the image must have been built with --build-arg AHA_COMMIT=<that value>.
 set -euo pipefail
 
 image="${1:-aha:ci}"
+expected_commit="${2:-}"
 python=/app/.venv/bin/python
 
 fail() {
@@ -25,6 +28,15 @@ echo "== the entry point reports the packaged version"
 version="$(docker run --rm "$image" "$python" -m aha --version)"
 [ "$version" = "aha $(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/aha/__init__.py)" ] \
   || fail "unexpected version output: '$version'"
+
+echo "== the build identity is baked in"
+source_version="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/aha/__init__.py)"
+identity="$(docker run --rm "$image" "$python" -c \
+  "import os; print(os.environ['AHA_VERSION'], os.environ['AHA_COMMIT'])")"
+if [ -n "$expected_commit" ]; then
+  [ "$identity" = "$source_version $expected_commit" ] \
+    || fail "expected build identity '$source_version $expected_commit', got '$identity'"
+fi
 
 echo "== the sync subcommand is available"
 docker run --rm "$image" "$python" -m aha sync --help | grep -q -- "--dry-run" \
