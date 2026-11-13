@@ -15,10 +15,13 @@ from aha.commands import hybrid_command
 from aha.replies import reply
 from aha.textutil import code, plain
 
-__all__ = ["ANSWERS", "Fun", "format_offset", "setup", "timezone_names"]
+__all__ = ["ANSWERS", "MAX_SIDES", "Fun", "format_offset", "setup", "timezone_names"]
 
 #: Longest ``/8ball`` question echoed back.
 _QUESTION_LIMIT = 200
+
+#: Most sides ``/roll`` accepts; Discord enforces it in the slash UI, the message surface checks it.
+MAX_SIDES = 1_000_000
 
 #: Longest ``/countdown`` date or label accepted.
 _INPUT_LIMIT = 100
@@ -76,8 +79,11 @@ class Fun(commands.Cog):
         self._zones = timezone_names()
 
     @hybrid_command(name="roll", description="Roll a die.", extras={"category": "Fun"})
+    @app_commands.describe(sides=f"How many sides the die has (1 to {MAX_SIDES:,}, default 6).")
     @commands.cooldown(1, 5, commands.BucketType.user)
-    async def roll(self, ctx: commands.Context[commands.Bot], sides: int = 6) -> None:
+    async def roll(
+        self, ctx: commands.Context[commands.Bot], sides: app_commands.Range[int, 1, MAX_SIDES] = 6
+    ) -> None:
         """Roll a die with the given number of sides (default d6)."""
         if sides < 1:
             await reply(ctx, embed=embeds.error("`sides` must be at least 1."), ephemeral=True)
