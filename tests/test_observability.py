@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import math
 import time
 from typing import Any, ClassVar, cast
@@ -11,10 +13,12 @@ import pytest
 from discord import app_commands
 from discord.ext import commands
 
+from aha import logctx
 from aha.bot import HEALTH_TASK, READINESS_DISCONNECT_GRACE, AhaBot
-from aha.cogs.observability import Observability, outcome_of
+from aha.cogs.observability import AUDIT_LOGGER, Observability, outcome_of
 from aha.cogs.observability import setup as observability_setup
 from aha.config import Settings
+from aha.logging_setup import JsonFormatter
 from aha.metrics import ShardState
 from tests.helpers import (
     Named,
@@ -408,3 +412,115 @@ def test_the_health_server_is_a_critical_restartable_task(monkeypatch: pytest.Mo
     assert degraded == frozenset({HEALTH_TASK})
     assert failed == frozenset()
     assert runs == 1
+
+
+def test_a_completed_command_is_written_to_the_audit_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    bot = _bot()
+    ctx = StubContext()
+    ctx.kwargs = {"sides": 6, "label": "dice"}
+
+    async def scenario() -> None:
+        bot.metrics._clock = lambda: 100.0
+        bot.metrics.start_timer()
+        bot.metrics._clock = lambda: 100.0126
+        await Observability(bot).on_command_completion(as_context(ctx))
+
+    with caplog.at_level(logging.INFO, logger=AUDIT_LOGGER):
+        asyncio.run(scenario())
+
+    (record,) = caplog.records
+    assert record.name == "aha.audit" == AUDIT_LOGGER
+    assert record.levelno == logging.INFO
+    assert record.getMessage() == "Command /ping completed"
+    assert record.__dict__["event"] == "command"
+    assert record.__dict__["outcome"] == "ok"
+    assert record.__dict__["arguments"] == ["label", "sides"]  # names only, sorted
+    assert record.__dict__["duration_ms"] == 13
+
+
+def test_the_audit_log_has_no_duration_without_a_timer(caplog: pytest.LogCaptureFixture) -> None:
+    bot = _bot()
+
+    async def scenario() -> None:
+        await Observability(bot).on_command_completion(as_context(StubContext()))
+
+    with caplog.at_level(logging.INFO, logger=AUDIT_LOGGER):
+        asyncio.run(scenario())
+
+    (record,) = caplog.records
+    assert record.__dict__["duration_ms"] is None
+    assert record.__dict__["arguments"] == []
+
+
+def test_the_audit_log_never_contains_argument_values_or_the_who_in_the_message(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    bot = _bot()
+    ctx = StubContext()
+    ctx.kwargs = {"text": "my private reminder", "link": "https://example.test/secret"}
+
+    async def scenario() -> None:
+        await Observability(bot).on_command_completion(as_context(ctx))
+
+    with caplog.at_level(logging.INFO, logger=AUDIT_LOGGER):
+        asyncio.run(scenario())
+
+    (record,) = caplog.records
+    line = JsonFormatter().format(record)
+    assert "my private reminder" not in line
+    assert "example.test" not in line
+    assert json.loads(line)["arguments"] == ["link", "text"]
+
+
+def test_the_json_audit_line_carries_the_invocation_context() -> None:
+    lines: list[str] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            lines.append(self.format(record))
+
+    handler = _Capture()
+    handler.setFormatter(JsonFormatter())
+    audit_logger = logging.getLogger(AUDIT_LOGGER)
+    previous_level = audit_logger.level
+    audit_logger.addHandler(handler)
+    audit_logger.setLevel(logging.INFO)
+    bot = _bot()
+    ctx = StubContext()
+
+    async def scenario() -> None:
+        logctx.bind_context(as_context(ctx))
+        await Observability(bot).on_command_completion(as_context(ctx))
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        audit_logger.removeHandler(handler)
+        audit_logger.setLevel(previous_level)
+
+    (line,) = lines
+    payload = json.loads(line)
+    assert payload["logger"] == "aha.audit"
+    assert payload["msg"] == "Command /ping completed"
+    assert (payload["shard_id"], payload["guild_id"], payload["channel_id"]) == (2, 11, 22)
+    assert (payload["user_id"], payload["command"]) == (33, "ping")
+    assert payload["event"] == "command"
+    assert payload["outcome"] == "ok"
+
+
+def test_failures_and_unknown_commands_are_not_audited_as_completions(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    bot = _bot()
+    cog = Observability(bot)
+
+    async def scenario() -> None:
+        await cog.on_command_error(as_context(StubContext()), commands.NotOwner())
+        await cog.on_command_completion(as_context(StubContext(command=False)))
+
+    with caplog.at_level(logging.DEBUG, logger=AUDIT_LOGGER):
+        asyncio.run(scenario())
+
+    assert caplog.records == []

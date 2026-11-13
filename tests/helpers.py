@@ -104,6 +104,8 @@ class StubContext:
         self.message = Named(id=44)
         #: Set by tests that need ``ctx.bot`` (for example ``is_owner``).
         self.bot: Any = None
+        #: Parsed command arguments, as ``Context.kwargs`` holds them.
+        self.kwargs: dict[str, Any] = {}
         #: Cached permissions as read by ``commands.has_permissions``.
         self.permissions = discord.Permissions.none()
         #: ``None`` for message contexts; set it to model a hybrid slash invocation.
