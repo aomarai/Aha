@@ -235,6 +235,7 @@ Aha/
 │       ├── help.py      # /help (paginated)
 │       ├── meta.py      # /ping, /about
 │       ├── observability.py # counts command outcomes and durations
+│       ├── polls.py     # /poll (native Discord polls), Count reactions menu
 │       └── ops.py       # /sync (owner only; dev guild / SYNC_ON_STARTUP only)
 ├── tests/               # pytest suite
 ├── .devcontainer/       # VS Code dev container (Python 3.14 + uv)

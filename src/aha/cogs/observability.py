@@ -5,8 +5,8 @@ each cog) keeps the numbers consistent and new commands covered automatically:
 
 * ``on_command_completion``: a command that finished, for message *and* hybrid slash commands.
   discord.py also fires ``app_command_completion`` for a hybrid slash command, which would
-  double-count, so that event is deliberately not used. Every command goes through
-  :func:`aha.commands.hybrid_command`, so none is missed.
+  double-count, so that event is used only for **context menus**, which have no other event.
+  Every other command goes through :func:`aha.commands.hybrid_command`, so none is missed.
 * ``on_command_error``: failures of message and hybrid commands.
 * ``on_app_command_error``: failures raised by the command tree itself, such as the bot-wide
   rate limit rejecting a slash invocation before the command runs.
@@ -21,6 +21,7 @@ context, by :mod:`aha.cogs.errors`.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import discord
 from discord import app_commands
@@ -57,20 +58,33 @@ class Observability(commands.Cog):
     @commands.Cog.listener("on_command_completion")
     async def on_command_completion(self, ctx: commands.Context[commands.Bot]) -> None:
         """Count a command that ran to completion."""
-        if ctx.command is None:
-            return
-        duration = self.bot.metrics.record_command(ctx.command.qualified_name, "ok")
+        if ctx.command is not None:
+            self._completed(ctx.command.qualified_name, sorted(ctx.kwargs))
+
+    @commands.Cog.listener("on_app_command_completion")
+    async def on_app_command_completion(
+        self,
+        interaction: discord.Interaction,
+        command: app_commands.Command[Any, ..., Any] | app_commands.ContextMenu,
+    ) -> None:
+        """Count a context menu that ran to completion (hybrid commands are counted above)."""
+        if isinstance(command, app_commands.ContextMenu):
+            self._completed(command.qualified_name, [])
+
+    def _completed(self, name: str, arguments: list[str]) -> None:
+        """Count a finished command and write its audit record."""
+        duration = self.bot.metrics.record_command(name, "ok")
         # Who, where and which command come from the invocation's log context (see
         # aha.logctx), so JSON logs carry shard/guild/channel/user ids without repeating them
         # here. Only the *names* of the arguments are recorded, never their values: those are
         # user content (reminder text, URLs) and fall under the retention policy (#99).
         audit.info(
             "Command /%s completed",
-            ctx.command.qualified_name,
+            name,
             extra={
                 "event": "command",
                 "outcome": "ok",
-                "arguments": sorted(ctx.kwargs),
+                "arguments": arguments,
                 "duration_ms": None if duration is None else round(duration * 1000),
             },
         )
