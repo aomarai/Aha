@@ -290,7 +290,10 @@ record carries `ts` (UTC, ISO 8601), `level`, `logger` and `msg`, plus `exc` for
 set in the environment, `HOSTNAME` (as `pod`), `AHA_VERSION` (`version`) and `AHA_COMMIT`
 (`commit`) are added to every record. While a command is being handled, its records also carry
 `shard_id`, `guild_id`, `channel_id`, `user_id`, `interaction_id` (or `message_id` for `@Aha`
-mentions) and `command`. The bot token is replaced with `***` in both formats, including inside
+mentions) and `command`. Every completed command is also written to the `aha.audit` logger at
+INFO as an audit trail (`event=command`, `outcome=ok`, the argument **names**, `duration_ms`); argument
+values are never logged, since they are user content. Filter on that logger name to route or silence
+the trail. The bot token is replaced with `***` in both formats, including inside
 tracebacks.
 
 ## Development

@@ -124,6 +124,10 @@ every change must keep:
   `command_completion`, `command_error`, `app_command_error`; not `app_command_completion`,
   which discord.py also fires for hybrid commands and would double-count), so never increment
   `aha_commands_total` from a cog. Tests get an idle fake server from `tests/conftest.py`.
+- Audit trail: `cogs/observability.py` writes one `aha.audit` INFO record per completed command
+  (`extra={event, outcome, arguments, duration_ms}`; who/where come from the log context). Log
+  argument **names** only, never values, and never use `args`, `msg`, `message` or the other
+  reserved `LogRecord` names as `extra` keys (logging raises `KeyError`).
 - Background tasks: never call `asyncio.create_task` in a cog or hook for long-running work. Use
   `bot.tasks.spawn(factory, name=..., restart=..., critical=...)` (`aha.tasks.TaskRegistry`): it
   keeps a strong reference, logs failures with the task name, restarts with capped back-off when

@@ -60,13 +60,28 @@ def test_a_started_timer_records_the_duration() -> None:
     assert _sample(metrics, "aha_command_duration_seconds_bucket", {**labels, "le": "0.5"}) == 1
 
 
+def test_record_command_returns_the_duration_when_a_timer_ran() -> None:
+    clock = FakeClock(10.0)
+    metrics = _metrics(clock=clock)
+
+    async def scenario() -> float | None:
+        metrics.start_timer()
+        clock.now += 0.25
+        return metrics.record_command("ping", "ok")
+
+    assert asyncio.run(scenario()) == 0.25
+
+
 def test_without_a_timer_the_command_is_counted_but_no_duration_is_observed() -> None:
     metrics = _metrics()
+    returned: list[float | None] = []
 
     async def scenario() -> None:
-        metrics.record_command("ping", "ok")
+        returned.append(metrics.record_command("ping", "ok"))
 
     asyncio.run(scenario())
+
+    assert returned == [None]
 
     assert _sample(metrics, "aha_commands_total", {"command": "ping", "outcome": "ok"}) == 1
     assert _sample(metrics, "aha_command_duration_seconds_count", {"command": "ping"}) is None

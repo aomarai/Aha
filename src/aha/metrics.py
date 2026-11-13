@@ -104,9 +104,16 @@ class Metrics:
         """Mark the start of a command in the current invocation's context."""
         _started.set(self._clock())
 
-    def record_command(self, command: str, outcome: str) -> None:
-        """Count one finished command and observe how long it took, when the timer was started."""
+    def record_command(self, command: str, outcome: str) -> float | None:
+        """Count one finished command and observe how long it took.
+
+        Returns the duration in seconds, or ``None`` when no timer was started for this
+        invocation.
+        """
         self.commands.labels(command=command, outcome=outcome).inc()
         started = _started.get()
-        if started is not None:
-            self.command_duration.labels(command=command).observe(self._clock() - started)
+        if started is None:
+            return None
+        duration = self._clock() - started
+        self.command_duration.labels(command=command).observe(duration)
+        return duration

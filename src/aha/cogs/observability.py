@@ -12,9 +12,15 @@ each cog) keeps the numbers consistent and new commands covered automatically:
   rate limit rejecting a slash invocation before the command runs.
 
 Outcomes are ``ok``, ``error``, ``denied`` (a check or permission failed), and ``cooldown``.
+
+Completed commands are also written to the ``aha.audit`` logger (see :data:`AUDIT_LOGGER`) as an
+audit trail of who ran what, where, and how long it took. Failures are already logged, with their
+context, by :mod:`aha.cogs.errors`.
 """
 
 from __future__ import annotations
+
+import logging
 
 import discord
 from discord import app_commands
@@ -23,7 +29,12 @@ from discord.ext import commands
 from aha.bot import AhaBot
 from aha.cogs.errors import WRAPPERS
 
-__all__ = ["Observability", "outcome_of", "setup"]
+__all__ = ["AUDIT_LOGGER", "Observability", "outcome_of", "setup"]
+
+#: Logger for the audit trail of completed commands; filter on it to route or silence the trail.
+AUDIT_LOGGER = "aha.audit"
+
+audit = logging.getLogger(AUDIT_LOGGER)
 
 
 def outcome_of(error: Exception) -> str:
@@ -46,8 +57,23 @@ class Observability(commands.Cog):
     @commands.Cog.listener("on_command_completion")
     async def on_command_completion(self, ctx: commands.Context[commands.Bot]) -> None:
         """Count a command that ran to completion."""
-        if ctx.command is not None:
-            self.bot.metrics.record_command(ctx.command.qualified_name, "ok")
+        if ctx.command is None:
+            return
+        duration = self.bot.metrics.record_command(ctx.command.qualified_name, "ok")
+        # Who, where and which command come from the invocation's log context (see
+        # aha.logctx), so JSON logs carry shard/guild/channel/user ids without repeating them
+        # here. Only the *names* of the arguments are recorded, never their values: those are
+        # user content (reminder text, URLs) and fall under the retention policy (#99).
+        audit.info(
+            "Command /%s completed",
+            ctx.command.qualified_name,
+            extra={
+                "event": "command",
+                "outcome": "ok",
+                "arguments": sorted(ctx.kwargs),
+                "duration_ms": None if duration is None else round(duration * 1000),
+            },
+        )
 
     @commands.Cog.listener("on_command_error")
     async def on_command_error(
