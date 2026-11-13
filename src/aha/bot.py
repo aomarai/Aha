@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import time
 
 import discord
@@ -60,8 +61,13 @@ class AhaBot(commands.Bot):
         gateway_timeout: float = GATEWAY_DISCONNECT_TIMEOUT,
         watchdog_interval: float = GATEWAY_WATCHDOG_INTERVAL,
     ) -> None:
-        if gateway_timeout <= 0 or watchdog_interval <= 0:
-            raise ValueError("gateway_timeout and watchdog_interval must be positive")
+        if (
+            not math.isfinite(gateway_timeout)
+            or gateway_timeout <= 0
+            or not math.isfinite(watchdog_interval)
+            or watchdog_interval <= 0
+        ):
+            raise ValueError("gateway_timeout and watchdog_interval must be finite and positive")
         # Default intents only: no privileged intent (notably ``message_content``)
         # is requested, so commands are slash-only. ``commands.Bot`` still needs a
         # prefix; ``when_mentioned`` is the one value that needs no message
@@ -80,6 +86,8 @@ class AhaBot(commands.Bot):
         self._sync_lock = asyncio.Lock()
         self._disconnected_since: float | None = None
         self._watchdog_task: asyncio.Task[None] | None = None
+        #: Process exit code; the watchdog sets 1 so a supervisor restarts the bot.
+        self.exit_code = 0
         self.add_check(self._enforce_rate_limit)
 
     async def _enforce_rate_limit(self, ctx: commands.Context[commands.Bot]) -> bool:
@@ -136,21 +144,39 @@ class AhaBot(commands.Bot):
             elapsed,
             self.gateway_timeout,
         )
+        # A non-zero code lets an "on-failure" supervisor restart the process.
+        self.exit_code = 1
         # Clear before closing so ``close`` does not try to cancel this task.
         self._watchdog_task = None
         await self.close()
         return True
 
     async def on_connect(self) -> None:
-        """Log a fresh gateway session and clear the disconnect clock."""
-        self._disconnected_since = None
+        """Log a fresh gateway session.
+
+        The disconnect clock is deliberately not cleared here: a resumed
+        reconnect dispatches ``on_connect`` before ``on_resumed``, and
+        ``on_resumed`` needs the timestamp to report the outage duration.
+        """
         log.info("Connected to the Discord gateway")
 
     async def on_disconnect(self) -> None:
         """Start the disconnect clock (once) and log the lost connection."""
         if self._disconnected_since is None:
             self._disconnected_since = time.monotonic()
-        log.warning("Disconnected from the Discord gateway")
+        # ``ws`` is None once the connection is torn down and may not carry a
+        # code on a failed connect, hence the default.
+        code = getattr(self.ws, "_close_code", None)
+        if code is None:
+            log.warning("Disconnected from the Discord gateway")
+        else:
+            # discord.py does not pass the close frame to ``on_disconnect``; the
+            # code lives on the websocket. The reason is not exposed at all.
+            log.warning("Disconnected from the Discord gateway (code %s)", code)
+
+    async def on_shard_ready(self, shard_id: int) -> None:
+        """Log a shard becoming ready (only fires under sharding)."""
+        log.info("Shard %s is ready", shard_id)
 
     async def on_resumed(self) -> None:
         """Log how long the gateway was disconnected, then clear the clock."""
@@ -200,6 +226,8 @@ class AhaBot(commands.Bot):
         """
         Called when the bot has connected to Discord and is ready to process commands.
         """
+        # A fresh (non-resumed) session means the outage, if any, is over.
+        self._disconnected_since = None
         if self.user is not None:
             log.info("Logged in as %s (id=%s)", self.user, self.user.id)
         else:

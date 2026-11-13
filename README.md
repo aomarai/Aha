@@ -146,10 +146,12 @@ receives the message without the intent.
 
 ### Connection health
 
-`on_connect`, `on_disconnect`, and `on_resumed` are logged with the outage
-duration. If the gateway stays disconnected for five minutes, the watchdog logs
-CRITICAL and closes the bot, so the container supervisor restarts it; the limit
-is `GATEWAY_DISCONNECT_TIMEOUT` in `bot.py`.
+`on_connect` and `on_disconnect` are logged (the disconnect warning includes the
+WebSocket close code when discord.py exposes it), and `on_resumed` logs the
+outage duration. If the gateway stays disconnected for five minutes, the
+watchdog logs CRITICAL and closes the bot with a non-zero exit code, so an
+on-failure supervisor restarts it; the limit is `GATEWAY_DISCONNECT_TIMEOUT` in
+`bot.py`.
 
 ### Command access control
 
