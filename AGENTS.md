@@ -124,6 +124,9 @@ every change must keep:
   `command_completion`, `command_error`, `app_command_error`; not `app_command_completion`,
   which discord.py also fires for hybrid commands and would double-count), so never increment
   `aha_commands_total` from a cog. Tests get an idle fake server from `tests/conftest.py`.
+- Components (buttons, menus) follow `docs/components.md`: state in the `custom_id` via a
+  registered `DynamicItem`, invoker re-checked on every click with `aha.components.require_invoker`,
+  no per-process `View` state for anything that must survive a restart. `HelpButton` is the example.
 - Audit trail: `cogs/observability.py` writes one `aha.audit` INFO record per completed command
   (`extra={event, outcome, arguments, duration_ms}`; who/where come from the log context). Log
   argument **names** only, never values, and never use `args`, `msg`, `message` or the other

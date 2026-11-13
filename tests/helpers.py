@@ -78,12 +78,16 @@ class StubBot:
         self.cmds = cmds or []
         self.latency = latency
         self.added_cogs: list[commands.Cog] = []
+        self.dynamic_items: list[Any] = []
 
     def walk_commands(self) -> list[Any]:
         return self.cmds
 
     async def add_cog(self, cog: commands.Cog) -> None:
         self.added_cogs.append(cog)
+
+    def add_dynamic_items(self, *items: Any) -> None:
+        self.dynamic_items.extend(items)
 
 
 class StubContext:
@@ -147,7 +151,7 @@ class StubInteraction:
     ) -> None:
         self.command = Named(qualified_name="ping") if command else None
         self.id = 777
-        self.client = Named(shard_count=4)
+        self.client: Any = Named(shard_count=4)
         self.guild = Named(id=11, shard_id=2) if guild and guild_cached else None
         self.guild_id = 11 if guild else None
         self.channel_id = 22
