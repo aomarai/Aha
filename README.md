@@ -160,9 +160,10 @@ Discord shows and enforces at interaction time. Apply the decorators **below**
 async def example(ctx: commands.Context[commands.Bot]) -> None: ...
 ```
 
-Failures surface through the global error handler as ephemeral messages: missing
-permissions, DM-only misuse, and cooldowns each have friendly wording (`/sync`
-demonstrates the full pattern; `/ping`, `/roll`, and `/coin` carry cooldowns).
+Failures surface through the global error handler as ephemeral messages for
+permission denials and cooldowns; guild-only is enforced by Discord for slash
+invocations and by the local check for mentions. `/sync` demonstrates the full
+pattern; `/ping`, `/roll`, and `/coin` carry cooldowns.
 
 ## Project layout
 
