@@ -124,7 +124,14 @@ Portal. Discord's guidance is to migrate text commands to slash commands, and
 privileged-intent access above 10,000 unique users requires an application that
 must be renewed annually (rule change of 2026-06-10), so the bot avoids needing
 it. The only text trigger left is an `@Aha` mention, which Discord delivers
-without the Message Content intent. If a future feature genuinely needs message
+without the Message Content intent.
+
+The bot also requests only the **non-privileged intents it uses**, not `Intents.default()`:
+`guilds` (the guild and channel cache, `on_guild_remove`), and `guild_messages` / `dm_messages`
+so that an `@Aha` mention reaches the command parser. Typing, voice, invites, emoji, reactions,
+scheduled events and the rest are not subscribed, and no message cache is kept (`max_messages=None`).
+Each unused event stream costs bandwidth, CPU and memory on every shard. Add an intent in
+`aha.bot.gateway_intents` only together with the feature that needs it. If a future feature genuinely needs message
 text, prefer a message context-menu command (`app_commands.ContextMenu`), which
 receives the message without the intent.
 
