@@ -9,7 +9,7 @@ from typing import Any, ClassVar
 import discord
 from discord.ext import commands
 
-from aha.commands import hybrid_command
+from aha.commands import BotLike, hybrid_command
 from aha.components import require_invoker
 from aha.replies import edit_message, reply
 
@@ -117,7 +117,7 @@ def paginate(lines: list[str], limit: int = PAGE_LIMIT) -> list[str]:
     return pages
 
 
-def build_pages(bot: commands.Bot) -> list[str]:
+def build_pages(bot: BotLike) -> list[str]:
     """Build the help pages from the bot's current commands."""
     visible = [command for command in bot.walk_commands() if not command.hidden]
     return paginate_sections(group_by_category(visible), PAGE_LIMIT)
@@ -205,7 +205,7 @@ class HelpButton(
 class Help(commands.Cog):
     """Lists available commands."""
 
-    def __init__(self, bot: commands.Bot) -> None:
+    def __init__(self, bot: BotLike) -> None:
         self.bot = bot
 
     @hybrid_command(
@@ -228,7 +228,7 @@ class Help(commands.Cog):
             )
 
 
-async def setup(bot: commands.Bot) -> None:
+async def setup(bot: BotLike) -> None:
     """Register the cog and its persistent button with the bot (called by ``load_extension``)."""
     bot.add_dynamic_items(HelpButton)
     await bot.add_cog(Help(bot))

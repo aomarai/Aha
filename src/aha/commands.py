@@ -24,7 +24,12 @@ from typing import Any, TypeVar
 from discord.ext import commands
 from discord.utils import MISSING
 
-__all__ = ["hybrid_command"]
+__all__ = ["BotLike", "hybrid_command"]
+
+#: Either discord.py bot class. ``AutoShardedBot`` is not a ``Bot`` subclass for the type checker,
+#: and the cogs work with both, so they annotate their bot parameter with this.
+
+BotLike = commands.Bot | commands.AutoShardedBot
 
 F = TypeVar("F", bound=Callable[..., Any])
 

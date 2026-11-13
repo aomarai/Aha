@@ -20,6 +20,9 @@ for how a release is cut.
 - `/remind`, `/reminders`, `/unremind`: reminders stored in PostgreSQL and delivered by whichever
   pod runs the scheduler (needs `DATABASE_URL`). Delivery pings only the invoker, falls back to a
   DM, and drops the reminder if neither works. Limits: 25 per user, 1 year ahead, 1,000 characters.
+- Explicit shard assignment: `SHARD_COUNT`, `SHARD_IDS` or `SHARDS_PER_POD` + `POD_INDEX`, validated
+  at startup; the bot is now an `AutoShardedBot` with per-shard readiness, reconnect metrics and
+  disconnect watchdog. See `docs/sharding.md` (including the stop-the-world reshard procedure).
 - Per-server settings: `/config` shows them and `/configure` changes them (Manage Server only): a log
   channel and per-command disabling (`config`, `configure` and `help` can never be disabled). Stored
   in `guild_settings` with a 60 s per-pod cache; a server that removes the bot has its data deleted

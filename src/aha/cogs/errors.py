@@ -18,6 +18,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from aha.commands import BotLike
 from aha.guildsettings import CommandDisabled
 from aha.replies import reply, respond
 
@@ -64,7 +65,7 @@ def _describe(error: Exception) -> str | None:
 class Errors(commands.Cog):
     """Replies to failed commands and logs unexpected failures."""
 
-    def __init__(self, bot: commands.Bot) -> None:
+    def __init__(self, bot: BotLike) -> None:
         self.bot = bot
 
     @commands.Cog.listener("on_command_error")
@@ -145,6 +146,6 @@ class Errors(commands.Cog):
             log.warning("Could not deliver error reply for command %s", command, exc_info=True)
 
 
-async def setup(bot: commands.Bot) -> None:
+async def setup(bot: BotLike) -> None:
     """Register the cog with the bot (called by ``load_extension``)."""
     await bot.add_cog(Errors(bot))

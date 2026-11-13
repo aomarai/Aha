@@ -16,7 +16,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from aha import embeds
-from aha.commands import hybrid_command
+from aha.commands import BotLike, hybrid_command
 from aha.net import FetchError, Preview, TTLCache, fetch_preview, validate_url
 from aha.replies import reply
 from aha.textutil import clip, plain
@@ -36,7 +36,7 @@ class Web(commands.Cog):
 
     def __init__(
         self,
-        bot: commands.Bot,
+        bot: BotLike,
         *,
         fetch: Callable[[str], Awaitable[Preview]] = fetch_preview,
         cache: TTLCache[Preview] | None = None,
@@ -89,6 +89,6 @@ def _embed(preview: Preview) -> discord.Embed:
     )
 
 
-async def setup(bot: commands.Bot) -> None:
+async def setup(bot: BotLike) -> None:
     """Register the cog with the bot (called by ``load_extension``)."""
     await bot.add_cog(Web(bot))

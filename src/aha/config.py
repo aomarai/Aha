@@ -53,6 +53,9 @@ DEFAULT_DB_STATEMENT_TIMEOUT = 2.0
 MAX_DB_STATEMENT_TIMEOUT = 60.0
 _TOKEN_ENCODING = "utf-8"
 
+#: Most shards one deployment may declare (only catches typos; Discord has its own ceiling).
+MAX_SHARD_COUNT = 10_000
+
 # Discord snowflakes are unsigned 64-bit integers; guild IDs are positive.
 MAX_SNOWFLAKE = (1 << 63) - 1
 
@@ -178,6 +181,60 @@ def _parse_optional_int(raw: str | None, *, name: str) -> int | None:
         raise ConfigError(f"{name} must be an integer, got {raw!r}") from exc
 
 
+def _parse_shard_ids(raw: str) -> tuple[int, ...]:
+    """Parse ``SHARD_IDS`` such as ``0,1,2`` into a tuple of ints."""
+    parts = [part.strip() for part in raw.split(",")]
+    try:
+        return tuple(int(part) for part in parts)
+    except ValueError as exc:
+        raise ConfigError(f"SHARD_IDS must be comma-separated integers, got {raw!r}") from exc
+
+
+def _parse_shards(source: Mapping[str, str]) -> tuple[int | None, tuple[int, ...] | None]:
+    """Resolve ``(shard_count, shard_ids)`` from the environment, or raise :class:`ConfigError`.
+
+    Three modes: nothing set (Discord picks the count, one process owns every shard: single-pod
+    use only); ``SHARD_COUNT`` with explicit ``SHARD_IDS``; or ``SHARD_COUNT`` with
+    ``SHARDS_PER_POD`` and ``POD_INDEX`` (a StatefulSet ordinal), which derives this pod's block.
+    discord.py requires ``shard_count`` whenever ids are given.
+    """
+    count = _parse_optional_int(source.get("SHARD_COUNT"), name="SHARD_COUNT")
+    raw_ids = (source.get("SHARD_IDS") or "").strip()
+    per_pod = _parse_optional_int(source.get("SHARDS_PER_POD"), name="SHARDS_PER_POD")
+    index = _parse_optional_int(source.get("POD_INDEX"), name="POD_INDEX")
+    if count is not None and not 1 <= count <= MAX_SHARD_COUNT:
+        raise ConfigError(f"SHARD_COUNT must be 1..{MAX_SHARD_COUNT}, got {count}")
+    if raw_ids and per_pod is not None:
+        raise ConfigError("Set either SHARD_IDS or SHARDS_PER_POD, not both")
+    if raw_ids:
+        if count is None:
+            raise ConfigError("SHARD_COUNT is required when SHARD_IDS is set")
+        ids = _parse_shard_ids(raw_ids)
+        if len(set(ids)) != len(ids):
+            raise ConfigError(f"SHARD_IDS must not repeat a shard, got {raw_ids!r}")
+        outside = [shard for shard in ids if not 0 <= shard < count]
+        if outside:
+            raise ConfigError(f"SHARD_IDS {outside} are outside 0..{count - 1} (SHARD_COUNT)")
+        return count, ids
+    if per_pod is None:
+        if index is not None:
+            raise ConfigError("POD_INDEX needs SHARDS_PER_POD")
+        return count, None
+    if count is None:
+        raise ConfigError("SHARD_COUNT is required when SHARDS_PER_POD is set")
+    if per_pod < 1:
+        raise ConfigError(f"SHARDS_PER_POD must be at least 1, got {per_pod}")
+    if index is None or index < 0:
+        raise ConfigError("SHARDS_PER_POD needs POD_INDEX (the pod ordinal, 0 or more)")
+    block = tuple(range(index * per_pod, min((index + 1) * per_pod, count)))
+    if not block:
+        raise ConfigError(
+            f"POD_INDEX {index} owns no shards: SHARD_COUNT {count} with {per_pod} per pod "
+            f"covers pods 0..{(count - 1) // per_pod}"
+        )
+    return count, block
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Validated, immutable application settings."""
@@ -199,6 +256,10 @@ class Settings:
     health_bind: str = DEFAULT_HEALTH_BIND
     #: TCP port of the health/metrics server; 0 disables it.
     health_port: int = DEFAULT_HEALTH_PORT
+    #: Total shards Discord splits the bot into; ``None`` lets Discord recommend (single pod only).
+    shard_count: int | None = None
+    #: The shards this process owns; ``None`` means all of them. Needs ``shard_count``.
+    shard_ids: tuple[int, ...] | None = None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -273,6 +334,8 @@ class Settings:
                 f"HEALTH_PORT must be 0 (disabled) or 1..{MAX_PORT}, got {health_port}"
             )
 
+        shard_count, shard_ids = _parse_shards(source)
+
         return cls(
             token=token,
             log_level=log_level,
@@ -287,4 +350,6 @@ class Settings:
             db_statement_timeout=db_statement_timeout,
             health_bind=health_bind,
             health_port=health_port,
+            shard_count=shard_count,
+            shard_ids=shard_ids,
         )

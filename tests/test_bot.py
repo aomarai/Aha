@@ -100,7 +100,7 @@ def test_bot_passes_its_minimal_intents_and_no_message_cache(
         captured.update(kwargs)
         self._checks = []
 
-    monkeypatch.setattr(commands.Bot, "__init__", fake_init)
+    monkeypatch.setattr(commands.AutoShardedBot, "__init__", fake_init)
 
     _bot()
 
@@ -277,14 +277,14 @@ def test_on_connect_logs_without_clearing_the_disconnect_clock(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     bot = _bot()
-    bot._disconnected_since = 123.0
+    bot._shard_down = {0: 123.0}
 
     with caplog.at_level(logging.INFO, logger="aha.bot"):
         asyncio.run(bot.on_connect())
 
     # A resumed reconnect dispatches on_connect before on_resumed; the clock must
     # survive so on_resumed can report the outage duration.
-    assert bot._disconnected_since == 123.0
+    assert bot._shard_down == {0: 123.0}
     assert [record.getMessage() for record in caplog.records] == [
         "Connected to the Discord gateway"
     ]
@@ -297,25 +297,28 @@ def test_on_disconnect_logs_and_starts_the_clock_once(
     monkeypatch.setattr("aha.bot.time.monotonic", lambda: 500.0)
 
     with caplog.at_level(logging.WARNING, logger="aha.bot"):
-        asyncio.run(bot.on_disconnect())
+        asyncio.run(bot.on_shard_disconnect(0))
         monkeypatch.setattr("aha.bot.time.monotonic", lambda: 600.0)
-        asyncio.run(bot.on_disconnect())
+        asyncio.run(bot.on_shard_disconnect(0))
 
-    assert bot._disconnected_since == 500.0
+    assert bot._shard_down == {0: 500.0}
     assert [record.getMessage() for record in caplog.records] == [
-        "Disconnected from the Discord gateway"
+        "Shard 0 disconnected from the Discord gateway"
     ] * 2
 
 
-def test_on_disconnect_logs_the_websocket_close_code(caplog: pytest.LogCaptureFixture) -> None:
+def test_on_disconnect_logs_the_websocket_close_code(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
     bot = _bot()
-    bot.ws = cast("Any", Named(_close_code=4000))
+    shard = Named(_parent=Named(ws=Named(_close_code=4000)))
+    monkeypatch.setattr(type(bot), "shards", property(lambda self: {0: shard}))
 
     with caplog.at_level(logging.WARNING, logger="aha.bot"):
-        asyncio.run(bot.on_disconnect())
+        asyncio.run(bot.on_shard_disconnect(0))
 
     assert [record.getMessage() for record in caplog.records] == [
-        "Disconnected from the Discord gateway (code 4000)"
+        "Shard 0 disconnected from the Discord gateway (code 4000)"
     ]
 
 
@@ -323,15 +326,15 @@ def test_on_resumed_logs_the_outage(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     bot = _bot()
-    bot._disconnected_since = 100.0
+    bot._shard_down = {0: 100.0}
     monkeypatch.setattr("aha.bot.time.monotonic", lambda: 102.5)
 
     with caplog.at_level(logging.INFO, logger="aha.bot"):
-        asyncio.run(bot.on_resumed())
+        asyncio.run(bot.on_shard_resumed(0))
 
-    assert bot._disconnected_since is None
+    assert bot._shard_down == {}
     assert [record.getMessage() for record in caplog.records] == [
-        "Resumed the Discord gateway session after 2.5 s"
+        "Shard 0 resumed the Discord gateway session after 2.5 s"
     ]
 
 
@@ -342,15 +345,15 @@ def test_resume_after_connect_keeps_the_outage_duration(
     monkeypatch.setattr("aha.bot.time.monotonic", lambda: 100.0)
 
     with caplog.at_level(logging.INFO, logger="aha.bot"):
-        asyncio.run(bot.on_disconnect())
+        asyncio.run(bot.on_shard_disconnect(0))
         asyncio.run(bot.on_connect())
         monkeypatch.setattr("aha.bot.time.monotonic", lambda: 102.5)
-        asyncio.run(bot.on_resumed())
+        asyncio.run(bot.on_shard_resumed(0))
 
     assert [record.getMessage() for record in caplog.records] == [
-        "Disconnected from the Discord gateway",
+        "Shard 0 disconnected from the Discord gateway",
         "Connected to the Discord gateway",
-        "Resumed the Discord gateway session after 2.5 s",
+        "Shard 0 resumed the Discord gateway session after 2.5 s",
     ]
 
 
@@ -358,10 +361,10 @@ def test_on_resumed_without_a_prior_disconnect(caplog: pytest.LogCaptureFixture)
     bot = _bot()
 
     with caplog.at_level(logging.INFO, logger="aha.bot"):
-        asyncio.run(bot.on_resumed())
+        asyncio.run(bot.on_shard_resumed(0))
 
     assert [record.getMessage() for record in caplog.records] == [
-        "Resumed the Discord gateway session"
+        "Shard 0 resumed the Discord gateway session"
     ]
 
 
@@ -374,23 +377,20 @@ def test_on_shard_ready_logs_the_shard(caplog: pytest.LogCaptureFixture) -> None
     assert [record.getMessage() for record in caplog.records] == ["Shard 2 is ready"]
 
 
-def test_on_ready_clears_the_disconnect_clock(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_shard_becoming_ready_clears_only_its_own_disconnect_clock() -> None:
     bot = _bot()
-    bot._disconnected_since = 123.0
-    monkeypatch.setattr(type(bot), "user", property(lambda self: _StubUser()))
+    bot._shard_down = {0: 123.0, 1: 456.0}
 
-    asyncio.run(bot.on_ready())
+    asyncio.run(bot.on_shard_ready(0))
 
-    assert bot._disconnected_since is None
+    assert bot._shard_down == {1: 456.0}
 
 
 def test_check_gateway_timeout_allows_recent_disconnects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bot = AhaBot(Settings(token="test-token"), gateway_timeout=60.0)
-    bot._disconnected_since = 100.0
+    bot._shard_down = {0: 100.0}
     closed: list[bool] = []
 
     async def fake_close() -> None:
@@ -422,7 +422,7 @@ def test_check_gateway_timeout_closes_at_the_exact_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bot = AhaBot(Settings(token="test-token"), gateway_timeout=60.0)
-    bot._disconnected_since = 100.0
+    bot._shard_down = {0: 100.0}
     closed: list[bool] = []
 
     async def fake_close() -> None:
@@ -440,7 +440,7 @@ def test_check_gateway_timeout_closes_when_the_limit_is_exceeded(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     bot = AhaBot(Settings(token="test-token"), gateway_timeout=60.0)
-    bot._disconnected_since = 100.0
+    bot._shard_down = {0: 100.0}
     closed: list[bool] = []
 
     async def fake_close() -> None:
@@ -486,7 +486,7 @@ def test_watch_gateway_closes_when_disconnected_too_long(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bot = AhaBot(Settings(token="test-token"), gateway_timeout=0.01)
-    bot._disconnected_since = 0.0
+    bot._shard_down = {0: 0.0}
     closed: list[bool] = []
 
     async def fake_close() -> None:
@@ -517,13 +517,13 @@ def test_setup_hook_schedules_the_watchdog_and_closes_the_client(
         checked.append(True)
         return True
 
-    async def fake_super_close(self: commands.Bot) -> None:
+    async def fake_super_close(self: commands.AutoShardedBot) -> None:
         closed_client.append(True)
 
     monkeypatch.setattr(bot, "load_extension", fake_load_extension)
     monkeypatch.setattr(bot, "sync_commands", fake_sync_commands)
     monkeypatch.setattr(bot, "_check_gateway_timeout", fake_check)
-    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+    monkeypatch.setattr(commands.AutoShardedBot, "close", fake_super_close)
 
     async def scenario() -> tuple[bool, bool]:
         await bot.setup_hook()
@@ -548,11 +548,11 @@ def test_close_cancels_a_running_watchdog(monkeypatch: pytest.MonkeyPatch) -> No
     async def fake_check() -> bool:
         return False
 
-    async def fake_super_close(self: commands.Bot) -> None:
+    async def fake_super_close(self: commands.AutoShardedBot) -> None:
         closed_client.append(True)
 
     monkeypatch.setattr(bot, "_check_gateway_timeout", fake_check)
-    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+    monkeypatch.setattr(commands.AutoShardedBot, "close", fake_super_close)
 
     async def scenario() -> bool:
         task = bot.tasks.spawn(bot._watch_gateway, name=WATCHDOG_TASK)
@@ -574,11 +574,11 @@ def test_close_still_closes_the_client_when_waiting_for_tasks_is_cancelled(
     async def cancelled_close(timeout: float = 0.0) -> None:
         raise asyncio.CancelledError
 
-    async def fake_super_close(self: commands.Bot) -> None:
+    async def fake_super_close(self: commands.AutoShardedBot) -> None:
         closed_client.append(True)
 
     monkeypatch.setattr(bot.tasks, "close", cancelled_close)
-    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+    monkeypatch.setattr(commands.AutoShardedBot, "close", fake_super_close)
 
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(bot.close())
@@ -606,14 +606,14 @@ def test_the_watchdog_is_restarted_when_it_crashes(monkeypatch: pytest.MonkeyPat
             raise RuntimeError("watchdog bug")
         return True
 
-    async def fake_super_close(self: commands.Bot) -> None:
+    async def fake_super_close(self: commands.AutoShardedBot) -> None:
         return None
 
     bot.tasks = TaskRegistry(sleep=fake_sleep)
     monkeypatch.setattr(bot, "load_extension", fake_load_extension)
     monkeypatch.setattr(bot, "sync_commands", fake_sync_commands)
     monkeypatch.setattr(bot, "_check_gateway_timeout", flaky_check)
-    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+    monkeypatch.setattr(commands.AutoShardedBot, "close", fake_super_close)
 
     async def scenario() -> None:
         await bot.setup_hook()
@@ -637,12 +637,12 @@ def test_a_cancelled_watchdog_marks_the_bot_unhealthy(monkeypatch: pytest.Monkey
     async def fake_sync_commands() -> None:
         return None
 
-    async def fake_super_close(self: commands.Bot) -> None:
+    async def fake_super_close(self: commands.AutoShardedBot) -> None:
         return None
 
     monkeypatch.setattr(bot, "load_extension", fake_load_extension)
     monkeypatch.setattr(bot, "sync_commands", fake_sync_commands)
-    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+    monkeypatch.setattr(commands.AutoShardedBot, "close", fake_super_close)
 
     async def scenario() -> frozenset[str]:
         await bot.setup_hook()
@@ -664,10 +664,10 @@ def test_close_without_a_watchdog_still_closes_the_client(
     bot = _bot()
     closed_client: list[bool] = []
 
-    async def fake_super_close(self: commands.Bot) -> None:
+    async def fake_super_close(self: commands.AutoShardedBot) -> None:
         closed_client.append(True)
 
-    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+    monkeypatch.setattr(commands.AutoShardedBot, "close", fake_super_close)
 
     asyncio.run(bot.close())
 
@@ -686,12 +686,12 @@ def test_setup_hook_does_not_start_a_second_watchdog(
     async def fake_sync_commands() -> None:
         return None
 
-    async def fake_super_close(self: commands.Bot) -> None:
+    async def fake_super_close(self: commands.AutoShardedBot) -> None:
         return None
 
     monkeypatch.setattr(bot, "load_extension", fake_load_extension)
     monkeypatch.setattr(bot, "sync_commands", fake_sync_commands)
-    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+    monkeypatch.setattr(commands.AutoShardedBot, "close", fake_super_close)
 
     async def scenario() -> tuple[asyncio.Task[None], asyncio.Task[None]]:
         await bot.setup_hook()
@@ -893,3 +893,67 @@ def test_a_command_without_a_guild_or_name_is_not_checked_on_either_surface() ->
     assert asyncio.run(slash.tree.interaction_check(as_tree_interaction(interaction))) is True
     assert asyncio.run(message._enforce_rate_limit(as_context(ctx))) is True
     assert settings.asked == []
+
+
+# ----------------------------------------------------------------- shard assignment (#93)
+
+
+def test_a_default_bot_lets_discord_choose_the_shards() -> None:
+    bot = _bot()
+
+    assert bot.shard_count is None
+    assert bot.shard_ids is None
+
+
+def test_the_configured_shard_assignment_reaches_discordpy_as_a_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_init(self: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+        self._checks = []
+
+    monkeypatch.setattr(commands.AutoShardedBot, "__init__", fake_init)
+
+    _bot(shard_count=8, shard_ids=(2, 3))
+
+    assert captured["shard_count"] == 8
+    assert captured["shard_ids"] == [2, 3]
+    assert isinstance(captured["shard_ids"], list)  # discord.py rejects a tuple
+
+
+def test_nothing_is_passed_for_an_unset_assignment(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_init(self: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+        self._checks = []
+
+    monkeypatch.setattr(commands.AutoShardedBot, "__init__", fake_init)
+
+    _bot()
+
+    assert "shard_count" not in captured
+    assert "shard_ids" not in captured
+
+
+def test_a_count_alone_is_passed_without_ids(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_init(self: Any, **kwargs: Any) -> None:
+        captured.update(kwargs)
+        self._checks = []
+
+    monkeypatch.setattr(commands.AutoShardedBot, "__init__", fake_init)
+
+    _bot(shard_count=2)
+
+    assert captured["shard_count"] == 2
+    assert "shard_ids" not in captured
+
+
+def test_real_discordpy_accepts_the_assignment_and_exposes_it() -> None:
+    bot = _bot(shard_count=4, shard_ids=(1, 2))
+
+    assert (bot.shard_count, bot.shard_ids) == (4, [1, 2])
