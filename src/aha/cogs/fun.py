@@ -23,7 +23,7 @@ class Fun(commands.Cog):
     async def roll(self, ctx: commands.Context[commands.Bot], sides: int = 6) -> None:
         """Roll a die with the given number of sides (default d6)."""
         if sides < 1:
-            await ctx.reply("sides must be at least 1.")
+            await ctx.reply(embed=embeds.error("`sides` must be at least 1."), ephemeral=True)
             return
         result = random.randint(1, sides)
         text = f"Rolled **{result}** on a d{sides}."

@@ -76,8 +76,28 @@ def test_roll_rejects_nonpositive_sides() -> None:
     asyncio.run(callback(cog, as_context(ctx), sides=0))
 
     content, kwargs = ctx.replies[0]
-    assert content == "sides must be at least 1."
-    assert "embed" not in kwargs
+    assert content is None
+    embed = kwargs["embed"]
+    assert embed.description == "`sides` must be at least 1."
+    assert embed.color is not None
+    assert embed.color.value == 0xED4245  # error red
+    assert kwargs["ephemeral"] is True
+
+
+def test_roll_allows_a_one_sided_die(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The lower bound is inclusive: d1 is a degenerate but valid die.
+    monkeypatch.setattr(random, "randint", lambda a, b: 1)
+    bot = StubBot()
+    cog = Fun(as_bot(bot))
+    ctx = StubContext()
+
+    callback = cast("Any", cog.roll.callback)
+    asyncio.run(callback(cog, as_context(ctx), sides=1))
+
+    content, kwargs = ctx.replies[0]
+    assert content is None
+    embed = kwargs["embed"]
+    assert embed.description == "Rolled **1** on a d1."
 
 
 def test_roll_falls_back_to_plain_text_when_embed_is_rejected(
@@ -208,6 +228,15 @@ def test_coin_calls_choice_with_heads_and_tails(monkeypatch: pytest.MonkeyPatch)
     asyncio.run(callback(cog, as_context(ctx)))
 
     assert calls == [("heads", "tails")]
+
+
+def test_command_metadata_matches_the_public_surface() -> None:
+    # A rename or description loss changes the slash-command surface users see,
+    # so it must fail the suite even though every behaviour test still passes.
+    assert Fun.roll.qualified_name == "roll"
+    assert Fun.roll.description == "Roll a die."
+    assert Fun.coin.qualified_name == "coin"
+    assert Fun.coin.description == "Flip a coin."
 
 
 def test_setup_registers_the_fun_cog() -> None:
