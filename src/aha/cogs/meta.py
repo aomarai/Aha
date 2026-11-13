@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import discord
-from discord import app_commands
 from discord.ext import commands
 
 from aha import embeds
@@ -15,7 +14,7 @@ __all__ = ["Meta", "setup"]
 
 
 class Meta(commands.Cog):
-    """Basic bot introspection and operator commands."""
+    """Basic bot introspection."""
 
     def __init__(self, bot: AhaBot) -> None:
         self.bot = bot
@@ -30,32 +29,6 @@ class Meta(commands.Cog):
             await reply(ctx, embed=embeds.status(text))
         except discord.HTTPException:
             # The channel may lack embed permission; keep the reply alive.
-            await reply(ctx, text)
-
-    @hybrid_command(
-        name="sync",
-        description="Re-sync the slash commands (requires Manage Server).",
-    )
-    @commands.cooldown(1, 60, commands.BucketType.user)
-    @app_commands.default_permissions(manage_guild=True)
-    @app_commands.checks.has_permissions(manage_guild=True)
-    @commands.guild_only()
-    @commands.has_permissions(manage_guild=True)
-    async def sync(self, ctx: commands.Context[commands.Bot]) -> None:
-        """Re-sync the application command tree and report success.
-
-        ``commands.guild_only`` also flags the app command as guild-only, and
-        ``prepare`` runs the ``commands.*`` checks on the slash path, so both
-        surfaces are gated.
-        """
-        # A global sync can outlast Discord's 3-second acknowledgement window,
-        # after which a reply would be rejected.
-        await ctx.defer(ephemeral=True)
-        await self.bot.sync_commands()
-        text = "Application commands synced."
-        try:
-            await reply(ctx, embed=embeds.success(text))
-        except discord.HTTPException:
             await reply(ctx, text)
 
 

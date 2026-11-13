@@ -13,6 +13,7 @@ Aha is a small Discord bot (discord.py, src layout, managed with `uv`). Python i
 ```bash
 uv sync                                   # install runtime + dev deps
 uv run aha                                # run the bot (needs DISCORD_BOT_TOKEN in .env)
+uv run aha sync [--dry-run] [--guild ID]  # sync slash commands over REST, only if changed
 uv run ruff check .                       # lint
 uv run ruff format .                      # format (CI runs `--check`)
 uv run mypy                               # strict type check of src/, tests/, scripts/
@@ -60,10 +61,18 @@ every change must keep:
 - `config.Settings` is a frozen dataclass built by `Settings.from_env(env=None)`. Pass an explicit
   mapping in tests instead of mutating `os.environ`. Invalid values raise `ConfigError` at
   startup rather than silently falling back.
-- `bot.AhaBot.setup_hook` loads every module in `COG_MODULES` and syncs the app-command tree. With
-  `DEV_GUILD_ID` set it copies globals to that guild, syncs it, then clears and re-syncs the
-  global set so no stale global commands remain. Sync overwrites remote commands — the last bot
-  revision to start wins.
+- `bot.AhaBot.setup_hook` loads every module in `COG_MODULES` and, only when `/sync` is meant to
+  exist (`DEV_GUILD_ID` or `SYNC_ON_STARTUP`), `OPERATOR_COG` (`aha.cogs.ops`, the owner-only
+  `/sync`). It syncs the command tree at startup only in those same modes
+  (`bot.sync_on_startup`); production syncs through `aha sync` (a deploy Job run *after* the
+  rollout, ADR 0001 §4). `sync_commands()` diffs each target against Discord's raw payloads
+  (`aha.cmdsync`, raw because discord.py 2.7 parses `contexts`/`integration_types` lossily) and
+  writes only on a difference. With `DEV_GUILD_ID` set it copies globals to that guild, syncs it,
+  then clears and re-syncs the global set so no stale global commands remain. Sync overwrites
+  remote commands; two overlapping revisions still race (fencing arrives with the database).
+- A command that must exist in production belongs in `COG_MODULES`; the tree `aha sync` pushes
+  must equal the tree the pods serve, so never register commands conditionally on anything but
+  the settings both read (`sync_command_enabled`).
 - Cogs live in `src/aha/cogs/`, each exposing `async def setup(bot)`. **Adding a cog requires
   appending its dotted path to `COG_MODULES` in `bot.py`** (a test asserts all entries are under
   `aha.cogs.`).

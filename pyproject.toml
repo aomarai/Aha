@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-aha = "aha.__main__:main"
+aha = "aha.__main__:cli"
 
 [build-system]
 requires = ["uv_build>=0.13.6,<0.14.0"]

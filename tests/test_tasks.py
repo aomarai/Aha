@@ -520,3 +520,14 @@ def test_a_spawned_task_does_not_inherit_the_invocation_log_context() -> None:
 
     assert asyncio.run(scenario()) == {"user_id": 5, "command": "remind"}
     assert seen == [{}]
+
+
+def test_closing_does_not_leave_the_caller_registered_as_a_closer() -> None:
+    registry = _registry()
+
+    async def scenario() -> None:
+        await registry.close()
+
+    asyncio.run(scenario())
+
+    assert registry._closers == set()

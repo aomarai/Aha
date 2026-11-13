@@ -203,6 +203,13 @@ def test_masking_ignores_empty_secrets_and_masks_the_longest_first() -> None:
     assert line.endswith("*** and ***")
 
 
+def test_masking_orders_by_length_not_alphabetically() -> None:
+    # Alphabetically "b" sorts after "abc"; masking it first would leave "a***c" behind.
+    line = TextFormatter(secrets=("b", "abc")).format(_record("abc and b"))
+
+    assert line.endswith("*** and ***")
+
+
 def test_configure_logging_json_writes_json_lines_with_masked_token(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

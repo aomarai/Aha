@@ -128,6 +128,7 @@ def test_bind_interaction_derives_the_shard_for_an_uncached_guild() -> None:
 def test_bind_interaction_assumes_one_shard_when_the_client_has_no_shard_count() -> None:
     interaction = StubInteraction(guild_cached=False)
     interaction.client = Named(shard_count=None)
+    interaction.guild_id = (5 << 22) + 123  # 5 % 1 == 0, but 5 % 2 == 1
 
     logctx.bind_interaction(as_interaction(interaction))
 
