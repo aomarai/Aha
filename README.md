@@ -222,6 +222,7 @@ Aha/
 │   ├── bot.py           # AhaBot (commands.Bot) + setup_hook/on_ready/sync_commands
 │   ├── botinfo.py       # build identity (version/commit) and latency formatting
 │   ├── cmdsync.py       # compare local vs remote command trees (sync only if changed)
+│   ├── components.py    # shared button/menu helpers (see docs/components.md)
 │   ├── config.py        # Settings loaded & validated from the environment
 │   ├── health.py        # /livez, /readyz, /metrics HTTP server
 │   ├── logging_setup.py # text/JSON formatters, token masking

@@ -2,23 +2,27 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
-from typing import Any
+from typing import Any, ClassVar
 
 import discord
 from discord.ext import commands
 
-from aha import logctx
 from aha.commands import hybrid_command
-from aha.replies import edit_message, reply, respond
+from aha.components import require_invoker
+from aha.replies import edit_message, reply
 
 __all__ = [
     "CATEGORY_ORDER",
     "DEFAULT_CATEGORY",
     "Help",
-    "HelpPaginator",
+    "HelpButton",
+    "build_pages",
     "category_of",
     "group_by_category",
+    "help_view",
+    "page_content",
     "paginate",
     "paginate_sections",
     "setup",
@@ -113,51 +117,89 @@ def paginate(lines: list[str], limit: int = PAGE_LIMIT) -> list[str]:
     return pages
 
 
-class HelpPaginator(discord.ui.View):
-    """Previous/Next buttons that flip through help pages in place."""
+def build_pages(bot: commands.Bot) -> list[str]:
+    """Build the help pages from the bot's current commands."""
+    visible = [command for command in bot.walk_commands() if not command.hidden]
+    return paginate_sections(group_by_category(visible), PAGE_LIMIT)
 
-    def __init__(self, pages: list[str], owner_id: int) -> None:
-        super().__init__(timeout=120)
-        self.pages = pages
+
+def page_content(pages: Sequence[str], index: int) -> str:
+    """Return page ``index`` with its "Page x/y" footer."""
+    return f"{pages[index]}\n\nPage {index + 1}/{len(pages)}"
+
+
+def help_view(index: int, total: int, owner_id: int) -> discord.ui.View:
+    """Build the Previous/Next buttons for page ``index`` of ``total``.
+
+    Each button's ``custom_id`` carries the page it leads to and the owner, so a click is handled
+    correctly after a restart and by any process: nothing is remembered between clicks.
+    """
+    view = discord.ui.View(timeout=None)
+    view.add_item(HelpButton("prev", max(index - 1, 0), owner_id, disabled=index <= 0))
+    view.add_item(
+        HelpButton("next", min(index + 1, total - 1), owner_id, disabled=index >= total - 1)
+    )
+    return view
+
+
+class HelpButton(
+    discord.ui.DynamicItem[discord.ui.Button[Any]],
+    template=r"aha:help:(?P<direction>prev|next):(?P<page>\d+):(?P<owner>\d+)",
+):
+    """A Previous/Next button whose whole state is its ``custom_id``.
+
+    ``aha:help:<prev|next>:<page to show>:<owner id>``. The pages are rebuilt from the live
+    command list on every click, so the menu stays correct across restarts and rollouts (a page
+    number past the end, after commands were removed, is clamped).
+    """
+
+    _LABELS: ClassVar[dict[str, str]] = {"prev": "Previous", "next": "Next"}
+    _STYLES: ClassVar[dict[str, discord.ButtonStyle]] = {
+        "prev": discord.ButtonStyle.secondary,
+        "next": discord.ButtonStyle.primary,
+    }
+
+    def __init__(self, direction: str, page: int, owner_id: int, *, disabled: bool = False) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label=self._LABELS[direction],
+                style=self._STYLES[direction],
+                custom_id=f"aha:help:{direction}:{page}:{owner_id}",
+                disabled=disabled,
+            )
+        )
+        self.page = page
         self.owner_id = owner_id
-        self.index = 0
-        self._sync_buttons()
 
-    def content(self) -> str:
-        """Return the current page with its footer."""
-        return f"{self.pages[self.index]}\n\nPage {self.index + 1}/{len(self.pages)}"
+    @classmethod
+    async def from_custom_id(
+        cls,
+        interaction: discord.Interaction[Any],
+        item: discord.ui.Item[Any],
+        match: re.Match[str],
+        /,
+    ) -> HelpButton:
+        """Rebuild the button from a ``custom_id`` that matched the template."""
+        return cls(match["direction"], int(match["page"]), int(match["owner"]))
 
-    def _sync_buttons(self) -> None:
-        self.previous_page.disabled = self.index == 0
-        self.next_page.disabled = self.index == len(self.pages) - 1
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+    async def interaction_check(self, interaction: discord.Interaction[Any]) -> bool:
         """Only the user who asked for help may flip its pages."""
-        # Button clicks never pass the command tree's check, so bind the log context here.
-        logctx.bind_interaction(interaction)
-        if interaction.user.id == self.owner_id:
-            return True
-        await respond(interaction, "This help menu isn't yours.", ephemeral=True)
-        return False
+        return await require_invoker(
+            interaction, self.owner_id, message="This help menu isn't yours."
+        )
 
-    async def _show(self, interaction: discord.Interaction, index: int) -> None:
-        self.index = index
-        self._sync_buttons()
-        await edit_message(interaction, self.content(), view=self)
-
-    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
-    async def previous_page(
-        self, interaction: discord.Interaction, button: discord.ui.Button[HelpPaginator]
-    ) -> None:
-        """Go back one page."""
-        await self._show(interaction, self.index - 1)
-
-    @discord.ui.button(label="Next", style=discord.ButtonStyle.primary)
-    async def next_page(
-        self, interaction: discord.Interaction, button: discord.ui.Button[HelpPaginator]
-    ) -> None:
-        """Go forward one page."""
-        await self._show(interaction, self.index + 1)
+    async def callback(self, interaction: discord.Interaction[Any]) -> None:
+        """Show the page this button leads to."""
+        pages = build_pages(interaction.client)
+        if not pages:
+            await edit_message(interaction, "No commands available.", view=None)
+            return
+        index = min(self.page, len(pages) - 1)
+        await edit_message(
+            interaction,
+            page_content(pages, index),
+            view=help_view(index, len(pages), self.owner_id),
+        )
 
 
 class Help(commands.Cog):
@@ -172,17 +214,21 @@ class Help(commands.Cog):
     @commands.cooldown(3, 10, commands.BucketType.user)
     async def help(self, ctx: commands.Context[commands.Bot]) -> None:
         """Reply privately with every visible command and its description."""
-        visible = [command for command in self.bot.walk_commands() if not command.hidden]
-        pages = paginate_sections(group_by_category(visible), PAGE_LIMIT)
+        pages = build_pages(self.bot)
         if not pages:
             await reply(ctx, "No commands available.", ephemeral=True)
         elif len(pages) == 1:
             await reply(ctx, pages[0], ephemeral=True)
         else:
-            view = HelpPaginator(pages, ctx.author.id)
-            await reply(ctx, view.content(), view=view, ephemeral=True)
+            await reply(
+                ctx,
+                page_content(pages, 0),
+                view=help_view(0, len(pages), ctx.author.id),
+                ephemeral=True,
+            )
 
 
 async def setup(bot: commands.Bot) -> None:
-    """Register the cog with the bot (called by ``load_extension``)."""
+    """Register the cog and its persistent button with the bot (called by ``load_extension``)."""
+    bot.add_dynamic_items(HelpButton)
     await bot.add_cog(Help(bot))

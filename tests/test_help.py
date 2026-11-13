@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any, cast
 
+import discord
 import pytest
 from discord.ext import commands
 
@@ -14,7 +16,7 @@ from aha.cogs.help import (
     CATEGORY_ORDER,
     DEFAULT_CATEGORY,
     Help,
-    HelpPaginator,
+    HelpButton,
     category_of,
     group_by_category,
     paginate,
@@ -97,6 +99,29 @@ def test_help_with_no_visible_commands_says_so() -> None:
     assert_reply(ctx.replies, "No commands available.", ephemeral=True)
 
 
+def _template() -> re.Pattern[str]:
+    compiled: re.Pattern[str] = getattr(HelpButton, "__discord_ui_compiled_template__")  # noqa: B009
+    return compiled
+
+
+def _buttons(view: Any) -> list[HelpButton]:
+    return [child for child in view.children if isinstance(child, HelpButton)]
+
+
+def _click(
+    custom_id: str, cmds: list[Any], *, user_id: int = 33
+) -> tuple[StubInteraction, HelpButton | None]:
+    """Dispatch a click on ``custom_id`` to a fresh, stateless handler, as after a restart."""
+    interaction = StubInteraction(user_id=user_id)
+    interaction.client = StubBot(cmds)
+    match = _template().fullmatch(custom_id)
+    assert match is not None
+    item = asyncio.run(
+        HelpButton.from_custom_id(as_interaction(interaction), cast("Any", None), match)
+    )
+    return interaction, item
+
+
 def test_help_paginates_when_the_list_is_too_long(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(help_module, "PAGE_LIMIT", 40)
     ctx = StubContext()
@@ -108,65 +133,119 @@ def test_help_paginates_when_the_list_is_too_long(monkeypatch: pytest.MonkeyPatc
     assert content == "`/one` — First command.\n\nPage 1/2"
     assert kwargs["ephemeral"] is True
     view = kwargs["view"]
-    assert isinstance(view, HelpPaginator)
-    assert view.pages == ["`/one` — First command.", "`/two` — Second command."]
-    assert view.owner_id == 33
+    assert isinstance(view, discord.ui.View)
+    previous, following = _buttons(view)
+    assert (previous.custom_id, previous.item.disabled) == ("aha:help:prev:0:33", True)
+    assert (following.custom_id, following.item.disabled) == ("aha:help:next:1:33", False)
 
 
-def test_paginator_starts_on_first_page_with_previous_disabled() -> None:
-    async def build() -> HelpPaginator:
-        return HelpPaginator(["a", "b", "c"], owner_id=1)
+def test_the_buttons_are_labelled_and_styled() -> None:
+    view = help_module.help_view(1, 3, 33)
 
-    view = asyncio.run(build())
-
-    assert view.index == 0
-    assert view.previous_page.disabled is True
-    assert view.next_page.disabled is False
-    assert view.timeout == 120
+    previous, following = _buttons(view)
+    assert (previous.item.label, previous.item.style) == ("Previous", discord.ButtonStyle.secondary)
+    assert (following.item.label, following.item.style) == ("Next", discord.ButtonStyle.primary)
 
 
-def test_next_and_previous_flip_pages_and_toggle_buttons() -> None:
-    async def scenario() -> tuple[HelpPaginator, list[StubInteraction]]:
-        view = HelpPaginator(["a", "b", "c"], owner_id=1)
-        steps: list[StubInteraction] = []
-        for button in (view.next_page, view.next_page, view.previous_page):
-            stub = StubInteraction(user_id=1)
-            steps.append(stub)
-            await button.callback(as_interaction(stub))
-        return view, steps
+def test_a_middle_page_leads_to_both_neighbours() -> None:
+    previous, following = _buttons(help_module.help_view(1, 3, 33))
 
-    view, steps = asyncio.run(scenario())
-
-    edited = [step.edited[0] for step in steps]
-    assert [entry["content"] for entry in edited] == [
-        "b\n\nPage 2/3",
-        "c\n\nPage 3/3",
-        "b\n\nPage 2/3",
-    ]
-    assert [entry["view"] for entry in edited] == [view, view, view]
-    for entry in edited:
-        assert_no_mentions(entry["allowed_mentions"])
-    assert view.index == 1
-    assert view.previous_page.disabled is False
-    assert view.next_page.disabled is False
+    assert (previous.custom_id, previous.item.disabled) == ("aha:help:prev:0:33", False)
+    assert (following.custom_id, following.item.disabled) == ("aha:help:next:2:33", False)
 
 
-def test_last_page_disables_next() -> None:
-    async def scenario() -> HelpPaginator:
-        view = HelpPaginator(["a", "b"], owner_id=1)
-        await view.next_page.callback(as_interaction(StubInteraction(user_id=1)))
-        return view
+def test_the_first_page_of_several_leads_only_one_page_forward() -> None:
+    previous, following = _buttons(help_module.help_view(0, 4, 33))
 
-    view = asyncio.run(scenario())
+    assert (previous.custom_id, previous.item.disabled) == ("aha:help:prev:0:33", True)
+    assert (following.custom_id, following.item.disabled) == ("aha:help:next:1:33", False)
 
-    assert view.next_page.disabled is True
-    assert view.previous_page.disabled is False
+
+def test_the_last_page_disables_next_and_points_it_at_itself() -> None:
+    previous, following = _buttons(help_module.help_view(2, 3, 33))
+
+    assert (previous.custom_id, previous.item.disabled) == ("aha:help:prev:1:33", False)
+    assert (following.custom_id, following.item.disabled) == ("aha:help:next:2:33", True)
+
+
+def test_the_view_is_persistent_so_it_outlives_the_process() -> None:
+    assert help_module.help_view(0, 2, 33).timeout is None
+
+
+def test_the_custom_id_template_accepts_only_well_formed_ids() -> None:
+    template = _template()
+
+    assert template.fullmatch("aha:help:next:12:123456789012345678")
+    assert template.fullmatch("aha:help:prev:0:1")
+    for bad in (
+        "aha:help:up:1:2",
+        "aha:help:next:x:2",
+        "aha:help:next:1",
+        "aha:help:next:1:2:3",
+        "xaha:help:next:1:2",
+        "aha:help:next:-1:2",
+    ):
+        assert template.fullmatch(bad) is None, bad
+
+
+def test_a_button_is_rebuilt_from_its_custom_id_alone() -> None:
+    _, item = _click("aha:help:next:3:555", [])
+
+    assert item is not None
+    assert (item.custom_id, item.page, item.owner_id) == ("aha:help:next:3:555", 3, 555)
+    assert item.item.label == "Next"
+    assert item.item.disabled is False  # a rebuilt button is clickable unless told otherwise
+
+
+def test_a_click_after_a_restart_shows_the_requested_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(help_module, "PAGE_LIMIT", 40)
+    cmds = [stub_command("one", "First command."), stub_command("two", "Second command.")]
+    interaction, item = _click("aha:help:next:1:33", cmds)
+    assert item is not None
+
+    assert asyncio.run(item.interaction_check(as_interaction(interaction))) is True
+    asyncio.run(item.callback(as_interaction(interaction)))
+
+    ((edit,)) = interaction.edited
+    assert edit["content"] == "`/two` — Second command.\n\nPage 2/2"
+    previous, following = _buttons(edit["view"])
+    assert (previous.custom_id, previous.item.disabled) == ("aha:help:prev:0:33", False)
+    assert (following.custom_id, following.item.disabled) == ("aha:help:next:1:33", True)
+    assert_no_mentions(edit["allowed_mentions"])
+
+
+def test_a_page_beyond_the_end_is_clamped_to_the_last_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(help_module, "PAGE_LIMIT", 40)
+    cmds = [stub_command("one", "First command."), stub_command("two", "Second command.")]
+    interaction, item = _click("aha:help:next:9:33", cmds)
+    assert item is not None
+
+    asyncio.run(item.callback(as_interaction(interaction)))
+
+    ((edit,)) = interaction.edited
+    assert edit["content"] == "`/two` — Second command.\n\nPage 2/2"
+    assert _buttons(edit["view"])[1].item.disabled is True
+
+
+def test_a_click_when_every_command_has_gone_says_so_and_drops_the_buttons() -> None:
+    interaction, item = _click("aha:help:next:1:33", [stub_command("secret", hidden=True)])
+    assert item is not None
+
+    asyncio.run(item.callback(as_interaction(interaction)))
+
+    ((edit,)) = interaction.edited
+    assert edit["content"] == "No commands available."
+    assert edit["view"] is None
 
 
 def test_button_clicks_bind_the_log_context_even_for_a_stranger() -> None:
+    interaction, item = _click("aha:help:next:1:33", [], user_id=2)
+    assert item is not None
+
     async def scenario() -> dict[str, object]:
-        view = HelpPaginator(["a", "b"], owner_id=1)
-        await view.interaction_check(as_interaction(StubInteraction(user_id=2)))
+        await item.interaction_check(as_interaction(interaction))
         return dict(logctx.current())
 
     context = asyncio.run(scenario())
@@ -177,24 +256,17 @@ def test_button_clicks_bind_the_log_context_even_for_a_stranger() -> None:
 
 
 def test_only_the_owner_may_use_the_buttons() -> None:
-    async def scenario() -> tuple[bool, bool]:
-        view = HelpPaginator(["a", "b"], owner_id=1)
-        return (
-            await view.interaction_check(as_interaction(StubInteraction(user_id=1))),
-            await view.interaction_check(stranger_interaction),
-        )
+    stranger, item = _click("aha:help:next:1:33", [], user_id=2)
+    assert item is not None
 
-    stranger = StubInteraction(user_id=2)
-    stranger_interaction = as_interaction(stranger)
+    allowed = asyncio.run(item.interaction_check(as_interaction(stranger)))
 
-    owner_ok, stranger_ok = asyncio.run(scenario())
-
-    assert owner_ok is True
-    assert stranger_ok is False
+    assert allowed is False
     ((kind, content, kwargs),) = stranger.sent
     assert (kind, content) == ("response", "This help menu isn't yours.")
     assert kwargs["ephemeral"] is True
     assert_no_mentions(kwargs["allowed_mentions"])
+    assert stranger.edited == []
 
 
 def test_help_has_a_per_user_cooldown() -> None:
@@ -204,10 +276,12 @@ def test_help_has_a_per_user_cooldown() -> None:
     assert Help.help._buckets.type is commands.BucketType.user
 
 
-def test_setup_registers_the_help_cog() -> None:
+def test_setup_registers_the_help_cog_and_its_persistent_button() -> None:
     bot = StubBot([])
 
     asyncio.run(help_setup(as_bot(bot)))
+
+    assert bot.dynamic_items == [HelpButton]
 
     assert len(bot.added_cogs) == 1
     assert isinstance(bot.added_cogs[0], Help)
