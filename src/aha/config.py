@@ -44,6 +44,13 @@ LOG_FORMATS = frozenset({"text", "json"})
 
 _TOKEN_ENV = "DISCORD_BOT_TOKEN"
 _TOKEN_FILE_ENV = "DISCORD_BOT_TOKEN_FILE"
+
+#: Database pool defaults: a small pool per process, and a statement timeout well under
+#: Discord's 3-second interaction acknowledgement window.
+DEFAULT_DB_POOL_MAX = 5
+MAX_DB_POOL_MAX = 50
+DEFAULT_DB_STATEMENT_TIMEOUT = 2.0
+MAX_DB_STATEMENT_TIMEOUT = 60.0
 _TOKEN_ENCODING = "utf-8"
 
 # Discord snowflakes are unsigned 64-bit integers; guild IDs are positive.
@@ -73,33 +80,50 @@ def _parse_bool(raw: str | None, *, name: str, default: bool = False) -> bool:
     raise ConfigError(f"{name} must be true or false, got {raw!r}")
 
 
-def _read_token(source: Mapping[str, str]) -> str:
-    """Return the bot token from ``DISCORD_BOT_TOKEN`` or the file ``DISCORD_BOT_TOKEN_FILE``.
+def _read_secret(source: Mapping[str, str], env: str, file_env: str) -> str | None:
+    """Return a secret from the variable ``env`` or the file named by ``file_env``, else ``None``.
 
-    A file keeps the token out of the process environment (``kubectl describe``, crash dumps,
+    A file keeps the secret out of the process environment (``kubectl describe``, crash dumps,
     ``/proc/<pid>/environ``), which is how a Kubernetes Secret should be mounted. Setting both
-    is an error rather than a silent precedence rule. The token itself is never put in an error
+    is an error rather than a silent precedence rule. The secret itself is never put in an error
     message.
     """
-    inline = (source.get(_TOKEN_ENV) or "").strip()
-    path = (source.get(_TOKEN_FILE_ENV) or "").strip()
+    inline = (source.get(env) or "").strip()
+    path = (source.get(file_env) or "").strip()
     if inline and path:
-        raise ConfigError(f"Set only one of {_TOKEN_ENV} and {_TOKEN_FILE_ENV}, not both.")
+        raise ConfigError(f"Set only one of {env} and {file_env}, not both.")
     if path:
         try:
-            token = Path(path).read_bytes().decode(_TOKEN_ENCODING).strip()
+            secret = Path(path).read_bytes().decode(_TOKEN_ENCODING).strip()
         except (OSError, UnicodeDecodeError) as exc:
             reason = exc.strerror if isinstance(exc, OSError) else "not valid UTF-8"
-            raise ConfigError(f"Cannot read {_TOKEN_FILE_ENV} ({path}): {reason}.") from exc
-        if not token:
-            raise ConfigError(f"{_TOKEN_FILE_ENV} ({path}) is empty.")
-        return token
-    if not inline:
+            raise ConfigError(f"Cannot read {file_env} ({path}): {reason}.") from exc
+        if not secret:
+            raise ConfigError(f"{file_env} ({path}) is empty.")
+        return secret
+    return inline or None
+
+
+def _read_token(source: Mapping[str, str]) -> str:
+    """Return the bot token from ``DISCORD_BOT_TOKEN`` or the file ``DISCORD_BOT_TOKEN_FILE``."""
+    token = _read_secret(source, _TOKEN_ENV, _TOKEN_FILE_ENV)
+    if token is None:
         raise ConfigError(
             f"{_TOKEN_ENV} is not set. Copy .env.example to .env and add "
             "your bot token, then retry.",
         )
-    return inline
+    return token
+
+
+def _read_database_url(source: Mapping[str, str]) -> str | None:
+    """Return the PostgreSQL URL from ``DATABASE_URL`` or ``DATABASE_URL_FILE`` (optional).
+
+    The URL carries the password, so it is never echoed back in an error message.
+    """
+    url = _read_secret(source, "DATABASE_URL", "DATABASE_URL_FILE")
+    if url is not None and not url.startswith(("postgres://", "postgresql://")):
+        raise ConfigError("DATABASE_URL must start with postgres:// or postgresql://.")
+    return url
 
 
 def _parse_activity(raw: str | None) -> str | None:
@@ -123,6 +147,19 @@ def _parse_choice(raw: str | None, *, name: str, choices: frozenset[str], defaul
         return default
     if value not in choices:
         raise ConfigError(f"{name} must be one of {', '.join(sorted(choices))}, got {value!r}")
+    return value
+
+
+def _parse_seconds(raw: str | None, *, name: str, default: float, maximum: float) -> float:
+    """Return ``raw`` as a number of seconds in ``(0, maximum]``; the default when blank."""
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw.strip())
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be a number of seconds, got {raw!r}") from exc
+    if not 0 < value <= maximum:
+        raise ConfigError(f"{name} must be greater than 0 and at most {maximum:g}, got {value:g}")
     return value
 
 
@@ -154,6 +191,11 @@ class Settings:
     activity: str | None = DEFAULT_ACTIVITY
     activity_type: str = DEFAULT_ACTIVITY_TYPE
     status: str = DEFAULT_STATUS
+    #: PostgreSQL URL; ``None`` runs the bot without a database (stateful features unavailable).
+    database_url: str | None = field(default=None, repr=False)
+    db_pool_max: int = DEFAULT_DB_POOL_MAX
+    #: Seconds a query may run before the server cancels it.
+    db_statement_timeout: float = DEFAULT_DB_STATEMENT_TIMEOUT
     health_bind: str = DEFAULT_HEALTH_BIND
     #: TCP port of the health/metrics server; 0 disables it.
     health_port: int = DEFAULT_HEALTH_PORT
@@ -167,11 +209,11 @@ class Settings:
 
         Raises:
             ConfigError: if neither ``DISCORD_BOT_TOKEN`` nor ``DISCORD_BOT_TOKEN_FILE`` gives
-                a token (or both are set), if ``LOG_LEVEL`` is not a valid level name, if
-                ``LOG_FORMAT`` is not ``text`` or ``json``, if ``SYNC_ON_STARTUP`` is not a
-                boolean, if ``HEALTH_PORT`` is not a port number, if ``BOT_STATUS``,
-                ``BOT_ACTIVITY_TYPE`` or ``BOT_ACTIVITY`` is invalid, or if ``DEV_GUILD_ID``
-                is not a positive Discord snowflake.
+                a token (or both are set), if ``DATABASE_URL`` is set both ways or is not a
+                PostgreSQL URL, if the pool size or statement timeout is out of range, or if
+                ``LOG_LEVEL``, ``LOG_FORMAT``, ``SYNC_ON_STARTUP``, ``HEALTH_PORT``,
+                ``BOT_STATUS``, ``BOT_ACTIVITY_TYPE``, ``BOT_ACTIVITY`` or ``DEV_GUILD_ID``
+                is invalid.
         """
         import os
 
@@ -209,6 +251,19 @@ class Settings:
             source.get("BOT_STATUS"), name="BOT_STATUS", choices=STATUSES, default=DEFAULT_STATUS
         )
 
+        database_url = _read_database_url(source)
+        db_pool_max = _parse_optional_int(source.get("DB_POOL_MAX"), name="DB_POOL_MAX")
+        if db_pool_max is None:
+            db_pool_max = DEFAULT_DB_POOL_MAX
+        if not 1 <= db_pool_max <= MAX_DB_POOL_MAX:
+            raise ConfigError(f"DB_POOL_MAX must be 1..{MAX_DB_POOL_MAX}, got {db_pool_max}")
+        db_statement_timeout = _parse_seconds(
+            source.get("DB_STATEMENT_TIMEOUT"),
+            name="DB_STATEMENT_TIMEOUT",
+            default=DEFAULT_DB_STATEMENT_TIMEOUT,
+            maximum=MAX_DB_STATEMENT_TIMEOUT,
+        )
+
         health_bind = (source.get("HEALTH_BIND") or "").strip() or DEFAULT_HEALTH_BIND
         health_port = _parse_optional_int(source.get("HEALTH_PORT"), name="HEALTH_PORT")
         if health_port is None:
@@ -227,6 +282,9 @@ class Settings:
             activity=activity,
             activity_type=activity_type,
             status=status,
+            database_url=database_url,
+            db_pool_max=db_pool_max,
+            db_statement_timeout=db_statement_timeout,
             health_bind=health_bind,
             health_port=health_port,
         )

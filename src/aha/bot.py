@@ -16,6 +16,8 @@ from discord.ext import commands
 from aha import logctx
 from aha.cmdsync import CommandDiff, diff_commands
 from aha.config import Settings
+from aha.db import Database
+from aha.dbmigrate import load_migrations, require_current
 from aha.health import HealthServer
 from aha.metrics import Metrics, ShardState
 from aha.ratelimit import LocalBackend, RateLimitBackend, RateLimiter
@@ -132,6 +134,7 @@ class AhaBot(commands.Bot):
         watchdog_interval: float = GATEWAY_WATCHDOG_INTERVAL,
         sync_on_startup: bool | None = None,
         health_server: bool = True,
+        use_database: bool = True,
     ) -> None:
         if (
             not math.isfinite(gateway_timeout)
@@ -158,6 +161,10 @@ class AhaBot(commands.Bot):
             status=discord.Status(settings.status),
         )
         self.settings = settings
+        #: The PostgreSQL pool, opened in ``setup_hook`` when ``DATABASE_URL`` is set.
+        self.db: Database | None = None
+        #: False for short-lived jobs (``aha sync``) that must not open the database.
+        self.use_database = use_database
         #: Unix time the bot object was created, shown by ``/about`` as the start of its uptime.
         self.started_at = time.time()
         #: Whether ``setup_hook`` starts the health server. ``aha sync`` passes False: a short
@@ -203,6 +210,9 @@ class AhaBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         """Load cogs and sync application commands. Runs once, before login."""
+        if self.use_database and self.settings.database_url is not None:
+            await self._connect_database(self.settings.database_url)
+
         for module in COG_MODULES:
             await self.load_extension(module)
             log.info("Loaded extension %s", module)
@@ -221,13 +231,32 @@ class AhaBot(commands.Bot):
         if WATCHDOG_TASK not in self.tasks:
             self.tasks.spawn(self._watch_gateway, name=WATCHDOG_TASK, restart=True, critical=True)
 
+    async def _connect_database(self, url: str) -> None:
+        """Open the pool and refuse to run against a schema that is behind this build.
+
+        A schema *ahead* of this build is fine: that is what a rollback looks like, and migrations
+        are expand/contract so the previous release keeps working.
+        """
+        self.db = await Database.connect(
+            url,
+            max_size=self.settings.db_pool_max,
+            statement_timeout=self.settings.db_statement_timeout,
+        )
+        async with self.db.acquire() as connection:
+            await require_current(connection, load_migrations())
+        log.info("Connected to the database; the schema is up to date")
+
     async def close(self) -> None:
-        """Cancel the background tasks, then close the client."""
+        """Cancel the background tasks, close the database pool, then close the client."""
         try:
             await self.tasks.close()
         finally:
             # Even if this coroutine is cancelled while tasks unwind, the client must close.
-            await super().close()
+            try:
+                if self.db is not None:
+                    await self.db.close()
+            finally:
+                await super().close()
 
     async def _watch_gateway(self) -> None:
         """Close the bot when the gateway stays disconnected for too long."""

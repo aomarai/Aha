@@ -351,3 +351,131 @@ def test_an_activity_at_discords_length_limit_is_accepted_and_one_over_is_not() 
         Settings.from_env({"DISCORD_BOT_TOKEN": "s", "BOT_ACTIVITY": "x" * 129})
 
     assert str(excinfo.value) == "BOT_ACTIVITY must be at most 128 characters, got 129"
+
+
+# ------------------------------------------------------------------------------- database
+
+
+def test_the_database_is_optional_with_sensible_defaults() -> None:
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "s"})
+
+    assert settings.database_url is None
+    assert (settings.db_pool_max, settings.db_statement_timeout) == (5, 2.0)
+
+
+@pytest.mark.parametrize("scheme", ["postgres", "postgresql"])
+def test_a_postgres_url_is_accepted_from_the_environment(scheme: str) -> None:
+    settings = Settings.from_env(
+        {"DISCORD_BOT_TOKEN": "s", "DATABASE_URL": f" {scheme}://u:pw@db:5432/aha "}
+    )
+
+    assert settings.database_url == f"{scheme}://u:pw@db:5432/aha"
+
+
+def test_a_database_url_can_come_from_a_mounted_file(tmp_path: Path) -> None:
+    path = _write(tmp_path, "postgresql://u:pw@db/aha\n")
+
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DATABASE_URL_FILE": path})
+
+    assert settings.database_url == "postgresql://u:pw@db/aha"
+
+
+def test_setting_the_database_url_both_ways_is_an_error(tmp_path: Path) -> None:
+    path = _write(tmp_path, "postgresql://db/aha")
+
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env(
+            {
+                "DISCORD_BOT_TOKEN": "s",
+                "DATABASE_URL": "postgresql://x/y",
+                "DATABASE_URL_FILE": path,
+            }
+        )
+
+    assert str(excinfo.value) == "Set only one of DATABASE_URL and DATABASE_URL_FILE, not both."
+
+
+def test_an_unreadable_database_url_file_is_reported_by_path(tmp_path: Path) -> None:
+    missing = str(tmp_path / "nope")
+
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DATABASE_URL_FILE": missing})
+
+    assert str(excinfo.value) == (
+        f"Cannot read DATABASE_URL_FILE ({missing}): No such file or directory."
+    )
+
+
+@pytest.mark.parametrize("url", ["mysql://u:secret@h/db", "http://x", "u:secret@h/db", "secret"])
+def test_a_non_postgres_url_is_rejected_without_echoing_it(url: str) -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DATABASE_URL": url})
+
+    assert str(excinfo.value) == "DATABASE_URL must start with postgres:// or postgresql://."
+    assert "secret" not in str(excinfo.value)
+
+
+def test_the_database_url_is_redacted_in_the_settings_repr() -> None:
+    settings = Settings.from_env(
+        {"DISCORD_BOT_TOKEN": "s", "DATABASE_URL": "postgresql://u:hunter2@db/aha"}
+    )
+
+    assert "hunter2" not in repr(settings)
+
+
+def test_the_pool_size_and_statement_timeout_are_configurable() -> None:
+    settings = Settings.from_env(
+        {"DISCORD_BOT_TOKEN": "s", "DB_POOL_MAX": "12", "DB_STATEMENT_TIMEOUT": "0.5"}
+    )
+
+    assert (settings.db_pool_max, settings.db_statement_timeout) == (12, 0.5)
+
+
+def test_blank_database_tuning_values_use_the_defaults() -> None:
+    settings = Settings.from_env(
+        {"DISCORD_BOT_TOKEN": "s", "DB_POOL_MAX": " ", "DB_STATEMENT_TIMEOUT": ""}
+    )
+
+    assert (settings.db_pool_max, settings.db_statement_timeout) == (5, 2.0)
+
+
+@pytest.mark.parametrize("raw", ["0", "51", "-1"])
+def test_a_pool_size_out_of_range_is_rejected(raw: str) -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DB_POOL_MAX": raw})
+
+    assert str(excinfo.value) == f"DB_POOL_MAX must be 1..50, got {raw}"
+
+
+def test_the_pool_size_boundaries_are_accepted() -> None:
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DB_POOL_MAX": "1"}).db_pool_max == 1
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DB_POOL_MAX": "50"}).db_pool_max == 50
+
+
+@pytest.mark.parametrize("raw", ["0", "-1", "60.5", "inf", "nan"])
+def test_a_statement_timeout_out_of_range_is_rejected(raw: str) -> None:
+    with pytest.raises(
+        ConfigError, match=r"^DB_STATEMENT_TIMEOUT must be greater than 0 and at most 60"
+    ):
+        Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DB_STATEMENT_TIMEOUT": raw})
+
+
+def test_a_statement_timeout_that_is_not_a_number_is_rejected() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DB_STATEMENT_TIMEOUT": "soon"})
+
+    assert str(excinfo.value) == "DB_STATEMENT_TIMEOUT must be a number of seconds, got 'soon'"
+
+
+def test_the_statement_timeout_boundaries_are_accepted() -> None:
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DB_STATEMENT_TIMEOUT": "60"})
+    tiny = Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DB_STATEMENT_TIMEOUT": "0.001"})
+
+    assert (settings.db_statement_timeout, tiny.db_statement_timeout) == (60.0, 0.001)
+
+
+def test_a_pool_size_that_is_not_a_number_names_the_variable() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DB_POOL_MAX": "lots"})
+
+    assert str(excinfo.value) == "DB_POOL_MAX must be an integer, got 'lots'"

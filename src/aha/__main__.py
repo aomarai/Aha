@@ -2,7 +2,9 @@
 
 ``aha`` runs the bot. ``aha sync [--guild ID] [--dry-run]`` syncs the slash-command tree to
 Discord over REST (no gateway connection) and exits; it is the deploy-time sync that replaces
-syncing at every startup (see docs/adr/0001-runtime-architecture.md, section 4).
+syncing at every startup. ``aha migrate [--status]`` applies pending database migrations and
+exits; it too is a deploy Job and never runs at pod startup (see
+docs/adr/0001-runtime-architecture.md, sections 4 and 9).
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ from dotenv import load_dotenv
 from aha import __version__
 from aha.bot import AhaBot, SyncResult
 from aha.config import MAX_SNOWFLAKE, ConfigError, Settings
+from aha.db import connect_once
+from aha.dbmigrate import Migration, MigrationStatus, load_migrations, migrate, status
 from aha.logging_setup import configure_logging, static_fields_from_env
 
 __all__ = ["cli", "main"]
@@ -105,6 +109,18 @@ def _build_parser() -> argparse.ArgumentParser:
     sync.add_argument(
         "--dry-run", action="store_true", help="show what would change without syncing"
     )
+    migrate = commands.add_parser(
+        "migrate",
+        help="apply pending database migrations and exit",
+        description=(
+            "Apply the SQL migrations the database is missing, in order, under an advisory lock "
+            "(so two runs cannot overlap), then exit. Run it as a deploy Job before the new "
+            "revision rolls out; the bot itself never migrates at startup."
+        ),
+    )
+    migrate.add_argument(
+        "--status", action="store_true", help="show what is applied and pending; change nothing"
+    )
     return parser
 
 
@@ -174,13 +190,49 @@ def _sync(settings: Settings, *, guild: int | None, dry_run: bool) -> int:
     if guild is not None:
         settings = replace(settings, dev_guild_id=guild)
     # The Job syncs explicitly below; the startup sync must not run a second time.
-    bot = AhaBot(settings, sync_on_startup=False, health_server=False)
+    bot = AhaBot(settings, sync_on_startup=False, health_server=False, use_database=False)
     try:
         results = asyncio.run(_sync_once(bot, settings.token, dry_run=dry_run))
     except Exception:
         log.exception("Command sync failed")
         return 1
     _print_report(results, dry_run=dry_run)
+    return 0
+
+
+async def _migrate_once(url: str, *, status_only: bool) -> tuple[list[Migration], MigrationStatus]:
+    """Connect once and migrate (or only report); returns what was applied and the status."""
+    migrations = load_migrations()
+    connection = await connect_once(url)
+    try:
+        if status_only:
+            return [], await status(connection, migrations)
+        applied = await migrate(connection, migrations)
+        return applied, await status(connection, migrations)
+    finally:
+        await connection.close()
+
+
+def _migrate(settings: Settings, *, status_only: bool) -> int:
+    """Run ``aha migrate``; return the process exit code."""
+    if settings.database_url is None:
+        log.error("DATABASE_URL (or DATABASE_URL_FILE) is not set; there is nothing to migrate.")
+        return 1
+    try:
+        applied, current = asyncio.run(
+            _migrate_once(settings.database_url, status_only=status_only)
+        )
+    except Exception:
+        # The URL carries the password, so it is never logged; the traceback names the failure.
+        log.exception("Migration failed")
+        return 1
+    for migration in applied:
+        print(f"applied {migration.version:04d}_{migration.name}")
+    if status_only:
+        print(f"applied: {', '.join(f'{v:04d}' for v in current.applied) or 'none'}")
+        print(f"pending: {', '.join(f'{m.version:04d}' for m in current.pending) or 'none'}")
+    elif not applied:
+        print("up to date")
     return 0
 
 
@@ -196,6 +248,8 @@ def main(argv: Sequence[str] = ()) -> int:
         return 1
     if args.command == "sync":
         return _sync(settings, guild=args.guild, dry_run=args.dry_run)
+    if args.command == "migrate":
+        return _migrate(settings, status_only=args.status)
     return _run(settings)
 
 
