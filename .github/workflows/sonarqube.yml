@@ -47,12 +47,13 @@ jobs:
       SONAR_HOST_URL: http://sonarqube-sonarqube.sonarqube.svc.cluster.local:9000
     steps:
       - name: Check out repository
-        # Pinned to an immutable commit SHA (the tip of the v4.x line) instead of
-        # the movable v4 tag.
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        # Pinned to an immutable commit SHA instead of a movable tag.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history gives the scanner accurate new-code and blame data.
           fetch-depth: 0
+          # The scan never pushes, so the token must not stay in .git/config.
+          persist-credentials: false
 
       - name: Ensure scanner prerequisites (JRE, gpg, dirmngr)
         # The actions-runner image ships no JRE and no gpg/dirmngr. The scanner
