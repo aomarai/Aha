@@ -90,6 +90,11 @@ every change must keep:
   command inherits rate limiting without its own decorator. The budget is per process; a
   multi-process deployment needs shared state (see #2). Interaction responses use
   `aha.replies.respond` / `edit_message`, which apply the same mention policy.
+- Background tasks: never call `asyncio.create_task` in a cog or hook for long-running work. Use
+  `bot.tasks.spawn(factory, name=..., restart=..., critical=...)` (`aha.tasks.TaskRegistry`): it
+  keeps a strong reference, logs failures with the task name, restarts with capped back-off when
+  asked, feeds the readiness probe through `bot.tasks.healthy`, and is cancelled by `bot.close()`.
+  `spawn` takes a zero-argument *factory* (not a coroutine) so a restart can build a fresh one.
 - Concurrency: every process is one asyncio event loop. `RateLimiter` and `sync_commands`
   state is process-local and safe because no critical section awaits; `sync_commands`
   serializes with an `asyncio.Lock` and restores the local tree in a `finally`. In-process
