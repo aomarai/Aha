@@ -23,7 +23,6 @@ the application layer, not a substitute.
 from __future__ import annotations
 
 import asyncio
-import codecs
 import contextlib
 import html.parser
 import ipaddress
@@ -282,11 +281,17 @@ async def _read_limited(response: aiohttp.ClientResponse, limit: int) -> bytes:
 
 
 def _charset(response: aiohttp.ClientResponse) -> str:
-    """Return the page's declared charset if Python knows it, else UTF-8."""
+    """Return the page's declared charset if it is a real text encoding, else UTF-8.
+
+    The name is attacker-controlled. ``codecs.lookup`` is not enough: it accepts ``rot13``,
+    ``base64`` and ``zlib``, which are not text encodings and fail later, when decoding. Encoding
+    an empty string rejects both unknown names and those, with a ``LookupError``.
+    """
     declared = response.charset
     if declared:
         with contextlib.suppress(LookupError):
-            return codecs.lookup(declared).name
+            "".encode(declared)
+            return declared
     return _FALLBACK_CHARSET
 
 

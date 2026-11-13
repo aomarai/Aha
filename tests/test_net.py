@@ -973,3 +973,33 @@ def test_a_title_delivered_in_several_pieces_is_joined() -> None:
     parser.handle_endtag("title")
 
     assert parser.title == "Hello World"
+
+
+@pytest.mark.parametrize("charset", ["rot13", "base64", "zlib", "hex", "no-such-codec"])
+def test_a_charset_that_is_not_a_text_encoding_falls_back_to_utf8(charset: str) -> None:
+    # codecs.lookup() accepts the first four, but they cannot decode text and would raise later.
+    async def handler(request: web.Request) -> web.StreamResponse:
+        return web.Response(
+            body="<head><title>Café</title>".encode(),
+            headers={"Content-Type": f"text/html; charset={charset}"},
+        )
+
+    async def scenario() -> Preview:
+        async with _Site({"/": handler}) as site:
+            return await fetch_preview(site.url(), _OPEN)
+
+    assert asyncio.run(scenario()).title == "Café"
+
+
+def test_a_utf16_page_with_an_odd_byte_count_is_decoded_leniently() -> None:
+    async def handler(request: web.Request) -> web.StreamResponse:
+        return web.Response(
+            body=b"<\x00h\x00e\x00a\x00d\x00>\x00x",  # truncated mid character
+            headers={"Content-Type": "text/html; charset=utf-16-le"},
+        )
+
+    async def scenario() -> Preview:
+        async with _Site({"/": handler}) as site:
+            return await fetch_preview(site.url(), _OPEN)
+
+    assert asyncio.run(scenario()).title is None  # no title, but no crash either
