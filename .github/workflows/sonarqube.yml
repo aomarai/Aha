@@ -86,10 +86,18 @@ jobs:
           uv run pytest --cov=aha --cov-report=xml
 
       - name: SonarQube scan
+        # `sonar.qualitygate.wait=true` makes the scanner poll the server and exit non-zero when
+        # the quality gate fails, so a failing gate is a red check on `main` instead of a green one
+        # (without it the action succeeds as soon as the analysis is submitted). Community Build
+        # cannot gate pull requests, so this protects `main` only.
         # Pinned to an immutable commit SHA: the v8.3.0 tag is movable. The
         # project key comes from sonar-project.properties; no PR parameters are
         # passed because Community Build does not support pull-request analysis.
         uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304
+        with:
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           # Bound the scanner engine's JVM heap.
