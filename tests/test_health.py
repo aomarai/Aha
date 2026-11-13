@@ -78,6 +78,7 @@ def test_readyz_is_ready_when_every_shard_is_ready(monkeypatch: pytest.MonkeyPat
         "status": "ready",
         "shards": [{"id": 0, "ready": True}, {"id": 1, "ready": True}],
         "failed_tasks": [],
+        "degraded_tasks": [],
     }
 
 
@@ -91,6 +92,7 @@ def test_readyz_is_unavailable_until_the_shard_is_ready(monkeypatch: pytest.Monk
         "status": "not ready",
         "shards": [{"id": 0, "ready": False}],
         "failed_tasks": [],
+        "degraded_tasks": [],
     }
 
 
@@ -215,3 +217,34 @@ def test_run_surfaces_a_bind_failure_to_the_task_registry(
         asyncio.run(server.run())
 
     assert server.bound_port is None
+
+
+def test_a_recovering_critical_task_fails_readiness_but_not_liveness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _bot(monkeypatch, [ShardState(0, True, 0.05)])
+    calls: list[int] = []
+
+    async def flaky() -> None:
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("boom")
+        await asyncio.sleep(3600)
+
+    async def scenario() -> tuple[tuple[int, str, str], tuple[int, str, str]]:
+        bot.tasks.spawn(flaky, name="gateway-watchdog", restart=True, critical=True)
+        for _ in range(10):
+            await asyncio.sleep(0)
+        live = await _get(bot, "/livez")
+        ready = await _get(bot, "/readyz")
+        await bot.tasks.close()
+        return live, ready
+
+    live, ready = asyncio.run(scenario())
+
+    assert live[0] == 200
+    assert ready[0] == 503
+    payload = json.loads(ready[1])
+    assert payload["status"] == "not ready"
+    assert payload["failed_tasks"] == []
+    assert payload["degraded_tasks"] == ["gateway-watchdog"]

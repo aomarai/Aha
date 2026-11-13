@@ -10,7 +10,7 @@ import pytest
 from discord import app_commands
 from discord.ext import commands
 
-from aha.bot import COG_MODULES, HEALTH_TASK, READINESS_DISCONNECT_GRACE, AhaBot
+from aha.bot import HEALTH_TASK, READINESS_DISCONNECT_GRACE, AhaBot
 from aha.cogs.observability import Observability, outcome_of
 from aha.cogs.observability import setup as observability_setup
 from aha.config import Settings
@@ -175,8 +175,23 @@ def test_setup_registers_the_cog_and_its_listeners_on_a_real_bot() -> None:
         assert len(bot.extra_events[event]) == 1
 
 
-def test_the_observability_cog_is_loaded_at_startup() -> None:
-    assert "aha.cogs.observability" in COG_MODULES
+def test_setup_hook_loads_the_observability_cog(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = _bot()
+
+    async def fake_super_close(self: Any) -> None:
+        return None
+
+    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+
+    async def scenario() -> None:
+        await bot.setup_hook()  # loads every real cog; production mode does not sync
+        await bot.close()
+
+    asyncio.run(scenario())
+
+    # ``load_extension`` imports its own copy of the module, so compare by name, not class.
+    assert bot.get_cog("Observability") is not None
+    assert len(bot.extra_events["on_command_completion"]) == 1
 
 
 def test_shard_states_report_not_ready_before_the_gateway_is_ready() -> None:
@@ -211,6 +226,21 @@ def test_a_short_disconnect_keeps_the_shard_ready_but_a_long_one_does_not(
     assert bot.shard_states()[0].ready is False
 
 
+def test_a_fresh_ready_ends_a_long_outage_so_the_shard_reports_ready_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _bot()
+    monkeypatch.setattr(bot, "is_ready", lambda: True)
+    monkeypatch.setattr(type(bot), "user", property(lambda self: Named(id=1)))
+    bot._disconnected_since = 100.0
+    monkeypatch.setattr("aha.bot.time.monotonic", lambda: 100.0 + 10 * READINESS_DISCONNECT_GRACE)
+    assert bot.shard_states()[0].ready is False  # a long outage
+
+    asyncio.run(bot.on_ready())  # discord could not resume and started a fresh session
+
+    assert bot.shard_states()[0].ready is True
+
+
 def test_a_connected_shard_that_is_not_ready_stays_unready_after_a_reconnect(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -226,6 +256,13 @@ def test_guild_counts_group_cached_guilds_by_shard(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(type(bot), "guilds", property(lambda self: guilds))
 
     assert bot.guild_counts() == {0: 2, 2: 1}
+
+
+def test_an_owned_shard_without_guilds_reports_zero_rather_than_no_sample() -> None:
+    bot = _bot()
+
+    assert bot.guild_counts() == {0: 0}
+    assert bot.metrics.registry.get_sample_value("aha_guilds", {"shard": "0"}) == 0
 
 
 def test_a_disconnect_is_counted_as_a_reconnect() -> None:
@@ -283,6 +320,20 @@ def test_setup_hook_starts_the_health_server_with_the_configured_address(
 
     assert _RecordingServer.created == [(bot, "0.0.0.0", 9100)]
     assert running == [HEALTH_TASK]
+
+
+def test_setup_hook_skips_the_health_server_when_the_bot_is_built_without_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _RecordingServer.created.clear()
+    monkeypatch.setattr("aha.bot.HealthServer", _RecordingServer)
+    bot = AhaBot(Settings(token="test-token", health_port=9100), health_server=False)
+
+    running = _setup_hook(bot, monkeypatch)
+
+    assert bot.health_server_enabled is False
+    assert _RecordingServer.created == []
+    assert running == []
 
 
 def test_setup_hook_skips_the_health_server_when_the_port_is_zero(

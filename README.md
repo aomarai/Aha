@@ -260,7 +260,7 @@ address and, in a cluster, a NetworkPolicy, so bind `0.0.0.0` only inside a pod 
 | Endpoint | Meaning | Use for |
 |----------|---------|---------|
 | `GET /livez` | The event loop answers and no critical background task has died for good. | liveness probe |
-| `GET /readyz` | Every shard this process owns is connected and ready (a disconnect shorter than 30 s does not count), and no critical task has died. `503` until the first READY. | readiness / startup probe; gates StatefulSet rollouts |
+| `GET /readyz` | Every shard this process owns is connected and ready (a disconnect shorter than 30 s does not count), and no critical task has died or is still recovering from a crash. `503` until the first READY. | readiness / startup probe; gates StatefulSet rollouts |
 | `GET /metrics` | Prometheus text exposition. | scrape |
 
 Metrics: `aha_commands_total{command,outcome}` (`ok`, `error`, `denied`, `cooldown`),

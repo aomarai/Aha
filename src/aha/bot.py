@@ -96,6 +96,7 @@ class AhaBot(commands.Bot):
         gateway_timeout: float = GATEWAY_DISCONNECT_TIMEOUT,
         watchdog_interval: float = GATEWAY_WATCHDOG_INTERVAL,
         sync_on_startup: bool | None = None,
+        health_server: bool = True,
     ) -> None:
         if (
             not math.isfinite(gateway_timeout)
@@ -116,6 +117,9 @@ class AhaBot(commands.Bot):
             tree_cls=AhaTree,
         )
         self.settings = settings
+        #: Whether ``setup_hook`` starts the health server. ``aha sync`` passes False: a short
+        #: REST-only Job must not listen on a port.
+        self.health_server_enabled = health_server and settings.health_port != 0
         #: ``/sync`` exists only where an operator drives syncing by hand: a dev guild or an
         #: explicit ``SYNC_ON_STARTUP`` self-host. Production syncs through ``aha sync``.
         self.sync_command_enabled = settings.sync_on_startup or settings.dev_guild_id is not None
@@ -165,7 +169,7 @@ class AhaBot(commands.Bot):
             await self.sync_commands()
         else:
             log.info("Command sync skipped at startup (run 'aha sync')")
-        if self.settings.health_port != 0 and HEALTH_TASK not in self.tasks:
+        if self.health_server_enabled and HEALTH_TASK not in self.tasks:
             server = HealthServer(self, self.settings.health_bind, self.settings.health_port)
             self.tasks.spawn(server.run, name=HEALTH_TASK, restart=True, critical=True)
         if WATCHDOG_TASK not in self.tasks:
@@ -226,8 +230,10 @@ class AhaBot(commands.Bot):
         ]
 
     def guild_counts(self) -> dict[int, int]:
-        """Return the number of cached guilds per shard id."""
-        return dict(Counter(guild.shard_id for guild in self.guilds))
+        """Return the number of cached guilds per owned shard id (zero when it has none)."""
+        counts = dict.fromkeys((state.shard_id for state in self.shard_states()), 0)
+        counts.update(Counter(guild.shard_id for guild in self.guilds))
+        return counts
 
     async def on_disconnect(self) -> None:
         """Start the disconnect clock (once) and log the lost connection."""

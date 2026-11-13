@@ -148,6 +148,14 @@ def test_blank_health_settings_fall_back_to_the_defaults() -> None:
     assert (settings.health_bind, settings.health_port) == ("127.0.0.1", 8080)
 
 
+@pytest.mark.parametrize("raw", [" ", "\t", "  \n"])
+def test_a_whitespace_only_health_bind_falls_back_to_loopback(raw: str) -> None:
+    # An empty bind address would make the server listen on every interface.
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "HEALTH_BIND": raw})
+
+    assert settings.health_bind == "127.0.0.1"
+
+
 def test_health_port_zero_disables_the_server() -> None:
     settings = Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "HEALTH_PORT": "0"})
 

@@ -124,7 +124,8 @@ class Settings:
 
         sync_on_startup = _parse_bool(source.get("SYNC_ON_STARTUP"), name="SYNC_ON_STARTUP")
 
-        health_bind = (source.get("HEALTH_BIND") or DEFAULT_HEALTH_BIND).strip()
+        # Strip first: a blank value must not become "", which would bind every interface.
+        health_bind = (source.get("HEALTH_BIND") or "").strip() or DEFAULT_HEALTH_BIND
         health_port = _parse_optional_int(source.get("HEALTH_PORT"), name="HEALTH_PORT")
         if health_port is None:
             health_port = DEFAULT_HEALTH_PORT

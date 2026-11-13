@@ -7,9 +7,9 @@ NetworkPolicy are the access control (the default bind is loopback; the manifest
     The event loop answers and no critical background task has died for good. A failure
     here means the process is wedged, so a liveness probe should restart the pod.
 ``GET /readyz``
-    Every shard this process owns is connected and ready, and no critical task has died.
-    A failure here means "do not route to or roll past this pod yet", which gates a
-    StatefulSet rollout. It is 503 until the first READY.
+    Every shard this process owns is connected and ready, and no critical task has died or is
+    still recovering from a crash. A failure here means "do not route to or roll past this pod
+    yet", which gates a StatefulSet rollout. It is 503 until the first READY.
 ``GET /metrics``
     Prometheus text exposition of :class:`aha.metrics.Metrics`.
 """
@@ -78,11 +78,15 @@ class HealthServer:
         """Readiness: every owned shard is ready and no critical task has died."""
         shards = self._bot.shard_states()
         failed = sorted(self._bot.tasks.failed)
-        ready = bool(shards) and all(state.ready for state in shards) and not failed
+        degraded = sorted(self._bot.tasks.degraded)
+        ready = (
+            bool(shards) and all(state.ready for state in shards) and not failed and not degraded
+        )
         body = {
             "status": "ready" if ready else "not ready",
             "shards": [{"id": state.shard_id, "ready": state.ready} for state in shards],
             "failed_tasks": failed,
+            "degraded_tasks": degraded,
         }
         return web.json_response(body, status=200 if ready else 503)
 

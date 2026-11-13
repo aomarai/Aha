@@ -30,6 +30,9 @@ MAX_BACKOFF = 60.0
 #: Seconds :meth:`TaskRegistry.close` waits for cancelled tasks to unwind.
 CLOSE_TIMEOUT = 10.0
 
+#: Seconds a restarted critical task must keep running before it counts as recovered.
+STABLE_AFTER = 10.0
+
 
 class TaskRegistry:
     """Owns the long-running background tasks of one bot process.
@@ -67,6 +70,9 @@ class TaskRegistry:
         self._max_backoff = max_backoff
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._failed: set[str] = set()
+        #: Critical restartable tasks that failed: name -> start of the current run, or None
+        #: while waiting to restart. They leave this once a run lasts :data:`STABLE_AFTER`.
+        self._restarting: dict[str, float | None] = {}
         self._closed = False
         #: Tasks currently inside :meth:`close`; they are never cancelled by a sibling closer.
         self._closers: set[object] = set()
@@ -91,6 +97,19 @@ class TaskRegistry:
     def failed(self) -> frozenset[str]:
         """Names of critical tasks that crashed and will not be restarted."""
         return frozenset(self._failed)
+
+    @property
+    def degraded(self) -> frozenset[str]:
+        """Critical tasks that crashed and are restarting but have not run stably since.
+
+        Unlike :attr:`failed` these are expected to recover, so they affect readiness (do not
+        route to or roll past this pod yet) but not liveness (do not restart the pod).
+        """
+        now = self._clock()
+        for name, since in list(self._restarting.items()):
+            if since is not None and now - since >= STABLE_AFTER:
+                del self._restarting[name]
+        return frozenset(self._restarting)
 
     @property
     def healthy(self) -> bool:
@@ -139,6 +158,7 @@ class TaskRegistry:
     def _forget(self, name: str) -> None:
         # ``spawn`` refuses a live duplicate name, so this entry is always the finished task.
         del self._tasks[name]
+        self._restarting.pop(name, None)
 
     async def _supervise(
         self,
@@ -150,6 +170,8 @@ class TaskRegistry:
         delay = self._initial_backoff
         while True:
             started = self._clock()
+            if name in self._restarting:
+                self._restarting[name] = started  # a restart is now running
             try:
                 await factory()
             except asyncio.CancelledError:
@@ -168,6 +190,8 @@ class TaskRegistry:
                     return
                 if self._clock() - started >= self._max_backoff:
                     delay = self._initial_backoff
+                if critical:
+                    self._restarting[name] = None
                 log.warning("Restarting background task %s in %.1f s", name, delay)
                 await self._sleep(delay)
                 delay = min(delay * 2, self._max_backoff)

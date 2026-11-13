@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 import pytest
 
 from aha import logctx
-from aha.tasks import TaskRegistry
+from aha.tasks import STABLE_AFTER, TaskRegistry
 from tests.helpers import FakeClock
 
 
@@ -531,3 +531,112 @@ def test_closing_does_not_leave_the_caller_registered_as_a_closer() -> None:
     asyncio.run(scenario())
 
     assert registry._closers == set()
+
+
+def _flaky_then_stable(fail_times: int) -> tuple[list[int], Callable[[], Awaitable[None]]]:
+    runs: list[int] = []
+
+    async def run() -> None:
+        runs.append(len(runs) + 1)
+        if len(runs) <= fail_times:
+            raise _BoomError
+        await asyncio.sleep(3600)
+
+    return runs, run
+
+
+def test_a_restarting_critical_task_is_degraded_but_not_failed() -> None:
+    registry = _registry()
+    _, run = _flaky_then_stable(fail_times=1)
+
+    async def scenario() -> tuple[frozenset[str], frozenset[str], bool]:
+        registry.spawn(run, name="vital", restart=True, critical=True)
+        for _ in range(10):
+            await asyncio.sleep(0)
+        result = (registry.degraded, registry.failed, registry.healthy)
+        await registry.close()
+        return result
+
+    degraded, failed, healthy = asyncio.run(scenario())
+
+    assert degraded == frozenset({"vital"})  # restarted, but has not run stably yet
+    assert failed == frozenset()
+    assert healthy is True
+
+
+def test_a_critical_task_is_degraded_while_it_waits_to_restart() -> None:
+    gate: list[asyncio.Event] = []
+
+    async def parked_sleep(delay: float) -> None:
+        event = asyncio.Event()
+        gate.append(event)
+        await event.wait()
+
+    registry = TaskRegistry(sleep=parked_sleep, clock=FakeClock())
+
+    async def fails() -> None:
+        raise _BoomError
+
+    async def scenario() -> frozenset[str]:
+        registry.spawn(fails, name="vital", restart=True, critical=True)
+        for _ in range(5):
+            await asyncio.sleep(0)
+        result = registry.degraded  # parked in back-off, not running
+        await registry.close()
+        return result
+
+    assert asyncio.run(scenario()) == frozenset({"vital"})
+
+
+def test_a_restarted_critical_task_recovers_after_running_stably() -> None:
+    clock = FakeClock(0.0)
+    registry = _registry(clock=clock)
+    _, run = _flaky_then_stable(fail_times=1)
+
+    async def scenario() -> list[frozenset[str]]:
+        registry.spawn(run, name="vital", restart=True, critical=True)
+        for _ in range(10):
+            await asyncio.sleep(0)
+        seen = [registry.degraded]
+        clock.now += STABLE_AFTER - 0.1
+        seen.append(registry.degraded)
+        clock.now += 0.1  # exactly STABLE_AFTER since the restarted run began
+        seen.append(registry.degraded)
+        await registry.close()
+        return seen
+
+    assert asyncio.run(scenario()) == [
+        frozenset({"vital"}),
+        frozenset({"vital"}),
+        frozenset(),
+    ]
+
+
+def test_a_non_critical_restarting_task_is_never_degraded() -> None:
+    registry = _registry()
+    _, run = _flaky_then_stable(fail_times=1)
+
+    async def scenario() -> frozenset[str]:
+        registry.spawn(run, name="optional", restart=True)
+        for _ in range(10):
+            await asyncio.sleep(0)
+        result = registry.degraded
+        await registry.close()
+        return result
+
+    assert asyncio.run(scenario()) == frozenset()
+
+
+def test_closing_clears_the_degraded_state() -> None:
+    registry = _registry()
+    _, run = _flaky_then_stable(fail_times=1)
+
+    async def scenario() -> None:
+        registry.spawn(run, name="vital", restart=True, critical=True)
+        for _ in range(10):
+            await asyncio.sleep(0)
+        await registry.close()
+
+    asyncio.run(scenario())
+
+    assert registry.degraded == frozenset()
