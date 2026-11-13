@@ -220,6 +220,7 @@ Aha/
 ├── src/aha/
 │   ├── __main__.py      # entry point: `aha` runs the bot, `aha sync` syncs commands
 │   ├── bot.py           # AhaBot (commands.Bot) + setup_hook/on_ready/sync_commands
+│   ├── botinfo.py       # build identity (version/commit) and latency formatting
 │   ├── cmdsync.py       # compare local vs remote command trees (sync only if changed)
 │   ├── config.py        # Settings loaded & validated from the environment
 │   ├── health.py        # /livez, /readyz, /metrics HTTP server
@@ -231,7 +232,7 @@ Aha/
 │       ├── errors.py    # global error handler
 │       ├── fun.py       # /roll, /coin
 │       ├── help.py      # /help (paginated)
-│       ├── meta.py      # /ping
+│       ├── meta.py      # /ping, /about
 │       ├── observability.py # counts command outcomes and durations
 │       └── ops.py       # /sync (owner only; dev guild / SYNC_ON_STARTUP only)
 ├── tests/               # pytest suite

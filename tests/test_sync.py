@@ -141,9 +141,9 @@ def test_a_dry_run_reports_changes_and_writes_nothing(
     assert harness.sync_calls == []
     assert result.target == "global"
     assert result.synced is False
-    assert result.diff.added == ("coin", "ping", "roll")
+    assert result.diff.added == ("about", "coin", "ping", "roll")
     assert [r.getMessage() for r in caplog.records] == [
-        "Dry run: global commands would change: + coin, + ping, + roll"
+        "Dry run: global commands would change: + about, + coin, + ping, + roll"
     ]
 
 
@@ -186,9 +186,9 @@ def test_dev_guild_sync_syncs_the_guild_and_skips_clean_globals(
     ]
     assert (guild_result.target, guild_result.synced) == (f"dev guild {GUILD_ID}", True)
     assert (global_result.target, global_result.synced) == ("global", False)
-    assert harness.names() == ["coin", "ping", "roll"]  # globals restored locally
+    assert harness.names() == ["about", "coin", "ping", "roll"]  # globals restored locally
     assert [r.getMessage() for r in caplog.records] == [
-        f"Synced dev guild {GUILD_ID} commands: + coin, + ping, + roll",
+        f"Synced dev guild {GUILD_ID} commands: + about, + coin, + ping, + roll",
         "Skipped sync: global commands are unchanged",
     ]
 
@@ -206,9 +206,9 @@ def test_dev_guild_sync_purges_stale_remote_globals(monkeypatch: pytest.MonkeyPa
 
     assert guild_result.synced is False  # the guild already matches
     assert global_result.synced is True
-    assert global_result.diff.removed == ("coin", "ping", "roll")
+    assert global_result.diff.removed == ("about", "coin", "ping", "roll")
     assert harness.sync_calls == [{}]  # only the global purge was written
-    assert harness.names() == ["coin", "ping", "roll"]
+    assert harness.names() == ["about", "coin", "ping", "roll"]
 
 
 def test_a_fully_synced_dev_guild_makes_no_writes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -238,9 +238,9 @@ def test_a_dev_guild_dry_run_writes_nothing_but_still_restores_globals(
     guild_result, global_result = asyncio.run(scenario())
 
     assert harness.sync_calls == []
-    assert guild_result.diff.added == ("coin", "ping", "roll")
-    assert global_result.diff.removed == ("coin", "ping", "roll")
-    assert harness.names() == ["coin", "ping", "roll"]
+    assert guild_result.diff.added == ("about", "coin", "ping", "roll")
+    assert global_result.diff.removed == ("about", "coin", "ping", "roll")
+    assert harness.names() == ["about", "coin", "ping", "roll"]
 
 
 def test_sync_commands_keeps_globals_for_a_second_sync(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -258,7 +258,7 @@ def test_sync_commands_keeps_globals_for_a_second_sync(monkeypatch: pytest.Monke
 
     # The dev-guild purge empties the local global tree to empty the remote set;
     # it must restore it, or a later sync copies nothing and wipes the guild.
-    assert before == ["coin", "ping", "roll"]
+    assert before == ["about", "coin", "ping", "roll"]
     assert after_first == before
     assert after_second == before
 
@@ -276,7 +276,7 @@ def test_sync_commands_restores_globals_when_the_purge_sync_fails(
             await harness.bot.sync_commands()
         return harness.names()
 
-    assert asyncio.run(scenario()) == ["coin", "ping", "roll"]
+    assert asyncio.run(scenario()) == ["about", "coin", "ping", "roll"]
 
 
 def test_sync_commands_restores_globals_when_fetching_remote_globals_fails(
@@ -295,7 +295,7 @@ def test_sync_commands_restores_globals_when_fetching_remote_globals_fails(
             await harness.bot.sync_commands()
         return harness.names()
 
-    assert asyncio.run(scenario()) == ["coin", "ping", "roll"]
+    assert asyncio.run(scenario()) == ["about", "coin", "ping", "roll"]
 
 
 def test_sync_commands_serializes_concurrent_calls(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -455,4 +455,4 @@ def test_the_guild_target_diffs_the_guilds_own_commands(monkeypatch: pytest.Monk
 
     guild_result, _ = asyncio.run(scenario())
 
-    assert guild_result.diff.added == ("coin", "onlyhere", "ping", "roll")
+    assert guild_result.diff.added == ("about", "coin", "onlyhere", "ping", "roll")
