@@ -311,3 +311,27 @@ async def test_a_job_with_no_owner_is_rejected_by_the_database(store: JobStore) 
 async def test_an_empty_kind_is_rejected_by_the_database(store: JobStore) -> None:
     with pytest.raises(asyncpg.CheckViolationError):
         await store.enqueue("", _later(1), user_id=1)
+
+
+async def test_user_queries_count_list_and_cancel_only_the_owners_live_jobs(
+    store: JobStore,
+) -> None:
+    soon = datetime.now(UTC) + timedelta(minutes=5)
+    later = soon + timedelta(hours=1)
+    second = await store.enqueue("reminder", later, user_id=1, payload={"text": "b"})
+    first = await store.enqueue("reminder", soon, user_id=1, payload={"text": "a"})
+    other_user = await store.enqueue("reminder", soon, user_id=2)
+    await store.enqueue("other", soon, user_id=1)
+
+    assert await store.count("reminder", 1) == 2
+    assert await store.count("reminder", 3) == 0
+    listed = await store.list_for_user("reminder", 1, 10)
+    assert [(j.id, j.payload["text"]) for j in listed] == [(first, "a"), (second, "b")]
+    assert [j.id for j in await store.list_for_user("reminder", 1, 1)] == [first]
+
+    assert await store.cancel("reminder", 1, other_user) is False  # someone else's
+    assert await store.cancel("reminder", 1, 999_999) is False
+    assert await store.cancel("reminder", 1, first) is True
+    assert await store.cancel("reminder", 1, first) is False
+    assert await store.count("reminder", 1) == 1
+    assert await store.count("reminder", 2) == 1

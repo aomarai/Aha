@@ -60,6 +60,40 @@ class JobStore:
             )
         return int(job_id)
 
+    async def count(self, kind: str, user_id: int) -> int:
+        """How many live (not dead) jobs of ``kind`` a user has."""
+        async with self._db.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT count(*) FROM scheduled_jobs WHERE kind = $1 AND user_id = $2 AND NOT dead",
+                kind,
+                user_id,
+            )
+        return int(value)
+
+    async def list_for_user(self, kind: str, user_id: int, limit: int) -> list[Job]:
+        """A user's live jobs of ``kind``, soonest first."""
+        async with self._db.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id, kind, run_at, user_id, guild_id, payload, attempts "
+                "FROM scheduled_jobs WHERE kind = $1 AND user_id = $2 AND NOT dead "
+                "ORDER BY run_at, id LIMIT $3",
+                kind,
+                user_id,
+                limit,
+            )
+        return [_job(row) for row in rows]
+
+    async def cancel(self, kind: str, user_id: int, job_id: int) -> bool:
+        """Delete one of a user's own jobs; ``False`` when it is not theirs or is gone."""
+        async with self._db.acquire() as conn:
+            result: str = await conn.execute(
+                "DELETE FROM scheduled_jobs WHERE id = $1 AND kind = $2 AND user_id = $3",
+                job_id,
+                kind,
+                user_id,
+            )
+        return result.rsplit(" ", 1)[-1] == "1"
+
     async def claim(self, limit: int, lease_seconds: float) -> list[Job]:
         """Claim up to ``limit`` due jobs for ``lease_seconds``; claimers never overlap."""
         async with self._db.acquire() as conn:
@@ -73,18 +107,7 @@ class JobStore:
                 limit,
                 lease_seconds,
             )
-        return [
-            Job(
-                id=row["id"],
-                kind=row["kind"],
-                run_at=row["run_at"],
-                user_id=row["user_id"],
-                guild_id=row["guild_id"],
-                payload=json.loads(row["payload"]),
-                attempts=row["attempts"],
-            )
-            for row in rows
-        ]
+        return [_job(row) for row in rows]
 
     async def complete(self, job_id: int) -> None:
         """Delete a finished job."""
@@ -139,3 +162,16 @@ class JobStore:
                 "DELETE FROM scheduled_jobs WHERE guild_id = $1", guild_id
             )
         return int(result.rsplit(" ", 1)[-1])
+
+
+def _job(row: Any) -> Job:
+    """Build a :class:`Job` from a ``scheduled_jobs`` row."""
+    return Job(
+        id=row["id"],
+        kind=row["kind"],
+        run_at=row["run_at"],
+        user_id=row["user_id"],
+        guild_id=row["guild_id"],
+        payload=json.loads(row["payload"]),
+        attempts=row["attempts"],
+    )
