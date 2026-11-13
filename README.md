@@ -343,6 +343,9 @@ type checking, and tests on every push to `main` and every pull request.
 [`scripts/smoke_image.sh`](scripts/smoke_image.sh) against it, and scans it with Trivy (fixable
 HIGH/CRITICAL findings fail the build; see [`.trivyignore`](.trivyignore)); results go to code
 scanning and an SBOM is attached to the run.
+SonarQube (`.github/workflows/sonarqube.yml`) gates **`main` only**: the self-hosted server is
+Community Build, which cannot analyse pull requests, so a failing quality gate turns the check red
+after a merge rather than blocking the PR.
 Pull requests are reviewed by [Sourcery](https://sourcery.ai/) (configured in
 `.sourcery.yaml`; install the GitHub App on the repository to enable it).
 
