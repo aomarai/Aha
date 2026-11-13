@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any, cast
 
@@ -10,10 +11,12 @@ import pytest
 from discord import app_commands
 from discord.ext import commands
 
+from aha import logctx
 from aha.bot import AhaBot
 from aha.cogs.errors import Errors
 from aha.cogs.errors import setup as errors_setup
 from aha.config import Settings
+from aha.logging_setup import JsonFormatter
 from tests.helpers import (
     Named,
     StubContext,
@@ -286,3 +289,40 @@ def test_tree_falls_back_to_default_logging_without_a_listener(
 
     assert dispatched == []
     assert fallback == [(bot.tree, interaction, error)]
+
+
+def test_unexpected_slash_error_logs_json_with_the_interaction_ids() -> None:
+    lines: list[str] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            lines.append(self.format(record))
+
+    handler = _Capture()
+    handler.setFormatter(JsonFormatter())
+    interaction = StubInteraction()
+    logger = logging.getLogger("aha.cogs.errors")
+
+    async def scenario() -> None:
+        logctx.bind_interaction(as_interaction(interaction))
+        command = cast("Any", Named(name="ping", qualified_name="ping"))
+        error = app_commands.CommandInvokeError(command, RuntimeError("boom"))
+        await _cog().on_app_command_error(as_interaction(interaction), error)
+
+    logger.addHandler(handler)
+    try:
+        asyncio.run(scenario())
+    finally:
+        logger.removeHandler(handler)
+
+    (line,) = lines
+    payload = json.loads(line)
+    assert payload["level"] == "ERROR"
+    assert payload["logger"] == "aha.cogs.errors"
+    assert payload["shard_id"] == 2
+    assert payload["guild_id"] == 11
+    assert payload["channel_id"] == 22
+    assert payload["user_id"] == 33
+    assert payload["interaction_id"] == 777
+    assert payload["command"] == "ping"
+    assert payload["exc"].endswith("RuntimeError: boom")

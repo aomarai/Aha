@@ -11,6 +11,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from aha import logctx
 from aha.config import Settings
 from aha.ratelimit import RateLimiter
 from aha.tasks import TaskRegistry
@@ -100,6 +101,7 @@ class AhaBot(commands.Bot):
         if ctx.interaction is not None:
             # Slash invocations are gated once by ``AhaTree.interaction_check``.
             return True
+        logctx.bind_context(ctx)
         retry_after = self.rate_limiter.consume(ctx.author.id)
         if retry_after is None:
             return True
@@ -250,6 +252,7 @@ class AhaTree(app_commands.CommandTree[AhaBot]):
         check is the single place a slash invocation may consume a token; the
         bot-level check skips interaction contexts.
         """
+        logctx.bind_interaction(interaction)
         bot = self.client
         retry_after = bot.rate_limiter.consume(interaction.user.id)
         if retry_after is None:

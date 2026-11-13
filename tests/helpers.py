@@ -98,9 +98,10 @@ class StubContext:
         self, *, command: bool = True, guild: bool = True, reject_embeds: bool = False
     ) -> None:
         self.command = Named(qualified_name="ping") if command else None
-        self.guild = Named(id=11) if guild else None
+        self.guild = Named(id=11, shard_id=2) if guild else None
         self.channel = Named(id=22)
         self.author = Named(id=33)
+        self.message = Named(id=44)
         #: Cached permissions as read by ``commands.has_permissions``.
         self.permissions = discord.Permissions.none()
         #: ``None`` for message contexts; set it to model a hybrid slash invocation.
@@ -131,9 +132,13 @@ class StubInteraction:
     channel 22, user ``user_id`` (default 33).
     """
 
-    def __init__(self, *, done: bool = False, command: bool = True, user_id: int = 33) -> None:
+    def __init__(
+        self, *, done: bool = False, command: bool = True, user_id: int = 33, guild: bool = True
+    ) -> None:
         self.command = Named(qualified_name="ping") if command else None
-        self.guild_id = 11
+        self.id = 777
+        self.guild = Named(id=11, shard_id=2) if guild else None
+        self.guild_id = 11 if guild else None
         self.channel_id = 22
         self.user = Named(id=user_id)
         self.sent: list[tuple[str, str | None, dict[str, Any]]] = []

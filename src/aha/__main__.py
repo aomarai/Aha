@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 from aha.bot import AhaBot
 from aha.config import ConfigError, Settings
-from aha.logging_setup import configure_logging
+from aha.logging_setup import configure_logging, static_fields_from_env
 
 __all__ = ["main"]
 
@@ -82,7 +82,12 @@ def main() -> int:
         log.exception("%s", exc)
         return 1
 
-    configure_logging(settings.log_level)
+    configure_logging(
+        settings.log_level,
+        log_format=settings.log_format,
+        secrets=(settings.token,),
+        static=static_fields_from_env(),
+    )
 
     # bot.start() (unlike bot.run()) never installs a log handler, so
     # logging_setup stays authoritative.

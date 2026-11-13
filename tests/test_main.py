@@ -14,7 +14,14 @@ from aha import __main__ as aha_main
 from aha.bot import AhaBot
 
 #: Environment variables :meth:`Settings.from_env` reads, besides the token.
-_SETTINGS_ENV_VARS = ("LOG_LEVEL", "DEV_GUILD_ID")
+_SETTINGS_ENV_VARS = (
+    "LOG_LEVEL",
+    "LOG_FORMAT",
+    "DEV_GUILD_ID",
+    "HOSTNAME",
+    "AHA_VERSION",
+    "AHA_COMMIT",
+)
 
 
 def _isolate_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -94,11 +101,41 @@ def test_main_configures_logging_before_serving(
     async def fake_serve(bot: AhaBot, token: str) -> None:
         events.append("serve")
 
-    monkeypatch.setattr(aha_main, "configure_logging", lambda level: events.append(level))
+    def fake_configure(level: str, **kwargs: Any) -> None:
+        events.append(level)
+
+    monkeypatch.setattr(aha_main, "configure_logging", fake_configure)
     monkeypatch.setattr(aha_main, "_serve", fake_serve)
 
     assert aha_main.main() == 0
     assert events == ["DEBUG", "serve"]
+
+
+def test_main_passes_the_format_token_and_static_fields_to_logging(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    monkeypatch.setenv("LOG_FORMAT", "json")
+    monkeypatch.setenv("HOSTNAME", "aha-0")
+    monkeypatch.setenv("AHA_VERSION", "1.2.3")
+    captured: dict[str, Any] = {}
+
+    async def fake_serve(bot: AhaBot, token: str) -> None:
+        return None
+
+    def fake_configure(level: str, **kwargs: Any) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(aha_main, "configure_logging", fake_configure)
+    monkeypatch.setattr(aha_main, "_serve", fake_serve)
+
+    assert aha_main.main() == 0
+    assert captured == {
+        "log_format": "json",
+        "secrets": ("dummy-token",),
+        "static": {"pod": "aha-0", "version": "1.2.3"},
+    }
 
 
 def test_main_returns_the_bot_exit_code(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -108,7 +145,7 @@ def test_main_returns_the_bot_exit_code(monkeypatch: pytest.MonkeyPatch, tmp_pat
     async def fake_serve(bot: AhaBot, token: str) -> None:
         bot.exit_code = 7
 
-    monkeypatch.setattr(aha_main, "configure_logging", lambda level: None)
+    monkeypatch.setattr(aha_main, "configure_logging", lambda level, **kwargs: None)
     monkeypatch.setattr(aha_main, "_serve", fake_serve)
 
     assert aha_main.main() == 7
@@ -123,7 +160,7 @@ def test_main_exits_cleanly_on_keyboard_interrupt(
     async def fake_serve(bot: AhaBot, token: str) -> None:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(aha_main, "configure_logging", lambda level: None)
+    monkeypatch.setattr(aha_main, "configure_logging", lambda level, **kwargs: None)
     monkeypatch.setattr(aha_main, "_serve", fake_serve)
 
     with caplog.at_level(logging.INFO, logger="aha.__main__"):
@@ -144,7 +181,7 @@ def test_main_returns_one_and_logs_when_the_bot_fails(
     async def fake_serve(bot: AhaBot, token: str) -> None:
         raise error
 
-    monkeypatch.setattr(aha_main, "configure_logging", lambda level: None)
+    monkeypatch.setattr(aha_main, "configure_logging", lambda level, **kwargs: None)
     monkeypatch.setattr(aha_main, "_serve", fake_serve)
 
     with caplog.at_level(logging.INFO, logger="aha.__main__"):
