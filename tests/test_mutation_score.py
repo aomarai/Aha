@@ -127,6 +127,35 @@ def test_main_fails_below_threshold(
     assert "FAIL:" in capsys.readouterr().out
 
 
+def test_main_fails_when_fewer_mutants_than_the_baseline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stats_path = write_stats(
+        tmp_path / "mutants" / "mutmut-cicd-stats.json", stats(total=10, killed=10)
+    )
+    monkeypatch.setattr(gate, "STATS_PATH", stats_path)
+
+    assert gate.main() == 1
+
+    captured = capsys.readouterr()
+    assert "below the" in captured.err
+    assert str(gate.MIN_MUTANTS) in captured.err
+
+
+def test_main_accepts_the_baseline_mutant_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    total = gate.MIN_MUTANTS
+    stats_path = write_stats(
+        tmp_path / "mutants" / "mutmut-cicd-stats.json", stats(total=total, killed=total)
+    )
+    monkeypatch.setattr(gate, "STATS_PATH", stats_path)
+
+    assert gate.main() == 0
+
+    assert "OK:" in capsys.readouterr().out
+
+
 def test_main_fails_on_invalid_campaign(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

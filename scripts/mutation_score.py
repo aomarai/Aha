@@ -46,11 +46,16 @@ from typing import Any
 
 STATS_PATH = Path("mutants/mutmut-cicd-stats.json")
 
-# Ratchet: the campaign scores 100% (433 killed + 3 mutant-induced timeouts of
-# 436 scored, mutmut 3.8.1) after the last four survivors in ``embeds`` were
-# killed. The gate sits a little below the measured score so a refactor has
-# room -- 0.98 of 436 allows 8 survivors -- while a regression still trips it.
+# Ratchet: the campaign scores 100% (541 killed + 3 mutant-induced timeouts of
+# 544 scored, mutmut 3.8.1). The gate sits a little below the measured score so
+# a refactor has room while a regression still trips it.
 THRESHOLD = 0.98
+
+# Floor on how many mutants the campaign must enumerate. A ratio cannot notice
+# that source stopped being mutated at all (e.g. a broken path filter), and a
+# campaign that silently shrinks would let new code escape the gate. Lower this
+# only when code is deliberately deleted; new code raises the total above it.
+MIN_MUTANTS = 544
 
 # At most this fraction of enumerated mutants may be excluded (skipped) before
 # the campaign is considered unrepresentative and rejected.
@@ -147,6 +152,13 @@ def main() -> int:
         return 1
 
     print(summary)
+    total = _count(stats, "total")
+    if total < MIN_MUTANTS:
+        print(
+            f"FAIL: campaign enumerated {total} mutants, below the {MIN_MUTANTS} baseline",
+            file=sys.stderr,
+        )
+        return 1
     if score < THRESHOLD:
         print(f"FAIL: {score:.2%} is below the {THRESHOLD:.0%} threshold")
         return 1
