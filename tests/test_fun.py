@@ -7,6 +7,7 @@ import random
 from typing import Any, cast
 
 import pytest
+from discord.ext import commands
 
 from aha.cogs.fun import Fun
 from aha.cogs.fun import setup as fun_setup
@@ -237,6 +238,14 @@ def test_command_metadata_matches_the_public_surface() -> None:
     assert Fun.roll.description == "Roll a die."
     assert Fun.coin.qualified_name == "coin"
     assert Fun.coin.description == "Flip a coin."
+
+
+def test_roll_and_coin_are_rate_limited_per_user() -> None:
+    for command in (Fun.roll, Fun.coin):
+        cooldown = command.cooldown
+        assert cooldown is not None
+        assert (cooldown.rate, cooldown.per) == (1, 5)
+        assert command._buckets.type is commands.BucketType.user
 
 
 def test_setup_registers_the_fun_cog() -> None:

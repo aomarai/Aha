@@ -20,6 +20,7 @@ class Fun(commands.Cog):
         self.bot = bot
 
     @hybrid_command(name="roll", description="Roll a die.")
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def roll(self, ctx: commands.Context[commands.Bot], sides: int = 6) -> None:
         """Roll a die with the given number of sides (default d6)."""
         if sides < 1:
@@ -33,6 +34,7 @@ class Fun(commands.Cog):
             await ctx.reply(text)
 
     @hybrid_command(name="coin", description="Flip a coin.")
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def coin(self, ctx: commands.Context[commands.Bot]) -> None:
         """Flip a coin and report heads or tails."""
         result = random.choice(("heads", "tails"))

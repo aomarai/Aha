@@ -139,6 +139,30 @@ receives the message without the intent.
   propagate.
 - Sync overwrites the application's remote command set, so avoid running two
   bot revisions at once — whichever syncs last wins.
+- An operator can re-run the same sync from Discord with `/sync` (guild-only,
+  requires Manage Server).
+
+### Command access control
+
+Commands that can be spammed or that expose operator power declare their own
+guardrails. Hybrid commands run `prepare()` on the slash path too, so the
+`commands.*` decorators apply to both surfaces; `app_commands.*` controls what
+Discord shows and enforces at interaction time. Apply the decorators **below**
+`@hybrid_command` so the hybrid command can read them off the callback:
+
+```python
+@hybrid_command(name="example", description="…")
+@app_commands.default_permissions(manage_guild=True)  # hidden unless Manage Server
+@app_commands.checks.has_permissions(manage_guild=True)  # interaction-time check
+@commands.guild_only()  # prefix + slash (sets the app flag)
+@commands.has_permissions(manage_guild=True)  # enforced on both paths
+@commands.cooldown(1, 5, commands.BucketType.user)  # per-user rate limit
+async def example(ctx: commands.Context[commands.Bot]) -> None: ...
+```
+
+Failures surface through the global error handler as ephemeral messages: missing
+permissions, DM-only misuse, and cooldowns each have friendly wording (`/sync`
+demonstrates the full pattern; `/ping`, `/roll`, and `/coin` carry cooldowns).
 
 ## Project layout
 
@@ -146,11 +170,14 @@ receives the message without the intent.
 Aha/
 ├── src/aha/
 │   ├── __main__.py      # entry point: load .env, build settings, run the bot
-│   ├── bot.py           # AhaBot (commands.Bot) + setup_hook/on_ready
+│   ├── bot.py           # AhaBot (commands.Bot) + setup_hook/on_ready/sync_commands
 │   ├── config.py        # Settings loaded & validated from the environment
 │   ├── logging_setup.py # logging configuration
 │   └── cogs/            # command groups, each exposing async setup(bot)
-│       └── meta.py      # /ping
+│       ├── errors.py    # global error handler
+│       ├── fun.py       # /roll, /coin
+│       ├── help.py      # /help (paginated)
+│       └── meta.py      # /ping, /sync
 ├── tests/               # pytest suite
 ├── .devcontainer/       # VS Code dev container (Python 3.14 + uv)
 ├── .github/workflows/   # CI (lint, format, tests)

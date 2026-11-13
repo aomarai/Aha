@@ -66,6 +66,8 @@ class StubContext:
         self.guild = Named(id=11) if guild else None
         self.channel = Named(id=22)
         self.author = Named(id=33)
+        #: Cached permissions as read by ``commands.has_permissions``.
+        self.permissions = discord.Permissions.none()
         self.replies: list[tuple[str | None, dict[str, Any]]] = []
         self.fail_with: Exception | None = None
         self.reject_embeds = reject_embeds
