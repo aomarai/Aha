@@ -16,7 +16,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from aha import embeds
-from aha.commands import hybrid_command
+from aha.commands import BotLike, hybrid_command
 from aha.replies import reply, respond
 
 __all__ = [
@@ -60,7 +60,7 @@ def parse_options(raw: str) -> list[str] | str:
 class Polls(commands.Cog):
     """Native polls, and a context menu that counts a message's reactions."""
 
-    def __init__(self, bot: commands.Bot) -> None:
+    def __init__(self, bot: BotLike) -> None:
         self.bot = bot
 
         # discord.py resolves a context-menu callback's (string) annotations against the
@@ -123,6 +123,6 @@ class Polls(commands.Cog):
         await respond(interaction, "\n".join(lines), ephemeral=True)
 
 
-async def setup(bot: commands.Bot) -> None:
+async def setup(bot: BotLike) -> None:
     """Register the cog with the bot (called by ``load_extension``)."""
     await bot.add_cog(Polls(bot))

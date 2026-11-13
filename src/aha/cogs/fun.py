@@ -11,7 +11,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from aha import embeds
-from aha.commands import hybrid_command
+from aha.commands import BotLike, hybrid_command
 from aha.replies import reply
 from aha.textutil import code, plain
 
@@ -74,7 +74,7 @@ def format_offset(offset: timedelta | None) -> str:
 class Fun(commands.Cog):
     """Dice, coin, time, 8-ball and countdown commands."""
 
-    def __init__(self, bot: commands.Bot) -> None:
+    def __init__(self, bot: BotLike) -> None:
         self.bot = bot
         self._zones = timezone_names()
 
@@ -199,6 +199,6 @@ def _parse_when(raw: str) -> datetime | None:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
-async def setup(bot: commands.Bot) -> None:
+async def setup(bot: BotLike) -> None:
     """Register the cog with the bot (called by ``load_extension``)."""
     await bot.add_cog(Fun(bot))

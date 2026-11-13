@@ -8,6 +8,7 @@ import math
 import time
 from collections import Counter
 from dataclasses import dataclass
+from typing import Any
 
 import discord
 from discord import app_commands
@@ -125,7 +126,21 @@ class SyncResult:
     synced: bool
 
 
-class AhaBot(commands.Bot):
+def _shard_options(settings: Settings) -> dict[str, Any]:
+    """The ``shard_count`` / ``shard_ids`` keywords, only for what is configured.
+
+    discord.py rejects ``shard_ids`` without ``shard_count`` and requires a list (not a tuple or
+    a generator), so nothing is passed for an unset value and ids are always copied to a list.
+    """
+    options: dict[str, Any] = {}
+    if settings.shard_count is not None:
+        options["shard_count"] = settings.shard_count
+    if settings.shard_ids is not None:
+        options["shard_ids"] = list(settings.shard_ids)
+    return options
+
+
+class AhaBot(commands.AutoShardedBot):
     """The Aha client.
 
     Named ``AhaBot`` to avoid shadowing ``discord.Client`` / ``commands.Bot``.
@@ -169,6 +184,9 @@ class AhaBot(commands.Bot):
             # applied to every shard this process owns. It needs no privileged intent.
             activity=_activity(settings),
             status=discord.Status(settings.status),
+            # Explicit shard assignment (ADR 0001 section 2). ``shard_ids`` must be a list and
+            # needs ``shard_count``; ``Settings`` guarantees both. Unset lets Discord decide.
+            **_shard_options(settings),
         )
         self.settings = settings
         #: The PostgreSQL pool, opened in ``setup_hook`` when ``DATABASE_URL`` is set.
@@ -197,7 +215,8 @@ class AhaBot(commands.Bot):
         self.gateway_timeout = gateway_timeout
         self.watchdog_interval = watchdog_interval
         self._sync_lock = asyncio.Lock()
-        self._disconnected_since: float | None = None
+        #: Monotonic time each owned shard went down, for shards that are down right now.
+        self._shard_down: dict[int, float] = {}
         #: Supervised background tasks; cogs must spawn through this, never ``create_task``.
         self.tasks = TaskRegistry()
         self.metrics = Metrics(self.shard_states, self.guild_counts)
@@ -245,6 +264,10 @@ class AhaBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         """Load cogs and sync application commands. Runs once, before login."""
+        if self.shard_ids is None:
+            log.info("Owning every shard (the count is chosen by Discord)")
+        else:
+            log.info("Owning shards %s of %s", sorted(self.shard_ids), self.shard_count)
         if self.use_database and self.settings.database_url is not None:
             await self._connect_database(self.settings.database_url)
 
@@ -304,16 +327,16 @@ class AhaBot(commands.Bot):
 
     async def _check_gateway_timeout(self) -> bool:
         """Return True and close the bot when the disconnect limit is exceeded."""
-        since = self._disconnected_since
-        if since is None:
+        if not self._shard_down:
             return False
-        elapsed = time.monotonic() - since
+        elapsed = time.monotonic() - min(self._shard_down.values())
         if elapsed < self.gateway_timeout:
             return False
         log.critical(
             "Gateway has been disconnected for %.1f s (limit %.1f s); closing the bot",
             elapsed,
             self.gateway_timeout,
+            extra={"shards": sorted(self._shard_down)},
         )
         # A non-zero code lets an "on-failure" supervisor restart the process.
         self.exit_code = 1
@@ -324,22 +347,35 @@ class AhaBot(commands.Bot):
     async def on_connect(self) -> None:
         """Log a fresh gateway session.
 
-        The disconnect clock is deliberately not cleared here: a resumed
-        reconnect dispatches ``on_connect`` before ``on_resumed``, and
-        ``on_resumed`` needs the timestamp to report the outage duration.
+        The shard clocks are deliberately not cleared here: a resumed reconnect dispatches
+        ``on_connect`` before ``on_shard_resumed``, which needs the timestamp to report the
+        outage duration.
         """
         log.info("Connected to the Discord gateway")
 
     def shard_states(self) -> list[ShardState]:
         """Snapshot every shard this process owns, for readiness and metrics.
 
-        A plain ``commands.Bot`` is a single shard 0. A disconnect shorter than
-        :data:`READINESS_DISCONNECT_GRACE` does not make the shard unready: discord.py
-        resumes in-flight sessions within seconds and a probe should not flap on that.
+        A disconnect shorter than :data:`READINESS_DISCONNECT_GRACE` does not make a shard
+        unready: discord.py resumes in-flight sessions within seconds and a probe should not flap
+        on that. Each shard has its own clock, so one shard resuming never hides another that
+        is still down.
         """
-        since = self._disconnected_since
-        down_too_long = since is not None and time.monotonic() - since > READINESS_DISCONNECT_GRACE
-        return [ShardState(0, self.is_ready() and not down_too_long, self.latency)]
+        now = time.monotonic()
+        latencies = dict(self.latencies)
+        ready = self.is_ready()
+        states = []
+        for shard_id in self._owned_shard_ids():
+            since = self._shard_down.get(shard_id)
+            down_too_long = since is not None and now - since > READINESS_DISCONNECT_GRACE
+            states.append(
+                ShardState(shard_id, ready and not down_too_long, latencies.get(shard_id, math.nan))
+            )
+        return states
+
+    def _owned_shard_ids(self) -> list[int]:
+        """The shard ids this process owns: connected ones, else the configured, else ``[0]``."""
+        return sorted(self.shards) or sorted(self.shard_ids or [0])
 
     def guild_counts(self) -> dict[int, int]:
         """Return the number of cached guilds per owned shard id (zero when it has none)."""
@@ -347,34 +383,33 @@ class AhaBot(commands.Bot):
         counts.update(Counter(guild.shard_id for guild in self.guilds))
         return counts
 
-    async def on_disconnect(self) -> None:
-        """Start the disconnect clock (once) and log the lost connection."""
-        self.metrics.reconnects.labels(shard="0").inc()
-        if self._disconnected_since is None:
-            self._disconnected_since = time.monotonic()
-        # ``ws`` is None once the connection is torn down and may not carry a
-        # code on a failed connect, hence the default.
-        code = getattr(self.ws, "_close_code", None)
+    async def on_shard_disconnect(self, shard_id: int) -> None:
+        """Start the shard's disconnect clock (once) and log the lost connection."""
+        self.metrics.reconnects.labels(shard=str(shard_id)).inc()
+        self._shard_down.setdefault(shard_id, time.monotonic())
+        # discord.py does not pass the close frame to the event; the code lives on the shard's
+        # websocket, which is gone once the connection is torn down, hence the defaults.
+        parent = getattr(self.shards.get(shard_id), "_parent", None)
+        code = getattr(getattr(parent, "ws", None), "_close_code", None)
         if code is None:
-            log.warning("Disconnected from the Discord gateway")
+            log.warning("Shard %s disconnected from the Discord gateway", shard_id)
         else:
-            # discord.py does not pass the close frame to ``on_disconnect``; the
-            # code lives on the websocket. The reason is not exposed at all.
-            log.warning("Disconnected from the Discord gateway (code %s)", code)
+            log.warning("Shard %s disconnected from the Discord gateway (code %s)", shard_id, code)
 
     async def on_shard_ready(self, shard_id: int) -> None:
-        """Log a shard becoming ready (only fires under sharding)."""
+        """Log a shard becoming ready; a fresh session means its outage, if any, is over."""
+        self._shard_down.pop(shard_id, None)
         log.info("Shard %s is ready", shard_id)
 
-    async def on_resumed(self) -> None:
-        """Log how long the gateway was disconnected, then clear the clock."""
-        since = self._disconnected_since
-        self._disconnected_since = None
+    async def on_shard_resumed(self, shard_id: int) -> None:
+        """Log how long a shard was disconnected, then clear its clock."""
+        since = self._shard_down.pop(shard_id, None)
         if since is None:
-            log.info("Resumed the Discord gateway session")
+            log.info("Shard %s resumed the Discord gateway session", shard_id)
         else:
             log.info(
-                "Resumed the Discord gateway session after %.1f s",
+                "Shard %s resumed the Discord gateway session after %.1f s",
+                shard_id,
                 time.monotonic() - since,
             )
 
@@ -445,8 +480,6 @@ class AhaBot(commands.Bot):
         """
         Called when the bot has connected to Discord and is ready to process commands.
         """
-        # A fresh (non-resumed) session means the outage, if any, is over.
-        self._disconnected_since = None
         if self.user is not None:
             log.info("Logged in as %s (id=%s)", self.user, self.user.id)
         else:

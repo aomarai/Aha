@@ -146,7 +146,7 @@ def test_metrics_serves_the_prometheus_exposition(monkeypatch: pytest.MonkeyPatc
 def test_metrics_reflect_the_bots_live_shard_state(monkeypatch: pytest.MonkeyPatch) -> None:
     bot = _bot(monkeypatch, [])
     monkeypatch.setattr(bot, "is_ready", lambda: True)
-    monkeypatch.setattr(type(bot), "latency", property(lambda self: 0.042))
+    monkeypatch.setattr(type(bot), "latencies", property(lambda self: [(0, 0.042)]))
 
     _, body, _ = asyncio.run(_get(bot, "/metrics"))
 

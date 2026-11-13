@@ -479,3 +479,132 @@ def test_a_pool_size_that_is_not_a_number_names_the_variable() -> None:
         Settings.from_env({"DISCORD_BOT_TOKEN": "s", "DB_POOL_MAX": "lots"})
 
     assert str(excinfo.value) == "DB_POOL_MAX must be an integer, got 'lots'"
+
+
+# ------------------------------------------------------------------ shard assignment (#93)
+
+
+def _shards(**env: str) -> tuple[int | None, tuple[int, ...] | None]:
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "t", **env})
+    return settings.shard_count, settings.shard_ids
+
+
+def _shard_error(**env: str) -> str:
+    with pytest.raises(ConfigError) as caught:
+        _shards(**env)
+    return str(caught.value)
+
+
+def test_without_shard_settings_discord_chooses() -> None:
+    assert _shards() == (None, None)
+
+
+def test_a_count_alone_is_valid_and_keeps_every_shard_in_this_process() -> None:
+    assert _shards(SHARD_COUNT="4") == (4, None)
+
+
+def test_explicit_ids_are_parsed_with_whitespace_tolerated() -> None:
+    assert _shards(SHARD_COUNT="4", SHARD_IDS="0, 1,2") == (4, (0, 1, 2))
+    assert _shards(SHARD_COUNT="1", SHARD_IDS="0") == (1, (0,))
+
+
+def test_the_last_shard_id_is_in_range_and_the_count_itself_is_not() -> None:
+    assert _shards(SHARD_COUNT="4", SHARD_IDS="3") == (4, (3,))
+    assert _shard_error(SHARD_COUNT="4", SHARD_IDS="3,4") == (
+        "SHARD_IDS [4] are outside 0..3 (SHARD_COUNT)"
+    )
+
+
+def test_a_negative_shard_id_is_rejected() -> None:
+    assert _shard_error(SHARD_COUNT="4", SHARD_IDS="-1") == (
+        "SHARD_IDS [-1] are outside 0..3 (SHARD_COUNT)"
+    )
+
+
+def test_duplicate_ids_are_rejected() -> None:
+    assert _shard_error(SHARD_COUNT="4", SHARD_IDS="0,1,1") == (
+        "SHARD_IDS must not repeat a shard, got '0,1,1'"
+    )
+
+
+@pytest.mark.parametrize("raw", ["a", "0,,1", "0;1", "1.5"])
+def test_ids_that_are_not_integers_are_rejected(raw: str) -> None:
+    assert _shard_error(SHARD_COUNT="4", SHARD_IDS=raw) == (
+        f"SHARD_IDS must be comma-separated integers, got {raw!r}"
+    )
+
+
+def test_ids_without_a_count_are_rejected_because_discordpy_requires_it() -> None:
+    assert _shard_error(SHARD_IDS="0") == "SHARD_COUNT is required when SHARD_IDS is set"
+
+
+@pytest.mark.parametrize("raw", ["0", "-1", "10001", "x"])
+def test_a_bad_shard_count_is_rejected(raw: str) -> None:
+    message = _shard_error(SHARD_COUNT=raw)
+    assert message.startswith("SHARD_COUNT must be")
+
+
+def test_the_shard_count_boundaries_are_accepted() -> None:
+    assert _shards(SHARD_COUNT="1") == (1, None)
+    assert _shards(SHARD_COUNT="10000") == (10000, None)
+
+
+def test_a_pod_ordinal_derives_its_block_of_shards() -> None:
+    assert _shards(SHARD_COUNT="8", SHARDS_PER_POD="2", POD_INDEX="0") == (8, (0, 1))
+    assert _shards(SHARD_COUNT="8", SHARDS_PER_POD="2", POD_INDEX="3") == (8, (6, 7))
+
+
+def test_the_last_pod_gets_the_remainder() -> None:
+    assert _shards(SHARD_COUNT="5", SHARDS_PER_POD="2", POD_INDEX="2") == (5, (4,))
+
+
+def test_a_pod_beyond_the_shards_is_rejected() -> None:
+    assert _shard_error(SHARD_COUNT="5", SHARDS_PER_POD="2", POD_INDEX="3") == (
+        "POD_INDEX 3 owns no shards: SHARD_COUNT 5 with 2 per pod covers pods 0..2"
+    )
+
+
+def test_a_pod_ordinal_needs_the_count() -> None:
+    assert _shard_error(SHARDS_PER_POD="2", POD_INDEX="0") == (
+        "SHARD_COUNT is required when SHARDS_PER_POD is set"
+    )
+
+
+def test_shards_per_pod_needs_a_pod_index() -> None:
+    expected = "SHARDS_PER_POD needs POD_INDEX (the pod ordinal, 0 or more)"
+    assert _shard_error(SHARD_COUNT="4", SHARDS_PER_POD="2") == expected
+    assert _shard_error(SHARD_COUNT="4", SHARDS_PER_POD="2", POD_INDEX="-1") == expected
+
+
+def test_a_pod_index_without_shards_per_pod_is_rejected() -> None:
+    assert _shard_error(SHARD_COUNT="4", POD_INDEX="1") == "POD_INDEX needs SHARDS_PER_POD"
+
+
+@pytest.mark.parametrize("raw", ["0", "-2"])
+def test_shards_per_pod_must_be_positive(raw: str) -> None:
+    assert _shard_error(SHARD_COUNT="4", SHARDS_PER_POD=raw, POD_INDEX="0") == (
+        f"SHARDS_PER_POD must be at least 1, got {raw}"
+    )
+
+
+def test_explicit_ids_and_a_pod_ordinal_are_mutually_exclusive() -> None:
+    assert _shard_error(SHARD_COUNT="4", SHARD_IDS="0", SHARDS_PER_POD="2", POD_INDEX="0") == (
+        "Set either SHARD_IDS or SHARDS_PER_POD, not both"
+    )
+
+
+def test_a_blank_shard_ids_value_counts_as_unset() -> None:
+    assert _shards(SHARD_COUNT="4", SHARD_IDS="  ") == (4, None)
+
+
+def test_a_single_shard_per_pod_is_valid() -> None:
+    assert _shards(SHARD_COUNT="3", SHARDS_PER_POD="1", POD_INDEX="2") == (3, (2,))
+
+
+def test_non_integer_pod_settings_name_the_variable() -> None:
+    assert _shard_error(SHARD_COUNT="4", SHARDS_PER_POD="two", POD_INDEX="0") == (
+        "SHARDS_PER_POD must be an integer, got 'two'"
+    )
+    assert _shard_error(SHARD_COUNT="4", SHARDS_PER_POD="2", POD_INDEX="first") == (
+        "POD_INDEX must be an integer, got 'first'"
+    )

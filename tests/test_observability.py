@@ -227,7 +227,7 @@ def test_setup_hook_loads_the_observability_cog(monkeypatch: pytest.MonkeyPatch)
     async def fake_super_close(self: Any) -> None:
         return None
 
-    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+    monkeypatch.setattr(commands.AutoShardedBot, "close", fake_super_close)
 
     async def scenario() -> None:
         await bot.setup_hook()  # loads every real cog; production mode does not sync
@@ -253,7 +253,7 @@ def test_shard_states_report_not_ready_before_the_gateway_is_ready() -> None:
 def test_shard_states_report_ready_with_the_latency(monkeypatch: pytest.MonkeyPatch) -> None:
     bot = _bot()
     monkeypatch.setattr(bot, "is_ready", lambda: True)
-    monkeypatch.setattr(type(bot), "latency", property(lambda self: 0.042))
+    monkeypatch.setattr(type(bot), "latencies", property(lambda self: [(0, 0.042)]))
 
     assert bot.shard_states() == [ShardState(0, True, 0.042)]
 
@@ -263,7 +263,7 @@ def test_a_short_disconnect_keeps_the_shard_ready_but_a_long_one_does_not(
 ) -> None:
     bot = _bot()
     monkeypatch.setattr(bot, "is_ready", lambda: True)
-    bot._disconnected_since = 100.0
+    bot._shard_down = {0: 100.0}
 
     monkeypatch.setattr("aha.bot.time.monotonic", lambda: 100.0 + READINESS_DISCONNECT_GRACE)
     assert bot.shard_states()[0].ready is True  # exactly at the grace limit
@@ -278,11 +278,11 @@ def test_a_fresh_ready_ends_a_long_outage_so_the_shard_reports_ready_again(
     bot = _bot()
     monkeypatch.setattr(bot, "is_ready", lambda: True)
     monkeypatch.setattr(type(bot), "user", property(lambda self: Named(id=1)))
-    bot._disconnected_since = 100.0
+    bot._shard_down = {0: 100.0}
     monkeypatch.setattr("aha.bot.time.monotonic", lambda: 100.0 + 10 * READINESS_DISCONNECT_GRACE)
     assert bot.shard_states()[0].ready is False  # a long outage
 
-    asyncio.run(bot.on_ready())  # discord could not resume and started a fresh session
+    asyncio.run(bot.on_shard_ready(0))  # discord could not resume and started a fresh session
 
     assert bot.shard_states()[0].ready is True
 
@@ -314,8 +314,8 @@ def test_an_owned_shard_without_guilds_reports_zero_rather_than_no_sample() -> N
 def test_a_disconnect_is_counted_as_a_reconnect() -> None:
     bot = _bot()
 
-    asyncio.run(bot.on_disconnect())
-    asyncio.run(bot.on_disconnect())
+    asyncio.run(bot.on_shard_disconnect(0))
+    asyncio.run(bot.on_shard_disconnect(0))
 
     assert (
         bot.metrics.registry.get_sample_value("aha_gateway_reconnects_total", {"shard": "0"}) == 2
@@ -342,7 +342,7 @@ def _setup_hook(bot: AhaBot, monkeypatch: pytest.MonkeyPatch) -> list[str]:
         return None
 
     monkeypatch.setattr(bot, "load_extension", fake_load_extension)
-    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+    monkeypatch.setattr(commands.AutoShardedBot, "close", fake_super_close)
     names: list[str] = []
 
     async def scenario() -> None:
@@ -435,7 +435,7 @@ def test_the_health_server_is_a_critical_restartable_task(monkeypatch: pytest.Mo
         return None
 
     monkeypatch.setattr(bot, "load_extension", fake_load_extension)
-    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+    monkeypatch.setattr(commands.AutoShardedBot, "close", fake_super_close)
 
     async def scenario() -> tuple[frozenset[str], frozenset[str], int]:
         await bot.setup_hook()
@@ -798,3 +798,90 @@ def test_the_scheduler_is_a_critical_restartable_task(monkeypatch: pytest.Monkey
     assert degraded == frozenset({SCHEDULER_TASK})
     assert failed == frozenset()
     assert runs == 1
+
+
+def _sharded_bot(monkeypatch: pytest.MonkeyPatch, **settings: Any) -> AhaBot:
+    bot = AhaBot(Settings(token="test-token", **settings))
+    monkeypatch.setattr(bot, "is_ready", lambda: True)
+    return bot
+
+
+def test_every_configured_shard_is_reported_before_the_gateway_connects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _sharded_bot(monkeypatch, shard_count=4, shard_ids=(2, 3))
+
+    states = bot.shard_states()
+
+    assert [state.shard_id for state in states] == [2, 3]
+    assert all(math.isnan(state.latency) for state in states)
+
+
+def test_connected_shards_are_reported_with_their_own_latency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _sharded_bot(monkeypatch, shard_count=4, shard_ids=(0, 1))
+    monkeypatch.setattr(type(bot), "shards", property(lambda self: {1: object(), 0: object()}))
+    monkeypatch.setattr(type(bot), "latencies", property(lambda self: [(0, 0.01), (1, 0.02)]))
+
+    assert bot.shard_states() == [ShardState(0, True, 0.01), ShardState(1, True, 0.02)]
+
+
+def test_one_shard_down_too_long_does_not_make_its_sibling_unready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _sharded_bot(monkeypatch, shard_count=2, shard_ids=(0, 1))
+    bot._shard_down = {1: 100.0}
+    monkeypatch.setattr("aha.bot.time.monotonic", lambda: 100.0 + READINESS_DISCONNECT_GRACE + 1)
+
+    assert [(state.shard_id, state.ready) for state in bot.shard_states()] == [
+        (0, True),
+        (1, False),
+    ]
+
+
+def test_each_shards_disconnect_is_counted_under_its_own_label() -> None:
+    bot = AhaBot(Settings(token="test-token", shard_count=4, shard_ids=(2, 3)))
+
+    asyncio.run(bot.on_shard_disconnect(2))
+    asyncio.run(bot.on_shard_disconnect(3))
+    asyncio.run(bot.on_shard_disconnect(3))
+
+    registry = bot.metrics.registry
+    assert registry.get_sample_value("aha_gateway_reconnects_total", {"shard": "2"}) == 1
+    assert registry.get_sample_value("aha_gateway_reconnects_total", {"shard": "3"}) == 2
+
+
+def test_resuming_one_shard_keeps_the_clock_of_another_that_is_still_down() -> None:
+    bot = AhaBot(Settings(token="test-token", shard_count=2, shard_ids=(0, 1)))
+    bot._shard_down = {0: 100.0, 1: 200.0}
+
+    asyncio.run(bot.on_shard_resumed(0))
+
+    assert bot._shard_down == {1: 200.0}
+
+
+def test_the_watchdog_counts_from_the_longest_outage_of_any_shard(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    bot = AhaBot(
+        Settings(token="test-token", shard_count=2, shard_ids=(0, 1)), gateway_timeout=60.0
+    )
+    bot._shard_down = {1: 100.0, 0: 150.0}
+    closed: list[bool] = []
+
+    async def fake_close() -> None:
+        closed.append(True)
+
+    monkeypatch.setattr(bot, "close", fake_close)
+    monkeypatch.setattr("aha.bot.time.monotonic", lambda: 170.0)
+
+    with caplog.at_level(logging.CRITICAL, logger="aha.bot"):
+        assert asyncio.run(bot._check_gateway_timeout()) is True
+
+    assert closed == [True]
+    assert bot.exit_code == 1
+    assert caplog.records[0].__dict__["shards"] == [0, 1]
+    assert caplog.messages == [
+        "Gateway has been disconnected for 70.0 s (limit 60.0 s); closing the bot"
+    ]

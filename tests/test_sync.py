@@ -377,6 +377,7 @@ def test_production_startup_loads_cogs_but_neither_syncs_nor_loads_the_operator_
     assert recorder.synced == []
     assert (bot.sync_command_enabled, bot.sync_on_startup) == (False, False)
     assert [r.getMessage() for r in caplog.records] == [
+        "Owning every shard (the count is chosen by Discord)",
         *(f"Loaded extension {module}" for module in COG_MODULES),
         "Command sync skipped at startup (run 'aha sync')",
     ]
@@ -460,3 +461,15 @@ def test_the_guild_target_diffs_the_guilds_own_commands(monkeypatch: pytest.Monk
     guild_result, _ = asyncio.run(scenario())
 
     assert guild_result.diff.added == tuple(sorted((*ALL, "onlyhere")))
+
+
+def test_startup_logs_the_owned_shards(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    bot = AhaBot(Settings(token="test-token", shard_count=4, shard_ids=(3, 2)))
+    recorder = _SetupRecorder(bot, monkeypatch)
+
+    with caplog.at_level(logging.INFO, logger="aha.bot"):
+        asyncio.run(recorder.run(bot))
+
+    assert caplog.records[0].getMessage() == "Owning shards [2, 3] of 4"

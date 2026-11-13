@@ -284,6 +284,9 @@ Real environment variables take precedence over `.env`.
 | `DB_STATEMENT_TIMEOUT` | no    | `2.0`   | Seconds before a slow query is cancelled        |
 | `HEALTH_BIND`       | no       | `127.0.0.1` | Address of the health/metrics server        |
 | `HEALTH_PORT`       | no       | `8080`  | Port of the health/metrics server; `0` disables it |
+| `SHARD_COUNT`       | no       | –       | Total gateway shards; unset lets Discord choose (single process only). See [docs/sharding.md](docs/sharding.md) |
+| `SHARD_IDS`         | no       | all     | Shards this process owns, e.g. `0,1` (needs `SHARD_COUNT`) |
+| `SHARDS_PER_POD`, `POD_INDEX` | no | – | Derive `SHARD_IDS` from a StatefulSet ordinal instead (needs `SHARD_COUNT`) |
 
 \* Exactly one of `DISCORD_BOT_TOKEN` and `DISCORD_BOT_TOKEN_FILE` is required. See the
 [token rotation runbook](docs/runbooks/token-rotation.md).
