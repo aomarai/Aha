@@ -121,8 +121,11 @@ class AhaBot(commands.Bot):
 
     async def close(self) -> None:
         """Cancel the background tasks, then close the client."""
-        await self.tasks.close()
-        await super().close()
+        try:
+            await self.tasks.close()
+        finally:
+            # Even if this coroutine is cancelled while tasks unwind, the client must close.
+            await super().close()
 
     async def _watch_gateway(self) -> None:
         """Close the bot when the gateway stays disconnected for too long."""

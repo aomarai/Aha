@@ -15,6 +15,7 @@ from discord.ext import commands
 from aha.bot import COG_MODULES, WATCHDOG_TASK, AhaBot
 from aha.config import Settings
 from aha.ratelimit import RateLimiter
+from aha.tasks import TaskRegistry
 from tests.helpers import (
     FakeClock,
     Named,
@@ -78,6 +79,17 @@ def test_cog_modules_are_configured_as_extensions() -> None:
     assert all(module.startswith("aha.cogs.") for module in COG_MODULES)
 
 
+async def _setup_and_close(bot: AhaBot, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run ``setup_hook`` then close the bot, so the watchdog is not left to loop teardown."""
+
+    async def fake_super_close(self: commands.Bot) -> None:
+        return None
+
+    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+    await bot.setup_hook()
+    await bot.close()
+
+
 def test_setup_hook_loads_cogs_and_syncs_globally(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -96,7 +108,7 @@ def test_setup_hook_loads_cogs_and_syncs_globally(
     monkeypatch.setattr(bot.tree, "sync", fake_sync)
 
     with caplog.at_level(logging.INFO, logger="aha.bot"):
-        asyncio.run(bot.setup_hook())
+        asyncio.run(_setup_and_close(bot, monkeypatch))
 
     assert loaded == list(COG_MODULES)
     assert sync_calls == [{}]  # one global sync, no guild argument
@@ -134,7 +146,7 @@ def test_setup_hook_syncs_dev_guild_then_clears_globals(
     monkeypatch.setattr(bot.tree, "copy_global_to", fake_copy_global_to)
 
     with caplog.at_level(logging.INFO, logger="aha.bot"):
-        asyncio.run(bot.setup_hook())
+        asyncio.run(_setup_and_close(bot, monkeypatch))
 
     assert caplog.records[-1].getMessage() == ("Synced commands to dev guild 123456789012345678")
     assert len(sync_calls) == 2
@@ -598,6 +610,99 @@ def test_close_cancels_a_running_watchdog(monkeypatch: pytest.MonkeyPatch) -> No
     assert asyncio.run(scenario()) is True
     assert closed_client == [True]
     assert len(bot.tasks) == 0
+
+
+def test_close_still_closes_the_client_when_waiting_for_tasks_is_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _bot()
+    closed_client: list[bool] = []
+
+    async def cancelled_close(timeout: float = 0.0) -> None:
+        raise asyncio.CancelledError
+
+    async def fake_super_close(self: commands.Bot) -> None:
+        closed_client.append(True)
+
+    monkeypatch.setattr(bot.tasks, "close", cancelled_close)
+    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(bot.close())
+
+    assert closed_client == [True]
+
+
+def test_the_watchdog_is_restarted_when_it_crashes(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = _bot()
+    sleeps: list[float] = []
+    checks: list[int] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    async def fake_load_extension(name: str) -> None:
+        return None
+
+    async def fake_sync_commands() -> None:
+        return None
+
+    async def flaky_check() -> bool:
+        checks.append(len(checks) + 1)
+        if len(checks) == 1:
+            raise RuntimeError("watchdog bug")
+        return True
+
+    async def fake_super_close(self: commands.Bot) -> None:
+        return None
+
+    bot.tasks = TaskRegistry(sleep=fake_sleep)
+    monkeypatch.setattr(bot, "load_extension", fake_load_extension)
+    monkeypatch.setattr(bot, "sync_commands", fake_sync_commands)
+    monkeypatch.setattr(bot, "_check_gateway_timeout", flaky_check)
+    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+
+    async def scenario() -> None:
+        await bot.setup_hook()
+        for _ in range(10):
+            await asyncio.sleep(0)
+        await bot.close()
+
+    asyncio.run(scenario())
+
+    assert checks == [1, 2]  # crashed once, restarted, then finished normally
+    assert sleeps == [1.0]
+    assert bot.tasks.healthy is True
+
+
+def test_a_cancelled_watchdog_marks_the_bot_unhealthy(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = _bot()
+
+    async def fake_load_extension(name: str) -> None:
+        return None
+
+    async def fake_sync_commands() -> None:
+        return None
+
+    async def fake_super_close(self: commands.Bot) -> None:
+        return None
+
+    monkeypatch.setattr(bot, "load_extension", fake_load_extension)
+    monkeypatch.setattr(bot, "sync_commands", fake_sync_commands)
+    monkeypatch.setattr(commands.Bot, "close", fake_super_close)
+
+    async def scenario() -> frozenset[str]:
+        await bot.setup_hook()
+        task = bot.tasks.get(WATCHDOG_TASK)
+        assert task is not None
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.wait({task})
+        failed = bot.tasks.failed
+        await bot.close()
+        return failed
+
+    assert asyncio.run(scenario()) == frozenset({WATCHDOG_TASK})
 
 
 def test_close_without_a_watchdog_still_closes_the_client(

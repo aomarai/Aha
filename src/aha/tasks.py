@@ -67,6 +67,8 @@ class TaskRegistry:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._failed: set[str] = set()
         self._closed = False
+        #: Tasks currently inside :meth:`close`; they are never cancelled by a sibling closer.
+        self._closers: set[object] = set()
 
     def __contains__(self, name: object) -> bool:
         """Return True when a task called ``name`` is still running."""
@@ -78,6 +80,11 @@ class TaskRegistry:
     def get(self, name: str) -> asyncio.Task[None] | None:
         """Return the running task called ``name``, or None."""
         return self._tasks.get(name)
+
+    @property
+    def closed(self) -> bool:
+        """True once :meth:`close` has been called; no further tasks can be spawned."""
+        return self._closed
 
     @property
     def failed(self) -> frozenset[str]:
@@ -115,6 +122,8 @@ class TaskRegistry:
             raise RuntimeError(f"cannot spawn {name!r}: the task registry is closed")
         if name in self._tasks:
             raise ValueError(f"a task named {name!r} is already running")
+        # A replacement for a task that died for good makes the registry healthy again.
+        self._failed.discard(name)
         task = asyncio.create_task(self._supervise(factory, name, restart, critical), name=name)
         self._tasks[name] = task
         task.add_done_callback(lambda _done: self._forget(name))
@@ -137,9 +146,15 @@ class TaskRegistry:
             try:
                 await factory()
             except asyncio.CancelledError:
+                if critical and not self._closed:
+                    # Someone cancelled a critical task while the bot is running: it is gone.
+                    log.error("Critical background task %s was cancelled", name)
+                    self._failed.add(name)
                 raise
             except Exception:
                 log.exception("Background task %s failed", name)
+                if self._closed:
+                    return  # shutting down: never start another run
                 if not restart:
                     if critical:
                         self._failed.add(name)
@@ -155,17 +170,24 @@ class TaskRegistry:
     async def close(self, timeout: float = CLOSE_TIMEOUT) -> None:
         """Cancel every task and wait up to ``timeout`` seconds for them to unwind.
 
-        The calling task is skipped, so a task may close the registry it belongs to
-        (the gateway watchdog closes the bot, which closes this registry). Further
+        Tasks that are closing the registry are never cancelled, so a task may close the
+        registry it belongs to (the gateway watchdog closes the bot, which closes this
+        registry) and two tasks may close it concurrently. Further
         :meth:`spawn` calls are refused. Safe to call more than once.
         """
         self._closed = True
         current = asyncio.current_task()
-        tasks = [task for task in self._tasks.values() if task is not current]
-        for task in tasks:
-            task.cancel()
-        if not tasks:
-            return
-        _, pending = await asyncio.wait(tasks, timeout=timeout)
-        for task in pending:
-            log.warning("Background task %s did not stop within %.1f s", task.get_name(), timeout)
+        self._closers.add(current)
+        try:
+            tasks = [task for task in self._tasks.values() if task not in self._closers]
+            for task in tasks:
+                task.cancel()
+            if not tasks:
+                return
+            _, pending = await asyncio.wait(tasks, timeout=timeout)
+            for task in pending:
+                log.warning(
+                    "Background task %s did not stop within %.1f s", task.get_name(), timeout
+                )
+        finally:
+            self._closers.discard(current)
