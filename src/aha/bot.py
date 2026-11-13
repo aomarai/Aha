@@ -68,6 +68,21 @@ WATCHDOG_TASK = "gateway-watchdog"
 GATEWAY_WATCHDOG_INTERVAL = 30.0
 
 
+_ACTIVITY_TYPES = {
+    "playing": discord.ActivityType.playing,
+    "listening": discord.ActivityType.listening,
+    "watching": discord.ActivityType.watching,
+    "competing": discord.ActivityType.competing,
+}
+
+
+def _activity(settings: Settings) -> discord.Activity | None:
+    """Build the presence activity from the settings, or ``None`` when it is switched off."""
+    if settings.activity is None:
+        return None
+    return discord.Activity(type=_ACTIVITY_TYPES[settings.activity_type], name=settings.activity)
+
+
 @dataclass(frozen=True, slots=True)
 class SyncResult:
     """What :meth:`AhaBot.sync_commands` did (or, in a dry run, would do) for one target."""
@@ -115,6 +130,10 @@ class AhaBot(commands.Bot):
             intents=discord.Intents.default(),
             help_command=None,
             tree_cls=AhaTree,
+            # Presence is sent when each shard identifies, so it needs no extra task and is
+            # applied to every shard this process owns. It needs no privileged intent.
+            activity=_activity(settings),
+            status=discord.Status(settings.status),
         )
         self.settings = settings
         #: Unix time the bot object was created, shown by ``/about`` as the start of its uptime.
