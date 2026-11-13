@@ -6,10 +6,12 @@ import asyncio
 from typing import Any, cast
 
 import pytest
+from discord.ext import commands
 
 from aha.cogs import help as help_module
 from aha.cogs.help import Help, HelpPaginator, paginate
 from aha.cogs.help import setup as help_setup
+from aha.replies import NO_MENTIONS
 from tests.helpers import (
     StubBot,
     StubContext,
@@ -69,7 +71,10 @@ def test_help_lists_visible_commands_privately_without_a_view() -> None:
     _run_help(cog, ctx)
 
     assert ctx.replies == [
-        ("`/ping` — Check latency.\n`/bare` — No description", {"ephemeral": True})
+        (
+            "`/ping` — Check latency.\n`/bare` — No description",
+            {"ephemeral": True, "allowed_mentions": NO_MENTIONS},
+        )
     ]
 
 
@@ -78,7 +83,9 @@ def test_help_with_no_visible_commands_says_so() -> None:
 
     _run_help(_cog([stub_command("secret", hidden=True)]), ctx)
 
-    assert ctx.replies == [("No commands available.", {"ephemeral": True})]
+    assert ctx.replies == [
+        ("No commands available.", {"ephemeral": True, "allowed_mentions": NO_MENTIONS})
+    ]
 
 
 def test_help_paginates_when_the_list_is_too_long(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -159,6 +166,13 @@ def test_only_the_owner_may_use_the_buttons() -> None:
     assert owner_ok is True
     assert stranger_ok is False
     assert stranger.sent == [("response", "This help menu isn't yours.", {"ephemeral": True})]
+
+
+def test_help_has_a_per_user_cooldown() -> None:
+    cooldown = Help.help.cooldown
+    assert cooldown is not None
+    assert (cooldown.rate, cooldown.per) == (3, 10)
+    assert Help.help._buckets.type is commands.BucketType.user
 
 
 def test_setup_registers_the_help_cog() -> None:

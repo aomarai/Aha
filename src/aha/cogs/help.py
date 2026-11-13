@@ -6,6 +6,7 @@ import discord
 from discord.ext import commands
 
 from aha.commands import hybrid_command
+from aha.replies import reply
 
 __all__ = ["Help", "HelpPaginator", "paginate", "setup"]
 
@@ -87,6 +88,7 @@ class Help(commands.Cog):
         self.bot = bot
 
     @hybrid_command(name="help", description="List available commands.")
+    @commands.cooldown(3, 10, commands.BucketType.user)
     async def help(self, ctx: commands.Context[commands.Bot]) -> None:
         """Reply privately with every visible command and its description."""
         lines = [
@@ -96,12 +98,12 @@ class Help(commands.Cog):
         ]
         pages = paginate(lines, PAGE_LIMIT)
         if not pages:
-            await ctx.reply("No commands available.", ephemeral=True)
+            await reply(ctx, "No commands available.", ephemeral=True)
         elif len(pages) == 1:
-            await ctx.reply(pages[0], ephemeral=True)
+            await reply(ctx, pages[0], ephemeral=True)
         else:
             view = HelpPaginator(pages, ctx.author.id)
-            await ctx.reply(view.content(), view=view, ephemeral=True)
+            await reply(ctx, view.content(), view=view, ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

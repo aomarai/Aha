@@ -9,10 +9,18 @@ from typing import Any, cast
 
 import discord
 import pytest
+from discord import app_commands
 from discord.ext import commands
 
 from aha.bot import COG_MODULES, AhaBot
 from aha.config import Settings
+from tests.helpers import (
+    Named,
+    StubContext,
+    StubInteraction,
+    as_context,
+    as_tree_interaction,
+)
 
 
 def _bot(**kwargs: Any) -> AhaBot:
@@ -44,6 +52,7 @@ def test_bot_passes_default_intents_explicitly(monkeypatch: pytest.MonkeyPatch) 
 
     def fake_init(self: Any, **kwargs: Any) -> None:
         captured.update(kwargs)
+        self._checks = []
 
     monkeypatch.setattr(commands.Bot, "__init__", fake_init)
 
@@ -162,6 +171,44 @@ def test_sync_commands_keeps_globals_for_a_second_sync(
     assert before == ["ping", "sync"]
     assert after_first == before
     assert after_second == before
+
+
+def test_global_rate_limit_consumes_for_message_contexts() -> None:
+    bot = AhaBot(Settings(token="test-token"), rate_limit=(1, 60.0))
+    ctx = StubContext()
+
+    assert asyncio.run(bot._enforce_rate_limit(as_context(ctx))) is True
+    with pytest.raises(commands.CommandOnCooldown) as caught:
+        asyncio.run(bot._enforce_rate_limit(as_context(ctx)))
+    assert caught.value.retry_after > 0
+
+
+def test_global_rate_limit_is_skipped_for_interaction_contexts() -> None:
+    bot = AhaBot(Settings(token="test-token"), rate_limit=(1, 60.0))
+    ctx = StubContext()
+    ctx.interaction = Named(id=1)
+
+    assert asyncio.run(bot._enforce_rate_limit(as_context(ctx))) is True
+    assert asyncio.run(bot._enforce_rate_limit(as_context(ctx))) is True
+
+
+def test_tree_interaction_check_enforces_the_shared_budget() -> None:
+    bot = AhaBot(Settings(token="test-token"), rate_limit=(1, 60.0))
+    interaction = as_tree_interaction(StubInteraction())
+
+    assert asyncio.run(bot.tree.interaction_check(interaction)) is True
+    with pytest.raises(app_commands.CommandOnCooldown) as caught:
+        asyncio.run(bot.tree.interaction_check(interaction))
+    assert caught.value.retry_after > 0
+
+
+def test_global_rate_limit_is_wired_into_bot_checks() -> None:
+    bot = AhaBot(Settings(token="test-token"), rate_limit=(1, 60.0))
+    ctx = StubContext()
+
+    assert asyncio.run(bot.can_run(as_context(ctx))) is True
+    with pytest.raises(commands.CommandOnCooldown):
+        asyncio.run(bot.can_run(as_context(ctx)))
 
 
 class _StubUser:

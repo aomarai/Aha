@@ -11,6 +11,7 @@ from discord.ext import commands
 
 from aha.cogs.fun import Fun
 from aha.cogs.fun import setup as fun_setup
+from aha.replies import NO_MENTIONS
 from tests.helpers import StubBot, StubContext, as_bot, as_context
 
 
@@ -112,7 +113,7 @@ def test_roll_falls_back_to_plain_text_when_embed_is_rejected(
     callback = cast("Any", cog.roll.callback)
     asyncio.run(callback(cog, as_context(ctx), sides=6))
 
-    assert ctx.replies == [("Rolled **4** on a d6.", {})]
+    assert ctx.replies == [("Rolled **4** on a d6.", {"allowed_mentions": NO_MENTIONS})]
 
 
 def test_roll_uses_an_info_embed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -192,7 +193,7 @@ def test_coin_falls_back_to_plain_text_when_embed_is_rejected(
     callback = cast("Any", cog.coin.callback)
     asyncio.run(callback(cog, as_context(ctx)))
 
-    assert ctx.replies == [("Heads!", {})]
+    assert ctx.replies == [("Heads!", {"allowed_mentions": NO_MENTIONS})]
 
 
 def test_coin_uses_an_info_embed(monkeypatch: pytest.MonkeyPatch) -> None:

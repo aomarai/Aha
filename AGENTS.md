@@ -72,6 +72,11 @@ removing or mutating the code under test fails the test.
   declare `__all__`; test modules and `scripts/` are not a public API, so they need not.
   Module-level logger: `log = logging.getLogger(__name__)`; use %-style log args.
 - Line length 100; ruff rule set is in `pyproject.toml`. No `# type: ignore` — fix types instead.
+- Cog replies go through `aha.replies.reply`, which defaults to
+  `allowed_mentions=AllowedMentions.none()`; never call `ctx.reply` directly, or user text can
+  ping roles or `@everyone`. A bot-wide per-user budget is enforced by
+  `AhaTree.interaction_check` (slash) and `AhaBot._enforce_rate_limit` (mentions), so a new
+  command inherits rate limiting without its own decorator.
 - Tests are plain pytest functions; async code is driven with `asyncio.run(...)` (no
   pytest-asyncio). Discord collaborators are replaced with `monkeypatch.setattr` fakes that
   record calls; logs are checked with `caplog` against the `aha.*` logger.

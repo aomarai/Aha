@@ -18,6 +18,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from aha.replies import reply
+
 __all__ = ["Errors", "setup"]
 
 log = logging.getLogger(__name__)
@@ -76,9 +78,9 @@ class Errors(commands.Cog):
             # ``ephemeral`` only means anything for interaction-based contexts;
             # message replies (mention invocations) are public either way.
             if ctx.interaction is not None:
-                await ctx.reply(message, ephemeral=True)
+                await reply(ctx, message, ephemeral=True)
             else:
-                await ctx.reply(message)
+                await reply(ctx, message)
 
         await self._handle(
             error,

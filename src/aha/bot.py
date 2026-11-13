@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from aha.config import Settings
+from aha.ratelimit import RateLimiter
 
 __all__ = ["COG_MODULES", "AhaBot", "AhaTree"]
 
@@ -34,6 +36,22 @@ class AhaTree(app_commands.CommandTree[commands.Bot]):
     registered (cog unloaded) it falls back to discord.py's default logging.
     """
 
+    async def interaction_check(self, interaction: discord.Interaction[commands.Bot]) -> bool:
+        """Apply the bot-wide per-user budget to slash invocations.
+
+        Hybrid commands run global checks twice on the slash path (the app
+        command's own check pass and ``Command.prepare``), so the tree-level
+        check is the single place a slash invocation may consume a token; the
+        bot-level check skips interaction contexts.
+        """
+        bot = cast("AhaBot", self.client)
+        retry_after = bot.rate_limiter.consume(interaction.user.id)
+        if retry_after is None:
+            return True
+        raise app_commands.CommandOnCooldown(
+            app_commands.Cooldown(bot.rate_limiter.rate, bot.rate_limiter.per), retry_after
+        )
+
     async def on_error(
         self, interaction: discord.Interaction[commands.Bot], error: app_commands.AppCommandError
     ) -> None:
@@ -49,7 +67,12 @@ class AhaBot(commands.Bot):
     Named ``AhaBot`` to avoid shadowing ``discord.Client`` / ``commands.Bot``.
     """
 
-    def __init__(self, settings: Settings) -> None:
+    #: Bot-wide per-user budget: invocations allowed per window, across commands.
+    GLOBAL_RATE_LIMIT: tuple[int, float] = (10, 10.0)
+
+    def __init__(
+        self, settings: Settings, *, rate_limit: tuple[int, float] = GLOBAL_RATE_LIMIT
+    ) -> None:
         # Default intents only: no privileged intent (notably ``message_content``)
         # is requested, so commands are slash-only. ``commands.Bot`` still needs a
         # prefix; ``when_mentioned`` is the one value that needs no message
@@ -62,6 +85,22 @@ class AhaBot(commands.Bot):
             tree_cls=AhaTree,
         )
         self.settings = settings
+        self.rate_limiter = RateLimiter(rate_limit[0], rate_limit[1])
+        self.add_check(self._enforce_rate_limit)
+
+    async def _enforce_rate_limit(self, ctx: commands.Context[commands.Bot]) -> bool:
+        """Apply the bot-wide per-user budget to message (mention) invocations."""
+        if ctx.interaction is not None:
+            # Slash invocations are gated once by ``AhaTree.interaction_check``.
+            return True
+        retry_after = self.rate_limiter.consume(ctx.author.id)
+        if retry_after is None:
+            return True
+        raise commands.CommandOnCooldown(
+            commands.Cooldown(self.rate_limiter.rate, self.rate_limiter.per),
+            retry_after,
+            commands.BucketType.user,
+        )
 
     async def setup_hook(self) -> None:
         """Load cogs and sync application commands. Runs once, before login."""

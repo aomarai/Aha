@@ -160,12 +160,14 @@ Discord shows and enforces at interaction time. Apply the decorators **below**
 async def example(ctx: commands.Context[commands.Bot]) -> None: ...
 ```
 
-Permission and cooldown failures reply through the global error handler:
-ephemeral for slash invocations, and a normal (public) message for mention
-invocations, since Discord cannot make a message reply private. Guild-only is
-enforced by Discord for slash invocations and by the local check for mentions.
-`/sync` demonstrates the full pattern; `/ping`, `/roll`, and `/coin` carry
-cooldowns.
+Replies go through `aha.replies.reply`, which disables mentions, and a bot-wide
+per-user budget (10 invocations per 10 s) applies to every command; `/help` and
+`/sync` also carry their own cooldowns. Permission and cooldown failures reply
+through the global error handler: ephemeral for slash invocations and a normal
+(public) message for mention invocations, since Discord cannot make a message
+reply private. Guild-only is enforced by Discord for slash invocations and by the
+local check for mentions. `/sync` demonstrates the full pattern; `/ping`,
+`/roll`, and `/coin` carry cooldowns.
 
 ## Project layout
 

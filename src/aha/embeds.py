@@ -7,8 +7,9 @@ presents a consistent visual identity across all commands.
 Usage in a cog::
 
     from aha import embeds
+    from aha.replies import reply
 
-    await ctx.reply(embed=embeds.status(f"WebSocket latency: {ms} ms"))
+    await reply(ctx, embed=embeds.status(f"WebSocket latency: {ms} ms"))
     await interaction.response.send_message(
         embed=embeds.info("Done.", title="Result")
     )

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 __all__ = ["ConfigError", "Settings"]
 
@@ -45,7 +45,7 @@ def _parse_optional_int(raw: str | None, *, name: str) -> int | None:
 class Settings:
     """Validated, immutable application settings."""
 
-    token: str
+    token: str = field(repr=False)
     log_level: str = DEFAULT_LOG_LEVEL
     dev_guild_id: int | None = None
 

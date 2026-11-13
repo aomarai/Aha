@@ -71,3 +71,13 @@ def test_dev_guild_id_accepts_range_boundaries(edge_value: int) -> None:
 def test_invalid_log_level_is_rejected() -> None:
     with pytest.raises(ConfigError, match="LOG_LEVEL"):
         Settings.from_env({"DISCORD_BOT_TOKEN": "secret", "LOG_LEVEL": "LOUD"})
+
+
+def test_settings_repr_redacts_the_token() -> None:
+    settings = Settings(token="super-secret", log_level="DEBUG", dev_guild_id=42)
+
+    rendered = repr(settings)
+
+    assert "super-secret" not in rendered
+    assert "log_level='DEBUG'" in rendered
+    assert "dev_guild_id=42" in rendered

@@ -14,6 +14,7 @@ from aha.bot import AhaBot
 from aha.cogs.errors import Errors
 from aha.cogs.errors import setup as errors_setup
 from aha.config import Settings
+from aha.replies import NO_MENTIONS
 from tests.helpers import (
     Named,
     StubContext,
@@ -39,7 +40,12 @@ def test_prefix_expected_error_gets_a_targeted_reply(
         asyncio.run(_cog().on_command_error(as_context(ctx), error))
 
     # A message context cannot reply privately, so no meaningless ``ephemeral``.
-    assert ctx.replies == [("You need these permissions to do that: manage messages.", {})]
+    assert ctx.replies == [
+        (
+            "You need these permissions to do that: manage messages.",
+            {"allowed_mentions": NO_MENTIONS},
+        )
+    ]
     assert caplog.records == []
 
 
@@ -51,7 +57,10 @@ def test_hybrid_slash_failure_replies_ephemerally() -> None:
     asyncio.run(_cog().on_command_error(as_context(ctx), error))
 
     assert ctx.replies == [
-        ("You need these permissions to do that: manage messages.", {"ephemeral": True})
+        (
+            "You need these permissions to do that: manage messages.",
+            {"ephemeral": True, "allowed_mentions": NO_MENTIONS},
+        )
     ]
 
 
@@ -78,7 +87,7 @@ def test_prefix_unexpected_error_is_logged_with_context_and_hides_internals(
     assert ctx.replies == [
         (
             f"Something went wrong. If it keeps happening, quote error ID `{error_id}`.",
-            {},
+            {"allowed_mentions": NO_MENTIONS},
         )
     ]
     content = ctx.replies[0][0]
@@ -146,7 +155,7 @@ def test_expected_errors_map_to_messages(error: Exception, expected: str) -> Non
 
     asyncio.run(_cog().on_command_error(as_context(ctx), cast("commands.CommandError", error)))
 
-    assert ctx.replies == [(expected, {})]
+    assert ctx.replies == [(expected, {"allowed_mentions": NO_MENTIONS})]
 
 
 def test_app_cooldown_message() -> None:
@@ -211,7 +220,9 @@ def test_hybrid_wrapper_is_unwrapped(caplog: pytest.LogCaptureFixture) -> None:
 
     asyncio.run(_cog().on_command_error(as_context(ctx), error))
 
-    assert ctx.replies == [("This command can't be used in direct messages.", {})]
+    assert ctx.replies == [
+        ("This command can't be used in direct messages.", {"allowed_mentions": NO_MENTIONS})
+    ]
     assert caplog.records == []
 
 
