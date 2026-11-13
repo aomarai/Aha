@@ -62,6 +62,7 @@ def test_respond_forwards_embed_only_followups() -> None:
     kind, content, kwargs = interaction.sent[0]
     assert (kind, content) == ("followup", None)
     assert kwargs["embed"] is embed
+    assert kwargs["ephemeral"] is False
     assert kwargs["allowed_mentions"].everyone is False
 
 
@@ -76,14 +77,14 @@ def test_edit_message_keeps_the_mention_policy() -> None:
     assert edited["allowed_mentions"].everyone is False
 
 
-def test_reply_keeps_an_explicit_mention_policy() -> None:
+def test_reply_overrides_a_caller_mention_policy() -> None:
     ctx = StubContext()
-    custom = discord.AllowedMentions(users=True)
 
-    asyncio.run(reply(as_context(ctx), "hi", allowed_mentions=custom))
+    asyncio.run(reply(as_context(ctx), "hi", allowed_mentions=discord.AllowedMentions.all()))
 
     _, kwargs = ctx.replies[0]
-    assert kwargs["allowed_mentions"] is custom
+    assert kwargs["allowed_mentions"].everyone is False
+    assert kwargs["allowed_mentions"].users is False
 
 
 def test_reply_forwards_other_keywords() -> None:

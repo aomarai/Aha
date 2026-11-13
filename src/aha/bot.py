@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import cast
 
 import discord
 from discord import app_commands
@@ -26,39 +25,6 @@ COG_MODULES: tuple[str, ...] = (
 
 #: Event dispatched for failed app commands (listeners are ``on_app_command_error``).
 APP_COMMAND_ERROR_EVENT = "app_command_error"
-
-
-class AhaTree(app_commands.CommandTree[commands.Bot]):
-    """Command tree that forwards errors to bot listeners.
-
-    ``CommandTree.on_error`` is a method, not an event, so a cog cannot hook it
-    directly. Forwarding keeps the handler in a loadable cog. With no listener
-    registered (cog unloaded) it falls back to discord.py's default logging.
-    """
-
-    async def interaction_check(self, interaction: discord.Interaction[commands.Bot]) -> bool:
-        """Apply the bot-wide per-user budget to slash invocations.
-
-        Hybrid commands run global checks twice on the slash path (the app
-        command's own check pass and ``Command.prepare``), so the tree-level
-        check is the single place a slash invocation may consume a token; the
-        bot-level check skips interaction contexts.
-        """
-        bot = cast("AhaBot", self.client)
-        retry_after = bot.rate_limiter.consume(interaction.user.id)
-        if retry_after is None:
-            return True
-        raise app_commands.CommandOnCooldown(
-            app_commands.Cooldown(bot.rate_limiter.rate, bot.rate_limiter.per), retry_after
-        )
-
-    async def on_error(
-        self, interaction: discord.Interaction[commands.Bot], error: app_commands.AppCommandError
-    ) -> None:
-        if self.client.extra_events.get(f"on_{APP_COMMAND_ERROR_EVENT}"):
-            self.client.dispatch(APP_COMMAND_ERROR_EVENT, interaction, error)
-        else:
-            await super().on_error(interaction, error)
 
 
 class AhaBot(commands.Bot):
@@ -132,7 +98,7 @@ class AhaBot(commands.Bot):
             self.tree.clear_commands(guild=None)
             await self.tree.sync()
             for command in global_commands:
-                self.tree.add_command(command, guild=None)
+                self.tree.add_command(command)
             log.info("Synced commands to dev guild %s", self.settings.dev_guild_id)
         else:
             await self.tree.sync()
@@ -146,3 +112,36 @@ class AhaBot(commands.Bot):
             log.info("Logged in as %s (id=%s)", self.user, self.user.id)
         else:
             log.error("on_ready fired but self.user is unset; bot state is inconsistent")
+
+
+class AhaTree(app_commands.CommandTree[AhaBot]):
+    """Command tree that forwards errors to bot listeners.
+
+    ``CommandTree.on_error`` is a method, not an event, so a cog cannot hook it
+    directly. Forwarding keeps the handler in a loadable cog. With no listener
+    registered (cog unloaded) it falls back to discord.py's default logging.
+    """
+
+    async def interaction_check(self, interaction: discord.Interaction[AhaBot]) -> bool:
+        """Apply the bot-wide per-user budget to slash invocations.
+
+        Hybrid commands run global checks twice on the slash path (the app
+        command's own check pass and ``Command.prepare``), so the tree-level
+        check is the single place a slash invocation may consume a token; the
+        bot-level check skips interaction contexts.
+        """
+        bot = self.client
+        retry_after = bot.rate_limiter.consume(interaction.user.id)
+        if retry_after is None:
+            return True
+        raise app_commands.CommandOnCooldown(
+            app_commands.Cooldown(bot.rate_limiter.rate, bot.rate_limiter.per), retry_after
+        )
+
+    async def on_error(
+        self, interaction: discord.Interaction[AhaBot], error: app_commands.AppCommandError
+    ) -> None:
+        if self.client.extra_events.get(f"on_{APP_COMMAND_ERROR_EVENT}"):
+            self.client.dispatch(APP_COMMAND_ERROR_EVENT, interaction, error)
+        else:
+            await super().on_error(interaction, error)

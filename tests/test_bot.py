@@ -191,6 +191,13 @@ def test_global_rate_limit_consumes_for_message_contexts() -> None:
     with pytest.raises(commands.CommandOnCooldown) as caught:
         asyncio.run(bot._enforce_rate_limit(as_context(ctx)))
     assert caught.value.retry_after == pytest.approx(60.0)
+    assert caught.value.cooldown is not None
+    assert (caught.value.cooldown.rate, caught.value.cooldown.per) == (1, 60.0)
+    assert caught.value.type is commands.BucketType.user
+
+    other = StubContext()
+    other.author = Named(id=44)
+    assert asyncio.run(bot._enforce_rate_limit(as_context(other))) is True
 
     clock.now += 61.0
 
@@ -215,6 +222,11 @@ def test_tree_interaction_check_enforces_the_shared_budget() -> None:
     with pytest.raises(app_commands.CommandOnCooldown) as caught:
         asyncio.run(bot.tree.interaction_check(interaction))
     assert caught.value.retry_after == pytest.approx(60.0)
+    assert caught.value.cooldown is not None
+    assert (caught.value.cooldown.rate, caught.value.cooldown.per) == (1, 60.0)
+
+    other = as_tree_interaction(StubInteraction(user_id=2))
+    assert asyncio.run(bot.tree.interaction_check(other)) is True
 
     clock.now += 61.0
 

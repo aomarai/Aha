@@ -21,14 +21,14 @@ NO_MENTIONS = discord.AllowedMentions.none()
 async def reply(
     ctx: commands.Context[commands.Bot], content: str | None = None, **kwargs: Any
 ) -> None:
-    """Reply to ``ctx`` with mentions disabled unless the caller overrides them.
+    """Reply to ``ctx`` with mentions disabled.
 
     Args:
         ctx: The invocation context to reply to.
         content: Message content, if any. Embed-only replies pass ``embed=``.
         **kwargs: Forwarded to :meth:`discord.ext.commands.Context.reply`.
     """
-    kwargs.setdefault("allowed_mentions", NO_MENTIONS)
+    kwargs["allowed_mentions"] = NO_MENTIONS
     await ctx.reply(content, **kwargs)
 
 
@@ -50,7 +50,7 @@ async def respond(
         ephemeral: Whether the response is visible only to the invoker.
         **kwargs: Forwarded to ``send_message`` / ``followup.send``.
     """
-    kwargs.setdefault("allowed_mentions", NO_MENTIONS)
+    kwargs["allowed_mentions"] = NO_MENTIONS
     if interaction.response.is_done():
         if content is None:
             await interaction.followup.send(ephemeral=ephemeral, **kwargs)
@@ -64,5 +64,5 @@ async def edit_message(
     interaction: discord.Interaction, content: str | None = None, **kwargs: Any
 ) -> None:
     """Edit the interaction's message with mentions disabled."""
-    kwargs.setdefault("allowed_mentions", NO_MENTIONS)
+    kwargs["allowed_mentions"] = NO_MENTIONS
     await interaction.response.edit_message(content=content, **kwargs)
