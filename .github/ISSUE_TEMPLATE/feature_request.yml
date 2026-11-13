@@ -1,0 +1,30 @@
+name: Feature request
+description: Suggest a command or improvement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the use case rather than the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to see?
+      description: Include an example of how it would be used.
+  - type: textarea
+    id: scale
+    attributes:
+      label: Does it need to remember anything?
+      description: >-
+        Aha runs as several processes and restarts on every deploy, so anything that must be
+        remembered (reminders, settings) needs the database work on the roadmap. Say what, and for how long.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked the [roadmap](https://github.com/aomarai/Aha/issues/20) and existing issues.
+          required: true

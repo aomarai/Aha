@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/aomarai/Aha/security/advisories/new
+    about: Please do not open a public issue for a security problem.
+  - name: Read the docs first
+    url: https://github.com/aomarai/Aha/blob/main/README.md
+    about: Setup, configuration and the command list.

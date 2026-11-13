@@ -1,0 +1,12 @@
+# Code owners. GitHub requests their review on matching changes, and with branch protection
+# ("Require review from Code Owners") it makes review of these paths mandatory. That matters most for
+# the files that define what CI checks: without it, a pull request can weaken a gate in the same
+# change it needs to pass.
+*                      @aomarai
+/.github/              @aomarai
+/Dockerfile            @aomarai
+/.trivyignore          @aomarai
+/scripts/              @aomarai
+/docs/adr/             @aomarai
+/deploy/               @aomarai
+/src/aha/net.py        @aomarai

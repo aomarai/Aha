@@ -21,6 +21,8 @@ for how a release is cut.
   context menu.
 - `/time` (with timezone autocomplete), `/8ball` and `/countdown`; the `tzdata` package so zones
   resolve in the distroless image.
+- `CONTRIBUTING.md`, `SECURITY.md`, a Code of Conduct, issue and pull request templates and
+  `CODEOWNERS`.
 - `aha --version`; build identity (`AHA_VERSION`, `AHA_COMMIT`) baked into the image.
 - Architecture decision record for horizontal scaling (`docs/adr/0001-runtime-architecture.md`).
 
