@@ -112,7 +112,7 @@ class StubInteraction:
         self.guild_id = 11
         self.channel_id = 22
         self.user = Named(id=user_id)
-        self.sent: list[tuple[str, str, dict[str, Any]]] = []
+        self.sent: list[tuple[str, str | None, dict[str, Any]]] = []
         self.edited: list[dict[str, Any]] = []
         outer = self
 
@@ -120,14 +120,14 @@ class StubInteraction:
             def is_done(self) -> bool:
                 return done
 
-            async def send_message(self, content: str, **kwargs: Any) -> None:
+            async def send_message(self, content: str | None, **kwargs: Any) -> None:
                 outer.sent.append(("response", content, kwargs))
 
             async def edit_message(self, **kwargs: Any) -> None:
                 outer.edited.append(kwargs)
 
         class _Followup:
-            async def send(self, content: str, **kwargs: Any) -> None:
+            async def send(self, content: str | None = None, **kwargs: Any) -> None:
                 outer.sent.append(("followup", content, kwargs))
 
         self.response = _Response()

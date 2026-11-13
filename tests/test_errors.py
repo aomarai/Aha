@@ -165,7 +165,11 @@ def test_app_cooldown_message() -> None:
     asyncio.run(_cog().on_app_command_error(as_interaction(interaction), error))
 
     assert interaction.sent == [
-        ("response", "That command is on cooldown. Try again in 4.0s.", {"ephemeral": True})
+        (
+            "response",
+            "That command is on cooldown. Try again in 4.0s.",
+            {"ephemeral": True, "allowed_mentions": NO_MENTIONS},
+        )
     ]
 
 
@@ -193,7 +197,7 @@ def test_app_unexpected_error_replies_and_logs_context(
         (
             "response",
             f"Something went wrong. If it keeps happening, quote error ID `{error_id}`.",
-            {"ephemeral": True},
+            {"ephemeral": True, "allowed_mentions": NO_MENTIONS},
         )
     ]
 
@@ -206,7 +210,11 @@ def test_app_error_uses_followup_when_response_already_sent() -> None:
     )
 
     assert interaction.sent == [
-        ("followup", "You're not allowed to use that command.", {"ephemeral": True})
+        (
+            "followup",
+            "You're not allowed to use that command.",
+            {"ephemeral": True, "allowed_mentions": NO_MENTIONS},
+        )
     ]
 
 

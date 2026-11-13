@@ -6,7 +6,7 @@ import discord
 from discord.ext import commands
 
 from aha.commands import hybrid_command
-from aha.replies import reply
+from aha.replies import edit_message, reply, respond
 
 __all__ = ["Help", "HelpPaginator", "paginate", "setup"]
 
@@ -58,13 +58,13 @@ class HelpPaginator(discord.ui.View):
         """Only the user who asked for help may flip its pages."""
         if interaction.user.id == self.owner_id:
             return True
-        await interaction.response.send_message("This help menu isn't yours.", ephemeral=True)
+        await respond(interaction, "This help menu isn't yours.", ephemeral=True)
         return False
 
     async def _show(self, interaction: discord.Interaction, index: int) -> None:
         self.index = index
         self._sync_buttons()
-        await interaction.response.edit_message(content=self.content(), view=self)
+        await edit_message(interaction, self.content(), view=self)
 
     @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
     async def previous_page(

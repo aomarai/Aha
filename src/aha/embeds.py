@@ -7,12 +7,10 @@ presents a consistent visual identity across all commands.
 Usage in a cog::
 
     from aha import embeds
-    from aha.replies import reply
+    from aha.replies import reply, respond
 
     await reply(ctx, embed=embeds.status(f"WebSocket latency: {ms} ms"))
-    await interaction.response.send_message(
-        embed=embeds.info("Done.", title="Result")
-    )
+    await respond(interaction, embed=embeds.info("Done.", title="Result"))
 
 The builders accept an optional ``title`` and a sequence of ``(name, value,
 inline)`` field tuples for structured content. All responses carry the bot's

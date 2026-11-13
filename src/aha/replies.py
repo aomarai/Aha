@@ -12,7 +12,7 @@ from typing import Any
 import discord
 from discord.ext import commands
 
-__all__ = ["NO_MENTIONS", "reply"]
+__all__ = ["NO_MENTIONS", "edit_message", "reply", "respond"]
 
 #: Reusable policy: never parse mentions in reply content.
 NO_MENTIONS = discord.AllowedMentions.none()
@@ -30,3 +30,39 @@ async def reply(
     """
     kwargs.setdefault("allowed_mentions", NO_MENTIONS)
     await ctx.reply(content, **kwargs)
+
+
+async def respond(
+    interaction: discord.Interaction,
+    content: str | None = None,
+    *,
+    ephemeral: bool = False,
+    **kwargs: Any,
+) -> None:
+    """Send an interaction response with mentions disabled.
+
+    Uses a followup when the interaction has already been acknowledged, which is
+    the same pattern the error handler needs.
+
+    Args:
+        interaction: The interaction to respond to.
+        content: Message content, if any. Embed-only responses pass ``embed=``.
+        ephemeral: Whether the response is visible only to the invoker.
+        **kwargs: Forwarded to ``send_message`` / ``followup.send``.
+    """
+    kwargs.setdefault("allowed_mentions", NO_MENTIONS)
+    if interaction.response.is_done():
+        if content is None:
+            await interaction.followup.send(ephemeral=ephemeral, **kwargs)
+        else:
+            await interaction.followup.send(content, ephemeral=ephemeral, **kwargs)
+    else:
+        await interaction.response.send_message(content, ephemeral=ephemeral, **kwargs)
+
+
+async def edit_message(
+    interaction: discord.Interaction, content: str | None = None, **kwargs: Any
+) -> None:
+    """Edit the interaction's message with mentions disabled."""
+    kwargs.setdefault("allowed_mentions", NO_MENTIONS)
+    await interaction.response.edit_message(content=content, **kwargs)

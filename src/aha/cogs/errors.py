@@ -18,7 +18,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from aha.replies import reply
+from aha.replies import reply, respond
 
 __all__ = ["Errors", "setup"]
 
@@ -74,7 +74,7 @@ class Errors(commands.Cog):
             log.debug("Ignoring unknown command from user %s", ctx.author.id)
             return
 
-        async def respond(message: str) -> None:
+        async def send_error(message: str) -> None:
             # ``ephemeral`` only means anything for interaction-based contexts;
             # message replies (mention invocations) are public either way.
             if ctx.interaction is not None:
@@ -88,7 +88,7 @@ class Errors(commands.Cog):
             guild_id=ctx.guild.id if ctx.guild else None,
             channel_id=ctx.channel.id,
             user_id=ctx.author.id,
-            respond=respond,
+            respond=send_error,
         )
 
     @commands.Cog.listener("on_app_command_error")
@@ -97,11 +97,8 @@ class Errors(commands.Cog):
     ) -> None:
         """Handle slash command failures forwarded by :class:`aha.bot.AhaTree`."""
 
-        async def respond(message: str) -> None:
-            if interaction.response.is_done():
-                await interaction.followup.send(message, ephemeral=True)
-            else:
-                await interaction.response.send_message(message, ephemeral=True)
+        async def send_error(message: str) -> None:
+            await respond(interaction, message, ephemeral=True)
 
         await self._handle(
             error,
@@ -109,7 +106,7 @@ class Errors(commands.Cog):
             guild_id=interaction.guild_id,
             channel_id=interaction.channel_id,
             user_id=interaction.user.id,
-            respond=respond,
+            respond=send_error,
         )
 
     async def _handle(

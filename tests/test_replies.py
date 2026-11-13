@@ -7,8 +7,13 @@ import asyncio
 import discord
 
 from aha import embeds
-from aha.replies import reply
-from tests.helpers import StubContext, as_context
+from aha.replies import edit_message, reply, respond
+from tests.helpers import (
+    StubContext,
+    StubInteraction,
+    as_context,
+    as_interaction,
+)
 
 
 def test_reply_disables_mentions_by_default() -> None:
@@ -23,6 +28,52 @@ def test_reply_disables_mentions_by_default() -> None:
     assert allowed.users is False
     assert allowed.roles is False
     assert allowed.replied_user is False
+
+
+def test_respond_sends_with_mentions_disabled() -> None:
+    interaction = StubInteraction()
+
+    asyncio.run(respond(as_interaction(interaction), "hi @everyone", ephemeral=True))
+
+    kind, content, kwargs = interaction.sent[0]
+    assert (kind, content) == ("response", "hi @everyone")
+    assert kwargs["ephemeral"] is True
+    assert kwargs["allowed_mentions"].everyone is False
+
+
+def test_respond_uses_a_followup_after_acknowledgement() -> None:
+    interaction = StubInteraction(done=True)
+
+    asyncio.run(respond(as_interaction(interaction), "later"))
+
+    kind, content, kwargs = interaction.sent[0]
+    assert kind == "followup"
+    assert content == "later"
+    assert kwargs["ephemeral"] is False
+    assert kwargs["allowed_mentions"].everyone is False
+
+
+def test_respond_forwards_embed_only_followups() -> None:
+    interaction = StubInteraction(done=True)
+    embed = embeds.info("x")
+
+    asyncio.run(respond(as_interaction(interaction), embed=embed))
+
+    kind, content, kwargs = interaction.sent[0]
+    assert (kind, content) == ("followup", None)
+    assert kwargs["embed"] is embed
+    assert kwargs["allowed_mentions"].everyone is False
+
+
+def test_edit_message_keeps_the_mention_policy() -> None:
+    interaction = StubInteraction()
+
+    asyncio.run(edit_message(as_interaction(interaction), "page 2", view=None))
+
+    (edited,) = interaction.edited
+    assert edited["content"] == "page 2"
+    assert edited["view"] is None
+    assert edited["allowed_mentions"].everyone is False
 
 
 def test_reply_keeps_an_explicit_mention_policy() -> None:

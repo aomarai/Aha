@@ -160,7 +160,8 @@ Discord shows and enforces at interaction time. Apply the decorators **below**
 async def example(ctx: commands.Context[commands.Bot]) -> None: ...
 ```
 
-Replies go through `aha.replies.reply`, which disables mentions, and a bot-wide
+Replies go through `aha.replies.reply` (or `respond`/`edit_message` for interaction
+responses), which disable mentions, and a bot-wide
 per-user budget (10 invocations per 10 s) applies to every command; `/help` and
 `/sync` also carry their own cooldowns. Permission and cooldown failures reply
 through the global error handler: ephemeral for slash invocations and a normal

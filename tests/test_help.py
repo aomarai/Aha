@@ -129,9 +129,9 @@ def test_next_and_previous_flip_pages_and_toggle_buttons() -> None:
     view, steps = asyncio.run(scenario())
 
     assert [s.edited for s in steps] == [
-        [{"content": "b\n\nPage 2/3", "view": view}],
-        [{"content": "c\n\nPage 3/3", "view": view}],
-        [{"content": "b\n\nPage 2/3", "view": view}],
+        [{"content": "b\n\nPage 2/3", "view": view, "allowed_mentions": NO_MENTIONS}],
+        [{"content": "c\n\nPage 3/3", "view": view, "allowed_mentions": NO_MENTIONS}],
+        [{"content": "b\n\nPage 2/3", "view": view, "allowed_mentions": NO_MENTIONS}],
     ]
     assert view.index == 1
     assert view.previous_page.disabled is False
@@ -165,7 +165,13 @@ def test_only_the_owner_may_use_the_buttons() -> None:
 
     assert owner_ok is True
     assert stranger_ok is False
-    assert stranger.sent == [("response", "This help menu isn't yours.", {"ephemeral": True})]
+    assert stranger.sent == [
+        (
+            "response",
+            "This help menu isn't yours.",
+            {"ephemeral": True, "allowed_mentions": NO_MENTIONS},
+        )
+    ]
 
 
 def test_help_has_a_per_user_cooldown() -> None:
