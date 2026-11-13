@@ -68,6 +68,10 @@ class StubContext:
         self.author = Named(id=33)
         #: Cached permissions as read by ``commands.has_permissions``.
         self.permissions = discord.Permissions.none()
+        #: ``None`` for message contexts; set it to model a hybrid slash invocation.
+        self.interaction: Any = None
+        #: ``ephemeral`` flags passed to :meth:`defer`.
+        self.deferred: list[bool] = []
         self.replies: list[tuple[str | None, dict[str, Any]]] = []
         self.fail_with: Exception | None = None
         self.reject_embeds = reject_embeds
@@ -78,6 +82,9 @@ class StubContext:
         if self.reject_embeds and content is None:
             raise http_error()
         self.replies.append((content, kwargs))
+
+    async def defer(self, *, ephemeral: bool = False) -> None:
+        self.deferred.append(ephemeral)
 
 
 class StubInteraction:

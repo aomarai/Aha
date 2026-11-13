@@ -46,6 +46,9 @@ class Meta(commands.Cog):
         ``prepare`` runs the ``commands.*`` checks on the slash path, so both
         surfaces are gated.
         """
+        # A global sync can outlast Discord's 3-second acknowledgement window,
+        # after which a reply would be rejected.
+        await ctx.defer(ephemeral=True)
         await self.bot.sync_commands()
         text = "Application commands synced."
         try:

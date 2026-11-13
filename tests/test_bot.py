@@ -137,6 +137,33 @@ def test_setup_hook_syncs_dev_guild_then_clears_globals(
     ]
 
 
+def test_sync_commands_keeps_globals_for_a_second_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _bot(dev_guild_id=123456789012345678)
+
+    async def fake_sync(**kwargs: Any) -> list[Any]:
+        return []
+
+    async def scenario() -> tuple[list[str], list[str], list[str]]:
+        await bot.load_extension("aha.cogs.meta")
+        monkeypatch.setattr(bot.tree, "sync", fake_sync)
+        before = [command.name for command in bot.tree.get_commands(guild=None)]
+        await bot.sync_commands()
+        after_first = [command.name for command in bot.tree.get_commands(guild=None)]
+        await bot.sync_commands()
+        after_second = [command.name for command in bot.tree.get_commands(guild=None)]
+        return before, after_first, after_second
+
+    before, after_first, after_second = asyncio.run(scenario())
+
+    # The dev-guild purge empties the local global tree to empty the remote set;
+    # it must restore it, or a later sync copies nothing and wipes the guild.
+    assert before == ["ping", "sync"]
+    assert after_first == before
+    assert after_second == before
+
+
 class _StubUser:
     id = 123456789
 

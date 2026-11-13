@@ -90,6 +90,7 @@ def test_sync_delegates_to_the_bot_and_reports_success(
     _run(cog, ctx, "sync")
 
     assert synced == ["sync"]
+    assert ctx.deferred == [True]
     content, kwargs = ctx.replies[0]
     assert content is None
     embed = kwargs["embed"]
@@ -113,6 +114,7 @@ def test_sync_falls_back_to_plain_text_when_embed_is_rejected(
     _run(cog, ctx, "sync")
 
     assert ctx.replies == [("Application commands synced.", {})]
+    assert ctx.deferred == [True]
 
 
 def test_sync_is_guild_only_and_requires_manage_guild() -> None:
