@@ -181,6 +181,12 @@ reply private. Guild-only is enforced by Discord for slash invocations and by th
 local check for mentions. `/sync` demonstrates the full pattern; `/ping`,
 `/roll`, and `/coin` carry cooldowns.
 
+## Architecture
+
+Design decisions live in [`docs/adr/`](docs/adr/). Start with
+[ADR 0001](docs/adr/0001-runtime-architecture.md), which covers how the bot scales horizontally
+(shard groups per pod, Postgres for shared state, command sync as a deploy step).
+
 ## Project layout
 
 ```

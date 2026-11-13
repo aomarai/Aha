@@ -41,6 +41,16 @@ removing or mutating the code under test fails the test.
 
 ## Architecture
 
+The target runtime architecture is recorded in
+[`docs/adr/0001-runtime-architecture.md`](docs/adr/0001-runtime-architecture.md): scale out by
+shard groups (one StatefulSet pod per disjoint block of shards), Postgres as the shared system of
+record, command sync as a deploy step. Follow it rather than re-deciding it in a PR. The invariant
+every change must keep:
+
+> **A handler must stay correct when the next interaction from the same user or guild lands on a
+> different pod, or after a restart.** Nothing that must survive lives only in process memory;
+> component `custom_id`s carry their own state.
+
 - `__main__.main()` loads `.env` from the **current directory only** (not parent dirs; real env
   vars win), builds `Settings`, configures logging, then runs `AhaBot` via `_serve` (not
   `bot.run()`): it owns the event loop so SIGTERM cancels `bot.start()` and closes the bot (POSIX only; SIGINT
