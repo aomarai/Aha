@@ -117,6 +117,8 @@ class AhaBot(commands.Bot):
             tree_cls=AhaTree,
         )
         self.settings = settings
+        #: Unix time the bot object was created, shown by ``/about`` as the start of its uptime.
+        self.started_at = time.time()
         #: Whether ``setup_hook`` starts the health server. ``aha sync`` passes False: a short
         #: REST-only Job must not listen on a port.
         self.health_server_enabled = health_server and settings.health_port != 0

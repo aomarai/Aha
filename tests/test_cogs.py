@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import platform
 from typing import Any, cast
 
+import discord
 import pytest
 from discord.ext import commands
 
@@ -12,7 +14,7 @@ from aha.bot import AhaBot
 from aha.cogs.meta import Meta
 from aha.cogs.meta import setup as meta_setup
 from aha.config import Settings
-from tests.helpers import StubContext, as_context, assert_reply
+from tests.helpers import Named, StubContext, as_context, assert_reply
 
 
 def _bot() -> AhaBot:
@@ -50,6 +52,96 @@ def test_ping_falls_back_to_plain_text_when_embed_is_rejected(
     _run(cog, ctx, "ping")
 
     assert_reply(ctx.replies, "WebSocket latency: 42 ms")
+
+
+@pytest.mark.parametrize("latency", [float("inf"), float("nan")])
+def test_ping_before_the_first_heartbeat_does_not_crash(
+    monkeypatch: pytest.MonkeyPatch, latency: float
+) -> None:
+    bot = _bot()
+    monkeypatch.setattr(type(bot), "latency", property(lambda self: latency))
+    ctx = StubContext()
+
+    _run(Meta(bot), ctx, "ping")
+
+    assert ctx.replies[0][1]["embed"].description == "WebSocket latency: n/a"
+
+
+def _about_bot(monkeypatch: pytest.MonkeyPatch) -> AhaBot:
+    bot = _bot()
+    bot.started_at = 1_700_000_000.9
+    monkeypatch.setattr(type(bot), "latency", property(lambda self: 0.042))
+    monkeypatch.setattr(type(bot), "guilds", property(lambda self: [Named(), Named(), Named()]))
+    monkeypatch.setenv("AHA_VERSION", "1.2.3")
+    monkeypatch.setenv("AHA_COMMIT", "0123456789abcdef")
+    return bot
+
+
+def test_about_reports_version_commit_uptime_and_this_processes_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = StubContext()
+
+    _run(Meta(_about_bot(monkeypatch)), ctx, "about")
+
+    content, kwargs = ctx.replies[0]
+    assert content is None
+    embed = kwargs["embed"]
+    assert embed.title == "About Aha"
+    assert embed.description == "Source: https://github.com/aomarai/Aha"
+    fields = [(f.name, f.value, f.inline) for f in embed.fields]
+    assert fields == [
+        ("Version", "v1.2.3", True),
+        ("Commit", "0123456", True),
+        ("Started", "<t:1700000000:R>", True),
+        ("Guilds (this process)", "3", True),
+        ("Shards (this process)", "0", True),
+        ("Latency", "42 ms", True),
+        ("Runtime", f"Python {platform.python_version()}, discord.py {discord.__version__}", True),
+    ]
+
+
+def test_about_renders_an_unknown_commit_and_an_unready_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _about_bot(monkeypatch)
+    monkeypatch.delenv("AHA_COMMIT")
+    monkeypatch.setattr(type(bot), "latency", property(lambda self: float("inf")))
+    ctx = StubContext()
+
+    _run(Meta(bot), ctx, "about")
+
+    values = {f.name: f.value for f in ctx.replies[0][1]["embed"].fields}
+    assert values["Commit"] == "unknown"
+    assert values["Latency"] == "n/a"
+
+
+def test_about_falls_back_to_plain_text_when_embed_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ctx = StubContext(reject_embeds=True)
+
+    _run(Meta(_about_bot(monkeypatch)), ctx, "about")
+
+    assert_reply(
+        ctx.replies,
+        "Version: v1.2.3\n"
+        "Commit: 0123456\n"
+        "Started: <t:1700000000:R>\n"
+        "Guilds (this process): 3\n"
+        "Shards (this process): 0\n"
+        "Latency: 42 ms\n"
+        f"Runtime: Python {platform.python_version()}, discord.py {discord.__version__}",
+    )
+
+
+def test_about_has_a_per_user_cooldown_and_works_in_direct_messages() -> None:
+    cooldown = Meta.about.cooldown
+    assert cooldown is not None
+    assert (cooldown.rate, cooldown.per) == (1, 10)
+    assert Meta.about._buckets.type is commands.BucketType.user
+    assert Meta.about.description == "Show the bot's version, uptime and status."
+    assert not any(check for check in Meta.about.checks)  # no guild-only or permission gate
 
 
 def test_ping_has_a_per_user_cooldown() -> None:
