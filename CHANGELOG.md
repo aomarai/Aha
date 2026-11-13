@@ -15,6 +15,8 @@ for how a release is cut.
   the bot token is masked in both formats.
 - Supervised background tasks (`TaskRegistry`) with failure logging, restart back-off and health.
 - Image build, smoke test and Trivy scan on every pull request; versioned images published to GHCR.
+- `/url`: a link preview that cannot be pointed at internal addresses (SSRF-safe fetcher in
+  `aha.net`: public addresses only, redirects re-validated, bounded time and size).
 - `/poll` (native Discord polls: Discord stores the votes) and a "Count reactions" message
   context menu.
 - `/time` (with timezone autocomplete), `/8ball` and `/countdown`; the `tzdata` package so zones

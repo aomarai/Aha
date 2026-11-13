@@ -13,6 +13,7 @@ from discord.ext import commands
 from aha import embeds
 from aha.commands import hybrid_command
 from aha.replies import reply
+from aha.textutil import code, plain
 
 __all__ = ["ANSWERS", "Fun", "format_offset", "setup", "timezone_names"]
 
@@ -67,17 +68,6 @@ def format_offset(offset: timedelta | None) -> str:
     return f"{'-' if total < 0 else '+'}{hours:02d}:{minutes:02d}"
 
 
-def _plain(text: str) -> str:
-    """Make user text safe to show as ordinary message text: no markdown, mentions or code."""
-    # Backticks go first: escaping them would leave a stray backslash behind.
-    return discord.utils.escape_markdown(discord.utils.escape_mentions(text.replace("`", "'")))
-
-
-def _code(text: str) -> str:
-    """Make user text safe to show inside an inline code span (which neutralises markdown)."""
-    return text.replace("`", "'")
-
-
 class Fun(commands.Cog):
     """Dice, coin, time, 8-ball and countdown commands."""
 
@@ -119,7 +109,7 @@ class Fun(commands.Cog):
         """Show the current time in ``tz`` (default UTC)."""
         name = self._zones.get(tz.strip().lower())
         if name is None:
-            hint = f"`{_code(tz.strip())[:40]}` is not a timezone I know. Try `Europe/Berlin`."
+            hint = f"`{code(tz.strip())[:40]}` is not a timezone I know. Try `Europe/Berlin`."
             await reply(ctx, embed=embeds.error(hint), ephemeral=True)
             return
         now = utcnow().astimezone(zoneinfo.ZoneInfo(name))
@@ -150,7 +140,7 @@ class Fun(commands.Cog):
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def eight_ball(self, ctx: commands.Context[commands.Bot], *, question: str) -> None:
         """Answer ``question`` with a random magic 8-ball reply."""
-        shown = _plain(question.strip())
+        shown = plain(question.strip())
         if len(shown) > _QUESTION_LIMIT:
             shown = shown[: _QUESTION_LIMIT - 1] + "…"
         text = f"> {shown}\n🎱 {random.choice(ANSWERS)}"
@@ -183,7 +173,7 @@ class Fun(commands.Cog):
             await reply(ctx, embed=embeds.error("That time has already passed."), ephemeral=True)
             return
         stamp = int(target.timestamp())
-        title = _plain(label.strip())[:_INPUT_LIMIT] or "Countdown"
+        title = plain(label.strip())[:_INPUT_LIMIT] or "Countdown"
         text = f"**{title}**: <t:{stamp}:R> (<t:{stamp}:F>)"
         try:
             await reply(ctx, embed=embeds.info(text))
