@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from aha import logctx
-from tests.helpers import StubContext, StubInteraction, as_context, as_interaction
+from tests.helpers import Named, StubContext, StubInteraction, as_context, as_interaction
 
 
 @pytest.fixture(autouse=True)
@@ -113,3 +113,22 @@ def test_a_value_bound_in_one_task_is_invisible_to_a_sibling_task() -> None:
 
     assert seen == {"a": {"user_id": 1}, "b": {"user_id": 2}}
     assert dict(logctx.current()) == {}
+
+
+def test_bind_interaction_derives_the_shard_for_an_uncached_guild() -> None:
+    interaction = StubInteraction(guild_cached=False)
+    interaction.guild_id = (5 << 22) + 123  # (guild_id >> 22) == 5, and 5 % 4 shards == 1
+
+    logctx.bind_interaction(as_interaction(interaction))
+
+    assert logctx.current()["shard_id"] == 1
+    assert logctx.current()["guild_id"] == (5 << 22) + 123
+
+
+def test_bind_interaction_assumes_one_shard_when_the_client_has_no_shard_count() -> None:
+    interaction = StubInteraction(guild_cached=False)
+    interaction.client = Named(shard_count=None)
+
+    logctx.bind_interaction(as_interaction(interaction))
+
+    assert logctx.current()["shard_id"] == 0

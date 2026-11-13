@@ -133,11 +133,18 @@ class StubInteraction:
     """
 
     def __init__(
-        self, *, done: bool = False, command: bool = True, user_id: int = 33, guild: bool = True
+        self,
+        *,
+        done: bool = False,
+        command: bool = True,
+        user_id: int = 33,
+        guild: bool = True,
+        guild_cached: bool = True,
     ) -> None:
         self.command = Named(qualified_name="ping") if command else None
         self.id = 777
-        self.guild = Named(id=11, shard_id=2) if guild else None
+        self.client = Named(shard_count=4)
+        self.guild = Named(id=11, shard_id=2) if guild and guild_cached else None
         self.guild_id = 11 if guild else None
         self.channel_id = 22
         self.user = Named(id=user_id)

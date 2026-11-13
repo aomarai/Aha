@@ -12,11 +12,13 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-__all__ = ["ConfigError", "Settings"]
+__all__ = ["LOG_FORMATS", "ConfigError", "Settings"]
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FORMAT = "text"
-_LOG_FORMATS = frozenset({"text", "json"})
+
+#: Supported ``LOG_FORMAT`` values.
+LOG_FORMATS = frozenset({"text", "json"})
 
 _TOKEN_ENV = "DISCORD_BOT_TOKEN"
 
@@ -82,7 +84,7 @@ class Settings:
             raise ConfigError(f"LOG_LEVEL must be a valid level name, got {log_level!r}")
 
         log_format = (source.get("LOG_FORMAT") or DEFAULT_LOG_FORMAT).strip().lower()
-        if log_format not in _LOG_FORMATS:
+        if log_format not in LOG_FORMATS:
             raise ConfigError(f"LOG_FORMAT must be 'text' or 'json', got {log_format!r}")
 
         dev_guild_id = _parse_optional_int(source.get("DEV_GUILD_ID"), name="DEV_GUILD_ID")

@@ -8,6 +8,7 @@ from typing import Any, cast
 import pytest
 from discord.ext import commands
 
+from aha import logctx
 from aha.cogs import help as help_module
 from aha.cogs.help import Help, HelpPaginator, paginate
 from aha.cogs.help import setup as help_setup
@@ -150,6 +151,19 @@ def test_last_page_disables_next() -> None:
 
     assert view.next_page.disabled is True
     assert view.previous_page.disabled is False
+
+
+def test_button_clicks_bind_the_log_context_even_for_a_stranger() -> None:
+    async def scenario() -> dict[str, object]:
+        view = HelpPaginator(["a", "b"], owner_id=1)
+        await view.interaction_check(as_interaction(StubInteraction(user_id=2)))
+        return dict(logctx.current())
+
+    context = asyncio.run(scenario())
+
+    assert context["user_id"] == 2
+    assert context["interaction_id"] == 777
+    assert context["guild_id"] == 11
 
 
 def test_only_the_owner_may_use_the_buttons() -> None:

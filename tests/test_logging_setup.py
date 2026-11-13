@@ -240,3 +240,35 @@ def test_static_fields_default_to_the_process_environment(monkeypatch: pytest.Mo
     monkeypatch.delenv("AHA_COMMIT", raising=False)
 
     assert static_fields_from_env() == {"pod": "from-environ"}
+
+
+def test_extra_fields_cannot_overwrite_authoritative_fields() -> None:
+    token = logctx.bind(user_id=3, command="ping")
+    try:
+        line = JsonFormatter(static={"pod": "aha-0"}).format(
+            _record(
+                "real message",
+                ts="spoofed",
+                level="spoofed",
+                logger="spoofed",
+                pod="spoofed",
+                user_id=999,
+            )
+        )
+    finally:
+        logctx.reset(token)
+
+    payload = json.loads(line)
+    assert payload["ts"] == "2023-11-14T22:13:20.123+00:00"
+    assert payload["level"] == "WARNING"
+    assert payload["logger"] == "aha.sample"
+    assert payload["msg"] == "real message"
+    assert payload["pod"] == "aha-0"
+    assert payload["user_id"] == 3
+
+
+def test_configure_logging_rejects_an_unsupported_format() -> None:
+    with pytest.raises(
+        ValueError, match=r"^log_format must be one of \['json', 'text'\], got 'JSON'$"
+    ):
+        configure_logging("INFO", log_format="JSON")

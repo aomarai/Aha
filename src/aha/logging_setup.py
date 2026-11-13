@@ -24,6 +24,7 @@ from logging.config import dictConfig
 from typing import Any, override
 
 from aha import logctx
+from aha.config import LOG_FORMATS
 
 __all__ = [
     "JsonFormatter",
@@ -96,8 +97,11 @@ class JsonFormatter(_MaskingMixin):
             "msg": record.getMessage(),
             **self._static,
             **logctx.current(),
-            **{key: value for key, value in vars(record).items() if key not in _RESERVED},
         }
+        # Caller extras can add fields but never replace the authoritative ones above.
+        for key, value in vars(record).items():
+            if key not in _RESERVED:
+                payload.setdefault(key, value)
         if record.exc_info:
             payload["exc"] = self.formatException(record.exc_info)
         elif record.exc_text:
@@ -119,10 +123,12 @@ def configure_logging(
 
     Args:
         level: Root log level name.
-        log_format: ``"text"`` or ``"json"``.
+        log_format: ``"text"`` or ``"json"``; anything else raises :class:`ValueError`.
         secrets: Strings (the bot token) that must never appear in the output.
         static: Fields added to every JSON record (see :func:`static_fields_from_env`).
     """
+    if log_format not in LOG_FORMATS:
+        raise ValueError(f"log_format must be one of {sorted(LOG_FORMATS)}, got {log_format!r}")
     formatter: dict[str, Any] = (
         {"()": JsonFormatter, "secrets": tuple(secrets), "static": dict(static or {})}
         if log_format == "json"

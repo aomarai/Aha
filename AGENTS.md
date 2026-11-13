@@ -92,7 +92,9 @@ every change must keep:
   `aha.replies.respond` / `edit_message`, which apply the same mention policy.
 - Logging: `aha.logctx` carries the per-invocation fields (`shard_id`, `guild_id`, `channel_id`,
   `user_id`, `interaction_id`/`message_id`, `command`) in a `ContextVar`, bound by
-  `AhaTree.interaction_check` (slash) and `AhaBot._enforce_rate_limit` (mentions); the JSON
+  `AhaTree.interaction_check` (slash), `AhaBot._enforce_rate_limit` (mentions) and a view's own
+  `interaction_check` (button clicks never pass the tree, so call `logctx.bind_interaction`
+  there); `TaskRegistry` runs spawned tasks in a clean context. The JSON
   formatter (`LOG_FORMAT=json`) adds them to every record, so do not repeat those ids in log
   messages. Structured extras go in `extra={...}`. Both formatters mask the bot token. Never log
   `settings.token` deliberately, and keep new log fields free of user-supplied free text.

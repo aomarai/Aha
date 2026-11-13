@@ -48,8 +48,15 @@ def bind_interaction(interaction: discord.Interaction[Any]) -> Token[Mapping[str
     """Bind the ids describing a slash (or component) interaction."""
     guild = interaction.guild
     command = interaction.command
+    if guild is not None:
+        shard_id = guild.shard_id
+    elif interaction.guild_id is not None:
+        # The guild is not cached; Discord assigns shards by ``(guild_id >> 22) % shard_count``.
+        shard_id = (interaction.guild_id >> 22) % (interaction.client.shard_count or 1)
+    else:
+        shard_id = _DM_SHARD_ID
     return bind(
-        shard_id=_DM_SHARD_ID if guild is None else guild.shard_id,
+        shard_id=shard_id,
         guild_id=interaction.guild_id,
         channel_id=interaction.channel_id,
         user_id=interaction.user.id,
