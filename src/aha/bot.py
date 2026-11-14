@@ -583,7 +583,14 @@ class AhaTree(app_commands.CommandTree[AhaBot]):
     ``CommandTree.on_error`` is a method, not an event, so a cog cannot hook it
     directly. Forwarding keeps the handler in a loadable cog. With no listener
     registered (cog unloaded) it falls back to discord.py's default logging.
+
+    Every command is installable by **servers only**. Discord otherwise gives a command whatever
+    install contexts the application allows in the Developer Portal, so declaring them here keeps
+    the bot server-only even if user installs are switched back on there.
     """
+
+    def __init__(self, client: AhaBot) -> None:
+        super().__init__(client, allowed_installs=app_commands.AppInstallationType(guild=True))
 
     async def interaction_check(self, interaction: discord.Interaction[AhaBot]) -> bool:
         """Apply the bot-wide per-user budget to slash invocations.

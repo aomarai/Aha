@@ -1158,3 +1158,20 @@ def test_mention_commands_are_on_by_default_and_the_setting_reaches_the_intents(
     quiet = _bot(mention_commands=False)
     assert (quiet.intents.guild_messages, quiet.intents.dm_messages) == (False, False)
     assert quiet.intents.guilds is True  # the guild cache and on_guild_remove still work
+
+
+def test_every_command_and_menu_is_installable_by_servers_only() -> None:
+    """Without this Discord uses the portal setting, which can include user installs."""
+    bot = _bot()
+
+    async def payloads() -> list[dict[str, Any]]:
+        for module in COG_MODULES:
+            await bot.load_extension(module)
+        return [command.to_dict(bot.tree) for command in bot.tree.get_commands()]
+
+    found = asyncio.run(payloads())
+
+    assert len(found) >= 20  # every slash command and context menu, nothing skipped
+    assert {tuple(payload["integration_types"]) for payload in found} == {(0,)}
+    assert bot.tree.allowed_installs.guild is True
+    assert bot.tree.allowed_installs.user is False
