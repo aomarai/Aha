@@ -46,6 +46,16 @@ class FakeJobs:
         return self.count
 
 
+class FakeUsage:
+    def __init__(self, count: int = 5) -> None:
+        self.count = count
+        self.users: list[int] = []
+
+    async def purge_user(self, user_id: int) -> int:
+        self.users.append(user_id)
+        return self.count
+
+
 class FakeSettings:
     def __init__(self, count: int = 2) -> None:
         self.count = count
@@ -57,16 +67,16 @@ class FakeSettings:
 
 
 def test_purge_user_clears_every_store_and_reports_the_counts() -> None:
-    jobs, settings = FakeJobs(3), FakeSettings(2)
+    jobs, settings, usage = FakeJobs(3), FakeSettings(2), FakeUsage(5)
 
-    result = asyncio.run(purge_user(jobs, settings, 33))
+    result = asyncio.run(purge_user(jobs, settings, usage, 33))
 
-    assert result == UserPurge(jobs=3, settings=2)
-    assert (jobs.users, settings.users) == ([33], [33])
+    assert result == UserPurge(jobs=3, settings=2, usage=5)
+    assert (jobs.users, settings.users, usage.users) == ([33], [33], [33])
 
 
 def test_the_purge_covers_the_tables_the_inventory_declares() -> None:
-    assert {"scheduled_jobs", "guild_settings"} == USER_TABLES
+    assert {"scheduled_jobs", "guild_settings", "summarize_usage"} == USER_TABLES
     assert {"scheduled_jobs", "guild_settings"} == GUILD_TABLES
 
 
@@ -166,13 +176,18 @@ def test_a_confirmed_click_deletes_the_invokers_data(monkeypatch: pytest.MonkeyP
         seen.append(db)
         return settings
 
+    def make_usage(db: Any) -> FakeUsage:
+        seen.append(db)
+        return FakeUsage()
+
     monkeypatch.setattr(forget_module, "JobStore", make_jobs)
     monkeypatch.setattr(forget_module, "GuildSettingsStore", make_settings)
+    monkeypatch.setattr(forget_module, "UsageStore", make_usage)
     interaction = interaction_with(FakeBot(db=database))
 
     click(ForgetButton(33, int(NOW) + 10), interaction)
 
-    assert seen == [database, database]  # both stores sit on the bot's own pool
+    assert seen == [database, database, database]  # all three stores sit on the bot's own pool
     assert (jobs.users, settings.users) == ([33], [33])
     (edited,) = interaction.edited
     assert edited["view"] is None  # the button is gone, so it cannot be pressed twice
@@ -186,6 +201,7 @@ def test_a_click_at_exactly_the_expiry_still_works(monkeypatch: pytest.MonkeyPat
     jobs, settings = FakeJobs(), FakeSettings()
     monkeypatch.setattr(forget_module, "JobStore", lambda db: jobs)
     monkeypatch.setattr(forget_module, "GuildSettingsStore", lambda db: settings)
+    monkeypatch.setattr(forget_module, "UsageStore", lambda db: FakeUsage())
     interaction = interaction_with(FakeBot(db=Named()))
 
     click(ForgetButton(33, int(NOW)), interaction)
@@ -197,6 +213,7 @@ def test_an_expired_confirmation_deletes_nothing(monkeypatch: pytest.MonkeyPatch
     jobs, settings = FakeJobs(), FakeSettings()
     monkeypatch.setattr(forget_module, "JobStore", lambda db: jobs)
     monkeypatch.setattr(forget_module, "GuildSettingsStore", lambda db: settings)
+    monkeypatch.setattr(forget_module, "UsageStore", lambda db: FakeUsage())
     interaction = interaction_with(FakeBot(db=Named()))
 
     click(ForgetButton(33, int(NOW) - 1), interaction)
@@ -270,6 +287,7 @@ def test_the_confirm_click_answers_in_german(monkeypatch: pytest.MonkeyPatch) ->
     jobs, settings = FakeJobs(2), FakeSettings(1)
     monkeypatch.setattr(forget_module, "JobStore", lambda db: jobs)
     monkeypatch.setattr(forget_module, "GuildSettingsStore", lambda db: settings)
+    monkeypatch.setattr(forget_module, "UsageStore", lambda db: FakeUsage())
     interaction = interaction_with(FakeBot(db=Named()))
     interaction.locale = discord.Locale.german
 

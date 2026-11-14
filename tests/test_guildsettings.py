@@ -25,6 +25,9 @@ class FakeBackend:
     async def set_log_channel(self, guild_id: int, channel_id: int | None, by: int) -> None:
         self.calls.append(("log", guild_id, channel_id, by))
 
+    async def set_summaries(self, guild_id: int, enabled: bool, by: int) -> None:
+        self.calls.append(("summaries", guild_id, enabled, by))
+
     async def disable(self, guild_id: int, command: str, by: int) -> None:
         self.calls.append(("disable", guild_id, command, by))
 
@@ -103,6 +106,7 @@ def test_every_write_reaches_the_store_and_drops_the_cached_entry() -> None:
     cache = GuildSettingsCache(backend)
     writes = [
         (cache.set_log_channel(5, 9, 7), ("log", 5, 9, 7)),
+        (cache.set_summaries(5, True, 7), ("summaries", 5, True, 7)),
         (cache.disable(5, "roll", 7), ("disable", 5, "roll", 7)),
         (cache.enable(5, "roll", 7), ("enable", 5, "roll", 7)),
     ]
@@ -122,11 +126,18 @@ def test_writing_before_anything_was_cached_is_fine() -> None:
     cache = GuildSettingsCache(backend)
 
     asyncio.run(cache.set_log_channel(5, 9, 7))
+    asyncio.run(cache.set_summaries(5, True, 7))
     asyncio.run(cache.disable(5, "roll", 7))
     asyncio.run(cache.enable(5, "roll", 7))
     asyncio.run(cache.delete(5))
 
-    assert [call[0] for call in backend.calls] == ["log", "disable", "enable", "delete"]
+    assert [call[0] for call in backend.calls] == [
+        "log",
+        "summaries",
+        "disable",
+        "enable",
+        "delete",
+    ]
 
 
 def test_delete_removes_the_row_and_the_cached_entry() -> None:

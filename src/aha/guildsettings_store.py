@@ -21,6 +21,8 @@ class GuildSettings:
     locale: str | None = None
     disabled_commands: frozenset[str] = field(default_factory=frozenset)
     log_channel_id: int | None = None
+    #: Whether ``/summarize`` may send text from this server to the model API (off by default).
+    summaries_enabled: bool = False
 
 
 class GuildSettingsStore:
@@ -33,7 +35,8 @@ class GuildSettingsStore:
         """The guild's row, or ``None`` when it has never changed a setting."""
         async with self._db.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT locale, disabled_commands, log_channel_id FROM guild_settings "
+                "SELECT locale, disabled_commands, log_channel_id, summaries_enabled "
+                "FROM guild_settings "
                 "WHERE guild_id = $1",
                 guild_id,
             )
@@ -44,6 +47,7 @@ class GuildSettingsStore:
             locale=row["locale"],
             disabled_commands=frozenset(row["disabled_commands"]),
             log_channel_id=row["log_channel_id"],
+            summaries_enabled=row["summaries_enabled"],
         )
 
     async def set_log_channel(self, guild_id: int, channel_id: int | None, by: int) -> None:
@@ -55,6 +59,18 @@ class GuildSettingsStore:
                 "SET log_channel_id = $2, updated_by = $3, updated_at = now()",
                 guild_id,
                 channel_id,
+                by,
+            )
+
+    async def set_summaries(self, guild_id: int, enabled: bool, by: int) -> None:
+        """Turn ``/summarize`` on or off for the guild."""
+        async with self._db.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO guild_settings (guild_id, summaries_enabled, updated_by) "
+                "VALUES ($1, $2, $3) ON CONFLICT (guild_id) DO UPDATE "
+                "SET summaries_enabled = $2, updated_by = $3, updated_at = now()",
+                guild_id,
+                enabled,
                 by,
             )
 

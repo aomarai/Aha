@@ -13,7 +13,7 @@ from typing import Protocol
 __all__ = ["GUILD_TABLES", "USER_TABLES", "UserPurge", "purge_user"]
 
 #: Tables :func:`purge_user` clears (those with a user column in the data inventory).
-USER_TABLES = frozenset({"scheduled_jobs", "guild_settings"})
+USER_TABLES = frozenset({"scheduled_jobs", "guild_settings", "summarize_usage"})
 
 #: Tables the departed-guild purge clears (those with a guild column in the data inventory).
 GUILD_TABLES = frozenset({"scheduled_jobs", "guild_settings"})
@@ -29,6 +29,11 @@ class _Settings(Protocol):
         """Remove a user's id from server settings."""
 
 
+class _Usage(Protocol):
+    async def purge_user(self, user_id: int) -> int:
+        """Delete a user's summary counters."""
+
+
 @dataclass(frozen=True, slots=True)
 class UserPurge:
     """What a deletion removed."""
@@ -37,10 +42,14 @@ class UserPurge:
     jobs: int
     #: Server-settings records whose "last changed by" was your id, now anonymised.
     settings: int
+    #: Daily ``/summarize`` counters deleted.
+    usage: int
 
 
-async def purge_user(jobs: _Jobs, settings: _Settings, user_id: int) -> UserPurge:
+async def purge_user(jobs: _Jobs, settings: _Settings, usage: _Usage, user_id: int) -> UserPurge:
     """Delete everything stored about ``user_id`` and report how much there was."""
     return UserPurge(
-        jobs=await jobs.purge_user(user_id), settings=await settings.anonymise_user(user_id)
+        jobs=await jobs.purge_user(user_id),
+        settings=await settings.anonymise_user(user_id),
+        usage=await usage.purge_user(user_id),
     )

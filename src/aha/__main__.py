@@ -142,7 +142,11 @@ def _bootstrap() -> Settings | None:
     configure_logging(
         settings.log_level,
         log_format=settings.log_format,
-        secrets=(settings.token,),
+        secrets=tuple(
+            secret
+            for secret in (settings.token, settings.anthropic_api_key, settings.database_url)
+            if secret
+        ),
         static=static_fields_from_env(),
     )
     return settings

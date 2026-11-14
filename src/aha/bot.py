@@ -60,6 +60,7 @@ COG_MODULES: tuple[str, ...] = (
     "aha.cogs.remind",
     "aha.cogs.config",
     "aha.cogs.forget",
+    "aha.cogs.summarize",
     "aha.cogs.observability",
 )
 

@@ -20,6 +20,10 @@ for how a release is cut.
 - `/remind`, `/reminders`, `/unremind`: reminders stored in PostgreSQL and delivered by whichever
   pod runs the scheduler (needs `DATABASE_URL`). Delivery pings only the invoker, falls back to a
   DM, and drops the reminder if neither works. Limits: 25 per user, 1 year ahead, 1,000 characters.
+- `/summarize` and a "Summarize" message menu (Claude API): off in every server until an admin runs
+  `/configure summaries on`, unavailable without `ANTHROPIC_API_KEY`, a per-user daily quota that is
+  refunded when the model call fails, bounded input and output, the text sent as data, answers shown
+  privately as plain text, token metrics, and only counters stored (deleted by `/forgetme`).
 - Translations (`aha.i18n`, `docs/i18n.md`): a JSON message catalogue with safe fallbacks, localized
   command names and descriptions sent by `aha sync`, and German as the first language; `/ping` and
   `/coin`, every error reply, reminders, server settings and `/forgetme` use the user's Discord

@@ -34,6 +34,9 @@ class FakeSettings:
     async def set_log_channel(self, guild_id: int, channel_id: int | None, by: int) -> None:
         self.calls.append(("log", guild_id, channel_id, by))
 
+    async def set_summaries(self, guild_id: int, enabled: bool, by: int) -> None:
+        self.calls.append(("summaries", guild_id, enabled, by))
+
     async def disable(self, guild_id: int, command: str, by: int) -> None:
         self.calls.append(("disable", guild_id, command, by))
 
@@ -123,7 +126,7 @@ def test_config_shows_the_defaults() -> None:
 
     asyncio.run(cast("Any", cog.config.callback)(cog, as_context(ctx)))
 
-    assert text(ctx) == "**Log channel:** not set\n**Disabled commands:** none"
+    assert text(ctx) == "**Log channel:** not set\n**Disabled commands:** none\n**Summaries:** off"
     assert settings.calls == [("get", 11)]
 
 
@@ -136,7 +139,10 @@ def test_config_shows_what_is_set() -> None:
 
     asyncio.run(cast("Any", cog.config.callback)(cog, as_context(ctx)))
 
-    assert text(ctx) == "**Log channel:** <#99>\n**Disabled commands:** `coin`, `roll`"
+    assert (
+        text(ctx)
+        == "**Log channel:** <#99>\n**Disabled commands:** `coin`, `roll`\n**Summaries:** off"
+    )
 
 
 def test_config_without_a_database_says_so() -> None:
@@ -388,12 +394,13 @@ def test_config_speaks_german_to_a_german_client() -> None:
     cog = make(FakeSettings(GuildSettings(11, disabled_commands=frozenset({"roll"}))))
     ctx = german(ctx_for(cast("Any", cog.bot)))
     asyncio.run(cast("Any", cog.config.callback)(cog, as_context(ctx)))
-    assert text(ctx) == "**Log-Kanal:** nicht gesetzt\n**Deaktivierte Befehle:** `roll`"
+    channel, disabled = "**Log-Kanal:** nicht gesetzt", "**Deaktivierte Befehle:**"
+    assert text(ctx) == f"{channel}\n{disabled} `roll`\n**Zusammenfassungen:** aus"
 
     cog = make(FakeSettings())
     ctx = german(ctx_for(cast("Any", cog.bot)))
     asyncio.run(cast("Any", cog.config.callback)(cog, as_context(ctx)))
-    assert text(ctx) == "**Log-Kanal:** nicht gesetzt\n**Deaktivierte Befehle:** keine"
+    assert text(ctx) == f"{channel}\n{disabled} keine\n**Zusammenfassungen:** aus"
 
     cog = make(None)
     ctx = german(ctx_for(cast("Any", cog.bot)))
@@ -422,3 +429,55 @@ def test_configure_confirmations_and_refusals_speak_german() -> None:
     ctx = german(ctx_for(cast("Any", cog.bot), channels={55: FakeChannel(55)}))
     configure(cog, ctx, "log-channel", "55")
     assert text(ctx) == "Log-Kanal gesetzt."
+
+
+def test_summaries_are_switched_on_and_off_per_server() -> None:
+    for answer, expected, enabled in (
+        (
+            "on",
+            "Summaries are on for this server. "
+            "Text people ask to summarize is sent to the Claude API.",
+            True,
+        ),
+        ("OFF", "Summaries are off for this server.", False),
+    ):
+        settings = FakeSettings()
+        cog = make(settings)
+        ctx = ctx_for(cast("Any", cog.bot))
+
+        configure(cog, ctx, "summaries", f" {answer} ")
+
+        assert settings.calls == [("summaries", 11, enabled, 33)]
+        assert text(ctx) == expected
+
+
+def test_anything_but_on_or_off_is_refused_for_summaries() -> None:
+    settings = FakeSettings()
+    cog = make(settings)
+    ctx = ctx_for(cast("Any", cog.bot))
+
+    configure(cog, ctx, "summaries", "maybe")
+
+    assert settings.calls == []
+    assert text(ctx) == "Say `on` or `off`."
+
+
+def test_the_view_shows_when_summaries_are_on() -> None:
+    cog = make(FakeSettings(GuildSettings(11, summaries_enabled=True)))
+    ctx = ctx_for(cast("Any", cog.bot))
+
+    asyncio.run(cast("Any", cog.config.callback)(cog, as_context(ctx)))
+
+    assert text(ctx).endswith("**Summaries:** on")
+
+
+def test_summaries_switch_in_german() -> None:
+    cog = make(FakeSettings())
+    ctx = german(ctx_for(cast("Any", cog.bot)))
+    configure(cog, ctx, "summaries", "on")
+    assert text(ctx).startswith("Zusammenfassungen sind für diesen Server eingeschaltet.")
+
+    cog = make(FakeSettings())
+    ctx = german(ctx_for(cast("Any", cog.bot)))
+    configure(cog, ctx, "summaries", "x")
+    assert text(ctx) == "Sag `on` oder `off`."

@@ -253,6 +253,7 @@ Aha/
 │       ├── observability.py # counts command outcomes and durations
 │       ├── web.py       # /url link preview
 │       ├── config.py    # /config, /configure (per-server settings, needs DATABASE_URL)
+│       ├── summarize.py # /summarize and the Summarize menu (Claude API, opt-in per server)
 │       ├── forget.py    # /forgetme (delete your data, with a confirm button)
 │       ├── remind.py    # /remind, /reminders, /unremind (durable, needs DATABASE_URL)
 │       ├── polls.py     # /poll (native Discord polls), Count reactions menu
@@ -288,6 +289,9 @@ Real environment variables take precedence over `.env`.
 | `HEALTH_PORT`       | no       | `8080`  | Port of the health/metrics server; `0` disables it |
 | `SHARD_COUNT`       | no       | –       | Total gateway shards; unset lets Discord choose (single process only). See [docs/sharding.md](docs/sharding.md) |
 | `SHARD_IDS`         | no       | all     | Shards this process owns, e.g. `0,1` (needs `SHARD_COUNT`) |
+| `ANTHROPIC_API_KEY` | no | – | Enables `/summarize` (or `ANTHROPIC_API_KEY_FILE`; set at most one). Off per server until an admin runs `/configure summaries on` |
+| `ANTHROPIC_MODEL` | no | `claude-haiku-5-5` | Model used for summaries |
+| `SUMMARIZE_DAILY_QUOTA`, `SUMMARIZE_MAX_CHARS` | no | `10`, `4000` | Summaries per user per UTC day (1-1000); characters sent to the model (100-20000) |
 | `SESSION_START_FLOOR` | no     | `0.1`   | Wait for Discord's reset instead of identifying when fewer than this fraction of the daily gateway sessions remain (`0` disables); see [the runbook](docs/runbooks/session-budget.md) |
 | `SHARDS_PER_POD`, `POD_INDEX` | no | – | Derive `SHARD_IDS` from a StatefulSet ordinal instead (needs `SHARD_COUNT`) |
 

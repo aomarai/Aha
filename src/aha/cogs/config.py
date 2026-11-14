@@ -85,7 +85,8 @@ class Config(commands.Cog):
         disabled = ", ".join(_span(name) for name in sorted(current.disabled_commands)) or t(
             "config.none", locale
         )
-        text = t("config.view", locale, channel=channel, disabled=disabled)
+        summaries = t("config.on" if current.summaries_enabled else "config.off", locale)
+        text = t("config.view", locale, channel=channel, disabled=disabled, summaries=summaries)
         await reply(ctx, embed=embeds.info(text), ephemeral=True)
 
     @hybrid_command(
@@ -95,7 +96,7 @@ class Config(commands.Cog):
     )
     @app_commands.describe(
         setting="What to change.",
-        value="A channel for log-channel (or off), a command name for disable and enable.",
+        value="A channel (or off), a command for disable/enable, or on/off for summaries.",
     )
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.checks.has_permissions(manage_guild=True)
@@ -105,7 +106,7 @@ class Config(commands.Cog):
     async def configure(
         self,
         ctx: commands.Context[commands.Bot],
-        setting: Literal["log-channel", "disable", "enable"],
+        setting: Literal["log-channel", "disable", "enable", "summaries"],
         value: str,
     ) -> None:
         """Change one setting. Only members with Manage Server get this far."""
@@ -123,6 +124,13 @@ class Config(commands.Cog):
                 return
             await settings.set_log_channel(guild.id, channel_id, by)
             done = t("config.log_cleared" if channel_id is None else "config.log_set", locale)
+        elif setting == "summaries":
+            answer = text.lower()
+            if answer not in ("on", "off"):
+                await reply(ctx, embed=embeds.error(t("config.bad_toggle", locale)), ephemeral=True)
+                return
+            await settings.set_summaries(guild.id, answer == "on", by)
+            done = t("config.summaries_on" if answer == "on" else "config.summaries_off", locale)
         else:
             name = text.lstrip("/").lower()
             if name in PROTECTED_COMMANDS:

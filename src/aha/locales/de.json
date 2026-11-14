@@ -25,7 +25,7 @@
     "config.unavailable": "Servereinstellungen sind nicht verfügbar: Es ist keine Datenbank konfiguriert.",
     "config.not_set": "nicht gesetzt",
     "config.none": "keine",
-    "config.view": "**Log-Kanal:** {channel}\n**Deaktivierte Befehle:** {disabled}",
+    "config.view": "**Log-Kanal:** {channel}\n**Deaktivierte Befehle:** {disabled}\n**Zusammenfassungen:** {summaries}",
     "config.bad_channel": "Gib einen Textkanal dieses Servers an, oder `off`.",
     "config.log_set": "Log-Kanal gesetzt.",
     "config.log_cleared": "Log-Kanal entfernt.",
@@ -70,7 +70,19 @@
     "8ball.answer.16": "Meine Antwort ist nein.",
     "8ball.answer.17": "Meine Quellen sagen nein.",
     "8ball.answer.18": "Die Aussichten sind nicht so gut.",
-    "8ball.answer.19": "Sehr zweifelhaft."
+    "8ball.answer.19": "Sehr zweifelhaft.",
+    "summarize.title": "Zusammenfassung",
+    "summarize.unavailable": "Zusammenfassungen sind nicht verfügbar: Es ist kein API-Schlüssel für das Modell konfiguriert.",
+    "summarize.guild_only": "Zusammenfassungen funktionieren nur auf Servern.",
+    "summarize.disabled": "Zusammenfassungen sind auf diesem Server aus. Ein Server-Admin kann sie mit `/configure summaries on` einschalten.",
+    "summarize.empty": "Es gibt keinen Text zum Zusammenfassen.",
+    "summarize.quota": "Du hast heute (UTC) alle {quota} Zusammenfassungen verbraucht. Versuche es morgen wieder.",
+    "summarize.failed": "Ich konnte gerade keine Zusammenfassung erstellen. Sie wurde nicht auf dein Tageslimit angerechnet.",
+    "config.on": "an",
+    "config.off": "aus",
+    "config.bad_toggle": "Sag `on` oder `off`.",
+    "config.summaries_on": "Zusammenfassungen sind für diesen Server eingeschaltet. Text, den Leute zusammenfassen lassen, wird an die Claude-API gesendet.",
+    "config.summaries_off": "Zusammenfassungen sind für diesen Server ausgeschaltet."
   },
   "commands": {
     "Check the bot's WebSocket latency.": "Prüft die WebSocket-Latenz des Bots.",
@@ -86,6 +98,7 @@
     "Cancel one of your reminders.": "Löscht eine deiner Erinnerungen.",
     "Delete everything Aha stores about you.": "Löscht alles, was Aha über dich speichert.",
     "Show this server's settings.": "Zeigt die Einstellungen dieses Servers.",
-    "Change a server setting.": "Ändert eine Servereinstellung."
+    "Change a server setting.": "Ändert eine Servereinstellung.",
+    "Summarize a piece of text (off until a server admin enables it).": "Fasst einen Text zusammen (aus, bis ein Server-Admin es aktiviert)."
   }
 }

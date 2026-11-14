@@ -33,6 +33,7 @@ from aha.dbmigrate import (
 from aha.guildsettings_store import GuildSettings, GuildSettingsStore
 from aha.identify import IdentifyCoordinator
 from aha.jobstore import JobStore
+from aha.summarize_store import UsageStore
 
 URL = os.environ.get("AHA_TEST_DATABASE_URL")
 
@@ -431,9 +432,14 @@ async def test_forgetme_removes_every_row_belonging_to_the_user(
     await settings_store.disable(2, "roll", by=7)
     await settings_store.disable(3, "roll", by=8)
 
-    result = await purge_user(store, settings_store, 7)
+    usage = UsageStore(store._db)
+    await usage.consume(7, 10)
+    await usage.consume(8, 10)
 
-    assert result == UserPurge(jobs=2, settings=2)
+    result = await purge_user(store, settings_store, usage, 7)
+
+    assert result == UserPurge(jobs=2, settings=2, usage=1)
+    assert await usage.consume(8, 1) is None  # the other user's counter survived
     assert await store.count("reminder", 7) == 0
     assert [job.id for job in await store.list_for_user("reminder", 8, 10)] == [keep]
     async with store._db.acquire() as conn:
@@ -441,3 +447,54 @@ async def test_forgetme_removes_every_row_belonging_to_the_user(
     assert [(r["guild_id"], r["updated_by"]) for r in rows] == [(1, 0), (2, 0), (3, 8)]
     # the settings themselves survive; only the person is forgotten
     assert (await settings_store.get(1)) == GuildSettings(1, log_channel_id=5)
+
+
+async def test_the_daily_quota_is_atomic_and_refundable(store: JobStore) -> None:
+    usage = UsageStore(store._db)
+
+    assert [await usage.consume(7, 2) for _ in range(3)] == [1, 2, None]  # the third is refused
+    assert await usage.consume(8, 2) == 1  # another user has their own count
+
+    await usage.refund(7)
+    assert await usage.consume(7, 2) == 2  # the refunded one can be used again
+    await usage.refund(99)  # refunding a user with no row changes nothing
+
+
+async def test_concurrent_requests_cannot_overspend_the_quota(store: JobStore) -> None:
+    usage = UsageStore(store._db)
+
+    results = await asyncio.gather(*(usage.consume(7, 3) for _ in range(10)))
+
+    assert sorted(r for r in results if r is not None) == [1, 2, 3]
+    assert results.count(None) == 7
+
+
+async def test_old_counters_are_dropped_and_a_users_counters_can_be_purged(
+    store: JobStore,
+) -> None:
+    usage = UsageStore(store._db)
+    async with store._db.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO summarize_usage (user_id, day, used) VALUES "
+            "(7, (now() AT TIME ZONE 'utc')::date - 30, 5), "
+            "(8, (now() AT TIME ZONE 'utc')::date - 30, 5)"
+        )
+
+    await usage.consume(7, 10)  # drops this user's old rows on the way
+
+    async with store._db.acquire() as conn:
+        rows = await conn.fetch("SELECT user_id, used FROM summarize_usage ORDER BY user_id")
+    assert [(r["user_id"], r["used"]) for r in rows] == [(7, 1), (8, 5)]
+    assert await usage.purge_user(7) == 1
+    assert await usage.purge_user(7) == 0
+
+
+async def test_the_summaries_switch_defaults_off_and_is_stored_per_guild(
+    settings_store: GuildSettingsStore,
+) -> None:
+    assert await settings_store.get(5) is None
+    await settings_store.set_summaries(5, True, by=1)
+    assert (await settings_store.get(5)) == GuildSettings(5, summaries_enabled=True)
+    await settings_store.set_summaries(5, False, by=1)
+    assert (await settings_store.get(5)) == GuildSettings(5)
+    assert await settings_store.get(6) is None
