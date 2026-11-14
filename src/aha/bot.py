@@ -280,6 +280,11 @@ class AhaBot(commands.AutoShardedBot):
             log.info("Owning every shard (the count is chosen by Discord)")
         else:
             log.info("Owning shards %s of %s", sorted(self.shard_ids), self.shard_count)
+        # Up before anything that can wait (the session-budget guard may sleep until Discord's daily
+        # reset): the liveness probe must keep answering, and readiness correctly says "not ready".
+        if self.health_server_enabled and HEALTH_TASK not in self.tasks:
+            server = HealthServer(self, self.settings.health_bind, self.settings.health_port)
+            self.tasks.spawn(server.run, name=HEALTH_TASK, restart=True, critical=True)
         if self.gateway_enabled:
             await self._guard_session_budget()
         if self.use_database and self.settings.database_url is not None:
@@ -299,9 +304,6 @@ class AhaBot(commands.AutoShardedBot):
             log.info("Command sync skipped at startup (run 'aha sync')")
         if self.scheduler is not None and SCHEDULER_TASK not in self.tasks:
             self.tasks.spawn(self.scheduler.run, name=SCHEDULER_TASK, restart=True, critical=True)
-        if self.health_server_enabled and HEALTH_TASK not in self.tasks:
-            server = HealthServer(self, self.settings.health_bind, self.settings.health_port)
-            self.tasks.spawn(server.run, name=HEALTH_TASK, restart=True, critical=True)
         if WATCHDOG_TASK not in self.tasks:
             self.tasks.spawn(self._watch_gateway, name=WATCHDOG_TASK, restart=True, critical=True)
 
