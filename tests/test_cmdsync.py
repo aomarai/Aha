@@ -130,17 +130,21 @@ def test_nsfw_default_member_permissions_and_localizations_are_compared() -> Non
         assert _diff([local], [_remote(local)]).unchanged is True, field
 
 
-def test_default_contexts_and_installs_equal_unset_ones() -> None:
-    remote = _remote(_PING, contexts=[0, 1, 2], integration_types=[0])
+def test_default_contexts_equal_unset_ones_and_undeclared_installs_follow_discord() -> None:
+    # A command that does not declare install contexts gets the application's configured ones
+    # (live: [0, 1]), so whatever Discord holds is not a difference.
+    for installs in ([0], [1], [0, 1]):
+        remote = _remote(_PING, contexts=[0, 1, 2], integration_types=installs)
+        assert _diff([_PING], [remote]).unchanged is True, installs
 
-    assert _diff([_PING], [remote]).unchanged is True
 
-
-def test_non_default_contexts_and_installs_are_changes() -> None:
+def test_non_default_contexts_and_declared_installs_are_changes() -> None:
     assert _diff([_PING], [_remote(_PING, contexts=[0])]) == CommandDiff(changed=("ping",))
-    assert _diff([_PING], [_remote(_PING, integration_types=[0, 1])]) == CommandDiff(
+    declared = {**_PING, "integration_types": [0]}
+    assert _diff([declared], [_remote(_PING, integration_types=[0, 1])]) == CommandDiff(
         changed=("ping",)
     )
+    assert _diff([declared], [_remote(declared)]).unchanged is True
     explicit = {**_PING, "contexts": [0, 1], "integration_types": [1]}
     assert _diff([explicit], [_remote(_PING)]) == CommandDiff(changed=("ping",))
     assert _diff([explicit], [_remote(explicit)]).unchanged is True
@@ -181,7 +185,7 @@ def test_local_signature_fills_defaults_for_a_minimal_payload() -> None:
         "nsfw": False,
         "default_member_permissions": None,
         "contexts": [0, 1, 2],
-        "integration_types": [0],
+        "integration_types": None,
         "name_localizations": {},
         "description_localizations": {},
     }
@@ -191,10 +195,8 @@ def test_the_private_channel_context_and_the_guild_install_are_not_lost() -> Non
     # discord.py's AppCommand parsing drops both; raw payloads must keep them.
     remote = _remote(_PING, contexts=[0, 1, 2], integration_types=[0, 1])
 
-    assert _diff([_PING], [remote]) == CommandDiff(changed=("ping",))
-    assert _diff([{**_PING, "contexts": [0, 1], "integration_types": [0, 1]}], [remote]) == (
-        CommandDiff(changed=("ping",))
-    )
+    assert _diff([{**_PING, "contexts": [0, 1]}], [remote]) == CommandDiff(changed=("ping",))
+    assert _diff([{**_PING, "integration_types": [0]}], [remote]) == CommandDiff(changed=("ping",))
     full = {**_PING, "contexts": [0, 1, 2], "integration_types": [0, 1]}
     assert _diff([full], [_remote(full)]).unchanged is True
 
@@ -204,7 +206,7 @@ def test_remote_signature_reports_permissions_as_an_integer() -> None:
 
     assert signature["default_member_permissions"] == 32
     assert signature["contexts"] == [0, 1, 2]
-    assert signature["integration_types"] == [0]
+    assert signature["integration_types"] is None
 
 
 def test_missing_keys_default_the_same_way_on_both_sides() -> None:
@@ -227,7 +229,7 @@ def test_a_remote_payload_without_optional_keys_matches_the_defaults() -> None:
         "nsfw": False,
         "default_member_permissions": None,
         "contexts": [0, 1, 2],
-        "integration_types": [0],
+        "integration_types": None,
         "name_localizations": {},
         "description_localizations": {},
     }

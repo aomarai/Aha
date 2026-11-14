@@ -46,13 +46,17 @@ class FakeHttp:
         self.guild_commands = guild_commands or []
         self.calls: list[tuple[str, int, int | None]] = []
 
-    async def get_global_commands(self, application_id: int) -> list[dict[str, Any]]:
-        self.calls.append(("global", application_id, None))
+    async def request(self, route: Any, *, params: dict[str, str] | None = None) -> Any:
+        """Serve ``GET .../commands`` the way Discord does: localizations only when asked for."""
+        assert route.method == "GET", route.method  # listing commands never writes
+        assert params == {"with_localizations": "true"}, params
+        url = route.url
+        if "/guilds/" in url:
+            guild_id = int(url.rsplit("/guilds/", 1)[1].split("/")[0])
+            self.calls.append(("guild", APPLICATION_ID, guild_id))
+            return copy.deepcopy(self.guild_commands)
+        self.calls.append(("global", APPLICATION_ID, None))
         return copy.deepcopy(self.global_commands)
-
-    async def get_guild_commands(self, application_id: int, guild_id: int) -> list[dict[str, Any]]:
-        self.calls.append(("guild", application_id, guild_id))
-        return copy.deepcopy(self.guild_commands)
 
 
 class Harness:
@@ -100,7 +104,7 @@ def test_an_unchanged_global_tree_is_not_synced(
     assert harness.sync_calls == []
     assert harness.http.calls == [("global", APPLICATION_ID, None)]
     assert (result.target, result.synced, result.diff.unchanged) == ("global", False, True)
-    assert [r.getMessage() for r in caplog.records] == [
+    assert [r.getMessage() for r in caplog.records if r.name == "aha.bot"] == [
         "Skipped sync: global commands are unchanged"
     ]
 
@@ -289,10 +293,14 @@ def test_sync_commands_restores_globals_when_fetching_remote_globals_fails(
 ) -> None:
     harness = Harness(monkeypatch, dev_guild_id=GUILD_ID)
 
-    async def failing_global_fetch(application_id: int) -> list[dict[str, Any]]:
-        raise http_error()
+    original = harness.http.request
 
-    monkeypatch.setattr(harness.http, "get_global_commands", failing_global_fetch)
+    async def failing_global_fetch(route: Any, **kwargs: Any) -> Any:
+        if "/guilds/" not in route.url:
+            raise http_error()
+        return await original(route, **kwargs)
+
+    monkeypatch.setattr(harness.http, "request", failing_global_fetch)
 
     async def scenario() -> list[str]:
         await harness.load()
@@ -514,3 +522,57 @@ def test_setup_hook_installs_the_translator(monkeypatch: pytest.MonkeyPatch) -> 
     asyncio.run(recorder.run(bot))
 
     assert isinstance(bot.tree.translator, AhaTranslator)
+
+
+def test_remote_commands_are_fetched_with_their_localizations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without ``with_localizations`` Discord omits them, and a synced translation looks changed."""
+    harness = Harness(monkeypatch)
+    seen: list[tuple[str, dict[str, str] | None]] = []
+    original = harness.http.request
+
+    async def spy(route: Any, *, params: dict[str, str] | None = None) -> Any:
+        seen.append((route.url, params))
+        return await original(route, params=params)
+
+    monkeypatch.setattr(harness.http, "request", spy)
+
+    async def scenario() -> None:
+        await harness.load()
+        await harness.bot.sync_commands()
+
+    asyncio.run(scenario())
+
+    assert seen == [
+        (
+            f"https://discord.com/api/v10/applications/{APPLICATION_ID}/commands",
+            {"with_localizations": "true"},
+        )
+    ]
+
+
+def test_the_guild_target_is_fetched_with_localizations_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = Harness(monkeypatch, dev_guild_id=GUILD_ID)
+    seen: list[tuple[str, dict[str, str] | None]] = []
+    original = harness.http.request
+
+    async def spy(route: Any, *, params: dict[str, str] | None = None) -> Any:
+        seen.append((route.url, params))
+        return await original(route, params=params)
+
+    monkeypatch.setattr(harness.http, "request", spy)
+
+    async def scenario() -> None:
+        await harness.load()
+        await harness.bot.sync_commands()
+
+    asyncio.run(scenario())
+
+    guild_url = (
+        f"https://discord.com/api/v10/applications/{APPLICATION_ID}/guilds/{GUILD_ID}/commands"
+    )
+    assert seen[0] == (guild_url, {"with_localizations": "true"})
+    assert all(params == {"with_localizations": "true"} for _, params in seen)
