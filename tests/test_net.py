@@ -13,6 +13,7 @@ import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
 
+from aha.i18n import t
 from aha.net import (
     DEFAULT_POLICY,
     USER_AGENT,
@@ -130,7 +131,7 @@ def test_unsafe_or_malformed_links_are_refused_with_a_reason(raw: str, message: 
     with pytest.raises(FetchError) as caught:
         validate_url(raw)
 
-    assert str(caught.value) == message
+    assert _catalogued(caught.value) == message
 
 
 def test_a_link_of_exactly_the_length_limit_is_accepted() -> None:
@@ -456,10 +457,21 @@ def _fetch(url: str, policy: FetchPolicy = _OPEN) -> Preview:
     return asyncio.run(fetch_preview(url, policy))
 
 
+def _catalogued(error: FetchError) -> str:
+    """The error's English text, after checking the catalogue says exactly the same.
+
+    Every error a test provokes thereby proves its key exists in both languages and that the
+    English in ``net.py`` and in ``en-US.json`` have not drifted apart.
+    """
+    assert t(error.key, "en-US", **error.values) == str(error)
+    assert t(error.key, "de", **error.values) != str(error)
+    return str(error)
+
+
 def _fetch_error(url: str, policy: FetchPolicy = _OPEN) -> str:
     with pytest.raises(FetchError) as caught:
         asyncio.run(fetch_preview(url, policy))
-    return str(caught.value)
+    return _catalogued(caught.value)
 
 
 def test_a_page_is_fetched_and_summarised() -> None:
@@ -511,7 +523,7 @@ def test_redirects_are_limited() -> None:
             try:
                 await fetch_preview(site.url(), _OPEN)
             except FetchError as exc:
-                return str(exc), len(site.requests)
+                return _catalogued(exc), len(site.requests)
             raise AssertionError("expected a FetchError")
 
     message, requests = asyncio.run(scenario())
@@ -530,7 +542,7 @@ def test_a_redirect_into_a_forbidden_address_is_refused_before_any_request_is_ma
             try:
                 await fetch_preview(site.url(), allow_only_loopback)
             except FetchError as exc:
-                return str(exc), len(site.requests)
+                return _catalogued(exc), len(site.requests)
             raise AssertionError("expected a FetchError")
 
     message, requests = asyncio.run(scenario())
@@ -551,7 +563,7 @@ async def _error_of(url: str, policy: FetchPolicy = _OPEN) -> str:
     try:
         await fetch_preview(url, policy)
     except FetchError as exc:
-        return str(exc)
+        return _catalogued(exc)
     raise AssertionError("expected a FetchError")
 
 
@@ -1003,3 +1015,11 @@ def test_a_utf16_page_with_an_odd_byte_count_is_decoded_leniently() -> None:
             return await fetch_preview(site.url(), _OPEN)
 
     assert asyncio.run(scenario()).title is None  # no title, but no crash either
+
+
+def test_a_fetch_error_carries_its_catalogue_key_and_values() -> None:
+    error = FetchError("The site answered with HTTP 503.", "net.http_status", status=503)
+
+    assert str(error) == "The site answered with HTTP 503."
+    assert (error.key, error.values) == ("net.http_status", {"status": 503})
+    assert FetchError("x", "net.timeout").values == {}

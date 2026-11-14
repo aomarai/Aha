@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 from typing import Any, cast
 
+import discord
 from discord.ext import commands
 
 from aha.bot import COG_MODULES
 from aha.cogs.web import CACHE_CAPACITY, CACHE_TTL, Web
 from aha.cogs.web import setup as web_setup
 from aha.net import FetchError, Preview, TTLCache
-from tests.helpers import StubBot, StubContext, as_bot, as_context
+from tests.helpers import Named, StubBot, StubContext, as_bot, as_context
 from tests.test_helpers_textutil import ZWSP
 
 _PAGE = Preview(
@@ -99,7 +100,7 @@ def test_a_link_that_is_not_allowed_is_refused_privately_before_any_fetch() -> N
 
 
 def test_a_failed_fetch_is_explained_and_not_cached() -> None:
-    fetcher = _Fetcher(FetchError("The site took too long to answer."))
+    fetcher = _Fetcher(FetchError("The site took too long to answer.", "net.timeout"))
     cog = _cog(fetcher)
     ctx = StubContext()
 
@@ -225,3 +226,55 @@ def test_setup_gives_the_cog_its_bot() -> None:
     asyncio.run(web_setup(as_bot(bot)))
 
     assert cast("Any", bot.added_cogs[0]).bot is bot
+
+
+# ------------------------------------------------------------------------- German
+
+
+def _german(ctx: StubContext) -> StubContext:
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+    return ctx
+
+
+def test_validation_errors_are_shown_in_the_users_language() -> None:
+    cases = [
+        ("not a link at all", "Das sieht nicht nach einem gültigen Link aus."),
+        ("ftp://example.com/", "Nur Links mit http:// oder https:// werden unterstützt."),
+        (
+            "https://user:pw@example.com/",
+            "Links mit Benutzername oder Passwort werden nicht unterstützt.",
+        ),
+        (
+            "https://example.com:8443/",
+            "Nur die üblichen Web-Ports (80 und 443) werden unterstützt.",
+        ),
+        ("http://127.0.0.1/", "Diese Adresse ist nicht erlaubt."),
+    ]
+    for link, expected in cases:
+        ctx = _german(StubContext())
+
+        _run(_cog(_Fetcher()), ctx, link)
+
+        assert ctx.replies[0][1]["embed"].description == expected, link
+
+
+def test_fetch_errors_with_values_are_translated_with_their_values() -> None:
+    fetcher = _Fetcher(
+        FetchError("The site answered with HTTP 503.", "net.http_status", status=503)
+    )
+    ctx = _german(StubContext())
+
+    _run(_cog(fetcher), ctx, "https://example.com/down")
+
+    assert ctx.replies[0][1]["embed"].description == "Die Seite hat mit HTTP 503 geantwortet."
+
+
+def test_the_preview_card_is_labelled_in_the_users_language() -> None:
+    ctx = _german(StubContext())
+    bare = Preview(url="https://example.com/", title="", description="", site_name="")
+
+    _run(_cog(_Fetcher(bare)), ctx, "https://example.com/")
+
+    embed = ctx.replies[0][1]["embed"]
+    assert embed.description == "Diese Seite hat keine Beschreibung."
+    assert [f.name for f in embed.fields] == ["Seite", "Adresse"]

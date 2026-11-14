@@ -98,7 +98,22 @@
     "about.shards": "Shards (this process)",
     "about.none": "none",
     "about.latency": "Latency",
-    "about.runtime": "Runtime"
+    "about.runtime": "Runtime",
+    "net.invalid_link": "That doesn't look like a valid link.",
+    "net.scheme": "Only http:// and https:// links are supported.",
+    "net.credentials": "Links with a username or password are not supported.",
+    "net.port": "Only the standard web ports (80 and 443) are supported.",
+    "net.blocked": "That address isn't allowed.",
+    "net.redirect_nowhere": "The site sent a redirect with nowhere to go.",
+    "net.http_status": "The site answered with HTTP {status}.",
+    "net.not_html": "That link isn't a web page I can read.",
+    "net.too_many_redirects": "The link redirects too many times.",
+    "net.timeout": "The site took too long to answer.",
+    "net.connect": "I couldn't connect to that site.",
+    "net.unreadable": "I couldn't read that link.",
+    "web.no_description": "This page has no description.",
+    "web.site": "Site",
+    "web.link": "Link"
   },
   "commands": {}
 }
