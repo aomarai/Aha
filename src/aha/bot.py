@@ -184,6 +184,11 @@ class AhaBot(commands.AutoShardedBot):
             # Slash commands and mentions never read old messages, so keep none: this is a
             # per-shard cache that would otherwise hold the last 1000 messages of every channel.
             max_messages=None,
+            # No member cache and no guild-member chunking at startup (#101): the bot needs neither
+            # (no members intent), and both are per-shard memory that limits how many shards a pod
+            # can hold.
+            member_cache_flags=discord.MemberCacheFlags.none(),
+            chunk_guilds_at_startup=False,
             help_command=None,
             tree_cls=AhaTree,
             # Presence is sent when each shard identifies, so it needs no extra task and is
