@@ -24,6 +24,7 @@ from aha.gatewaybudget import SessionBudget, await_budget
 from aha.guildsettings import PROTECTED_COMMANDS, CommandDisabled, GuildSettingsCache
 from aha.guildsettings_store import GuildSettingsStore
 from aha.health import HealthServer
+from aha.i18n import AhaTranslator
 from aha.identify import IdentifyCoordinator
 from aha.jobstore import JobStore
 from aha.metrics import Metrics, ShardState
@@ -291,6 +292,7 @@ class AhaBot(commands.AutoShardedBot):
         if self.use_database and self.settings.database_url is not None:
             await self._connect_database(self.settings.database_url)
 
+        await self.tree.set_translator(AhaTranslator())
         for module in COG_MODULES:
             await self.load_extension(module)
             log.info("Loaded extension %s", module)
@@ -505,7 +507,15 @@ class AhaBot(commands.AutoShardedBot):
         if application_id is None:
             raise discord.MissingApplicationID
         label = "global" if guild is None else f"dev guild {guild.id}"
-        local = [command.to_dict(self.tree) for command in self.tree.get_commands(guild=guild)]
+        # Compare what ``tree.sync`` would send: with a translator that includes the localizations,
+        # and without them every sync would look like a change.
+        translator = self.tree.translator
+        local = [
+            await command.get_translated_payload(self.tree, translator)
+            if translator
+            else command.to_dict(self.tree)
+            for command in self.tree.get_commands(guild=guild)
+        ]
         remote = (
             await self.http.get_global_commands(application_id)
             if guild is None

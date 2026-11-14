@@ -1,0 +1,24 @@
+{
+  "messages": {
+    "ping.latency": "WebSocket-Latenz: {latency}",
+    "coin.heads": "Kopf",
+    "coin.tails": "Zahl",
+    "coin.result": "{side}!"
+  },
+  "commands": {
+    "Check the bot's WebSocket latency.": "Prüft die WebSocket-Latenz des Bots.",
+    "Show the bot's version, uptime and status.": "Zeigt Version, Laufzeit und Status des Bots.",
+    "Show what the bot stores and where the policy is.": "Zeigt, was der Bot speichert und wo die Datenschutzerklärung steht.",
+    "Roll a die.": "Würfelt einen Würfel.",
+    "Flip a coin.": "Wirft eine Münze.",
+    "Show the current time in a timezone.": "Zeigt die aktuelle Uhrzeit in einer Zeitzone.",
+    "Ask the magic 8-ball a question.": "Stelle dem magischen 8-Ball eine Frage.",
+    "List available commands.": "Zeigt die verfügbaren Befehle.",
+    "Remind you of something later.": "Erinnert dich später an etwas.",
+    "List your reminders.": "Listet deine Erinnerungen auf.",
+    "Cancel one of your reminders.": "Löscht eine deiner Erinnerungen.",
+    "Delete everything Aha stores about you.": "Löscht alles, was Aha über dich speichert.",
+    "Show this server's settings.": "Zeigt die Einstellungen dieses Servers.",
+    "Change a server setting.": "Ändert eine Servereinstellung."
+  }
+}

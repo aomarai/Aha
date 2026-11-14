@@ -13,6 +13,7 @@ from discord import app_commands
 
 from aha.bot import COG_MODULES, OPERATOR_COG, AhaBot
 from aha.config import Settings
+from aha.i18n import AhaTranslator
 from tests.helpers import http_error
 
 GUILD_ID = 123456789012345678
@@ -473,3 +474,43 @@ def test_startup_logs_the_owned_shards(
         asyncio.run(recorder.run(bot))
 
     assert caplog.records[0].getMessage() == "Owning shards [2, 3] of 4"
+
+
+def test_the_sync_comparison_includes_the_translations_it_would_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = Harness(monkeypatch)
+
+    async def scenario() -> tuple[Any, Any, list[dict[str, Any]]]:
+        await harness.bot.tree.set_translator(AhaTranslator())
+        translator = harness.bot.tree.translator
+        assert translator is not None
+        await harness.load()
+        translated = [
+            await c.get_translated_payload(harness.bot.tree, translator)
+            for c in harness.bot.tree.get_commands(guild=None)
+        ]
+        # Discord holds exactly what a sync sent: the same localizations, so nothing differs.
+        harness.http.global_commands = [_remote_view(p) for p in translated]
+        unchanged = await harness.bot.sync_commands()
+        # A remote copy without the localizations is a change that a sync must fix.
+        harness.http.global_commands = [_remote_view(p) for p in harness.local()]
+        changed = await harness.bot.sync_commands()
+        return unchanged, changed, translated
+
+    unchanged, changed, translated = asyncio.run(scenario())
+
+    assert unchanged[0].diff.unchanged is True
+    assert changed[0].synced is True
+    assert len(harness.sync_calls) == 1  # only the second comparison wrote
+    ping = next(p for p in translated if p["name"] == "ping")
+    assert ping["description_localizations"] == {"de": "Prüft die WebSocket-Latenz des Bots."}
+
+
+def test_setup_hook_installs_the_translator(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = AhaBot(Settings(token="test-token"))
+    recorder = _SetupRecorder(bot, monkeypatch)
+
+    asyncio.run(recorder.run(bot))
+
+    assert isinstance(bot.tree.translator, AhaTranslator)

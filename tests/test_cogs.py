@@ -201,3 +201,14 @@ def test_privacy_metadata_and_cooldown() -> None:
     cooldown = Meta.privacy.cooldown
     assert cooldown is not None
     assert (cooldown.rate, cooldown.per) == (1, 10)
+
+
+def test_ping_answers_in_the_users_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = _bot()
+    monkeypatch.setattr(type(bot), "latency", property(lambda self: 0.042))
+    ctx = StubContext()
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+
+    _run(Meta(bot), ctx, "ping")
+
+    assert ctx.replies[0][1]["embed"].description == "WebSocket-Latenz: 42 ms"
