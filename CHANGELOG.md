@@ -23,7 +23,8 @@ for how a release is cut.
 - The bot and `aha migrate` wait up to 60 s for the database when it is not reachable yet (a new pod's
   first packets can be dropped while the cluster programs its network policy; PostgreSQL may still be
   starting), instead of failing the pod or the deploy.
-- `MENTION_COMMANDS=false` drops `@Aha command` and the message intents; `aha sync --check` is a dry
+- The `@Aha command` mention surface is removed: the bot subscribes to **no message events**
+  (`guilds` is the only gateway intent). `aha sync --check` is a dry
   run that exits 3 on drift (a post-deploy smoke test); gitleaks rules for Discord bot tokens and
   Anthropic keys; `docs/environments.md` describes staging versus production.
 - Commands and menus declare **server-only** installs, so they stay server-only even if user installs

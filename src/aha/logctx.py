@@ -1,6 +1,6 @@
 """Per-invocation logging context carried in a :class:`contextvars.ContextVar`.
 
-Every interaction (and every ``@Aha`` mention command) runs in its own asyncio task, so a
+Every interaction runs in its own asyncio task, so a
 value bound at its entry point is visible to every log call made while handling it, with
 no plumbing through call sites, and is invisible to unrelated invocations. The JSON log
 formatter reads :func:`current` when it renders a record.

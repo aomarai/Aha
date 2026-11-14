@@ -53,11 +53,9 @@ def test_bot_requests_no_privileged_intents_and_has_no_default_help() -> None:
 def test_only_the_intents_the_bot_uses_are_requested() -> None:
     intents = gateway_intents()
 
-    assert (
-        intents.value == discord.Intents(guilds=True, guild_messages=True, dm_messages=True).value
-    )
+    assert intents.value == discord.Intents(guilds=True).value
     enabled = {name for name, on in intents if on}
-    assert enabled == {"guilds", "guild_messages", "dm_messages"}
+    assert enabled == {"guilds"}
 
 
 def test_the_noisy_default_intents_are_not_requested() -> None:
@@ -1143,21 +1141,15 @@ def test_a_real_bot_keeps_no_member_cache_and_does_not_chunk_guilds() -> None:
     assert bot._connection._chunk_guilds is False
 
 
-def test_dropping_mention_commands_removes_every_message_intent() -> None:
-    intents = gateway_intents(mention_commands=False)
+def test_the_bot_subscribes_to_no_message_events_at_all() -> None:
+    intents = _bot().intents
 
-    assert {name for name, on in intents if on} == {"guilds"}
-    assert intents.guild_messages is False
-    assert intents.dm_messages is False
-
-
-def test_mention_commands_are_on_by_default_and_the_setting_reaches_the_intents() -> None:
-    assert gateway_intents().guild_messages is True
-    assert gateway_intents(True).dm_messages is True
-    assert _bot().intents.guild_messages is True
-    quiet = _bot(mention_commands=False)
-    assert (quiet.intents.guild_messages, quiet.intents.dm_messages) == (False, False)
-    assert quiet.intents.guilds is True  # the guild cache and on_guild_remove still work
+    assert (intents.guild_messages, intents.dm_messages, intents.message_content) == (
+        False,
+        False,
+        False,
+    )
+    assert intents.guilds is True  # the guild cache and on_guild_remove still work
 
 
 def test_every_command_and_menu_is_installable_by_servers_only() -> None:

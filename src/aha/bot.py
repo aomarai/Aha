@@ -91,7 +91,7 @@ WATCHDOG_TASK = "gateway-watchdog"
 GATEWAY_WATCHDOG_INTERVAL = 30.0
 
 
-def gateway_intents(mention_commands: bool = True) -> discord.Intents:
+def gateway_intents() -> discord.Intents:
     """Return the gateway intents the bot uses, and nothing else.
 
     ``discord.Intents.default()`` subscribes to every non-privileged event (typing, voice states,
@@ -99,15 +99,12 @@ def gateway_intents(mention_commands: bool = True) -> discord.Intents:
     memory on every shard, which is what limits how many shards one pod can hold (ADR 0001).
 
     * ``guilds``: the guild, channel and role cache, and ``on_guild_remove``. Required.
-    * ``guild_messages`` and ``dm_messages``: only so an ``@Aha`` mention reaches the command
-      parser. ``MENTION_COMMANDS=false`` drops that surface and these two intents with it (#101),
-      leaving one event stream: guild lifecycle. Slash commands and menus are unaffected.
+    Nothing else: no message events at all. Commands are slash commands and menus only (the
+    ``@Aha command`` surface was removed, #101), so the one event stream left is guild lifecycle.
 
     Add an intent here only together with the feature that needs it (``voice_states`` for #68).
     """
-    return discord.Intents(
-        guilds=True, guild_messages=mention_commands, dm_messages=mention_commands
-    )
+    return discord.Intents(guilds=True)
 
 
 _ACTIVITY_TYPES = {
@@ -178,14 +175,13 @@ class AhaBot(commands.AutoShardedBot):
             or watchdog_interval <= 0
         ):
             raise ValueError("gateway_timeout and watchdog_interval must be finite and positive")
-        # No privileged intent (notably ``message_content``) is requested. ``commands.Bot``
-        # still needs a prefix; ``when_mentioned`` is the one value that needs no message
-        # content (Discord delivers it for messages that @mention the bot) and that discord.py
-        # does not warn about when the intent is off.
+        # No privileged intent (notably ``message_content``) is requested, and no message intent
+        # at all, so the prefix can never match. ``commands.Bot`` still needs one, and
+        # ``when_mentioned`` is the value discord.py does not warn about without that intent.
         super().__init__(
             command_prefix=commands.when_mentioned,
-            intents=gateway_intents(settings.mention_commands),
-            # Slash commands and mentions never read old messages, so keep none: this is a
+            intents=gateway_intents(),
+            # Slash commands never read old messages, so keep none: this is a
             # per-shard cache that would otherwise hold the last 1000 messages of every channel.
             max_messages=None,
             # No member cache and no guild-member chunking at startup (#101): the bot needs neither
