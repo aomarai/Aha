@@ -24,6 +24,7 @@ from aha.i18n import DEFAULT_LOCALE, locale_of, t
 from aha.jobstore import JobStore
 from aha.privacy import purge_user
 from aha.replies import edit_message, reply
+from aha.summarize_store import UsageStore
 
 __all__ = ["CONFIRM_WINDOW", "Forget", "ForgetButton", "setup"]
 
@@ -83,7 +84,9 @@ class ForgetButton(
                 interaction, embed=embeds.info(t("forget.unavailable", locale)), view=None
             )
             return
-        result = await purge_user(JobStore(bot.db), GuildSettingsStore(bot.db), self.owner_id)
+        result = await purge_user(
+            JobStore(bot.db), GuildSettingsStore(bot.db), UsageStore(bot.db), self.owner_id
+        )
         text = t("forget.done", locale, jobs=result.jobs, settings=result.settings)
         await edit_message(interaction, embed=embeds.success(text), view=None)
 

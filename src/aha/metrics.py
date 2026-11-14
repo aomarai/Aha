@@ -105,6 +105,18 @@ class Metrics:
             "Seconds the oldest due scheduled job has been waiting to be claimed.",
             registry=self.registry,
         )
+        self.summaries = Counter(
+            "aha_summarize_requests_total",
+            "Summarize requests by outcome (ok, disabled, quota, failed, empty).",
+            ["outcome"],
+            registry=self.registry,
+        )
+        self.summary_tokens = Counter(
+            "aha_summarize_tokens_total",
+            "Model tokens spent on summaries, by kind (input or output); multiply by the price.",
+            ["kind"],
+            registry=self.registry,
+        )
         self.session_start_remaining = Gauge(
             "aha_session_start_remaining",
             "Gateway sessions Discord still allows this token to start before the daily reset.",

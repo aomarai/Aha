@@ -161,6 +161,11 @@ every change must keep:
   refuses disabled commands on both the slash and message surfaces and fails open. `config`,
   `configure` and `help` can never be disabled. A guild that removes the bot is purged after 30 days
   by a `guild_purge` scheduled job (`cogs/config.py`).
+- `/summarize` (`cogs/summarize.py`, `aha.summarizer`) is the only feature that sends user text to a
+  third party, so it is **off per server** (`guild_settings.summaries_enabled`) and **off without a
+  key**. Keep every control (quota with refund, input cap, bounded output, 20 s timeout after
+  `defer`, text as data, no mentions) when touching it; the API client is always faked in tests, never
+  called over the network. `summarize_store.py` is pure SQL and excluded from mutation.
 - Deleting a person's data: `/forgetme` (`cogs/forget.py`, `aha.privacy`) purges every table with a
   user column. A new table must be added to `aha.privacy.USER_TABLES` / `GUILD_TABLES` and get a purge
   method, or `tests/test_datainventory.py` fails. Its confirm button is a persistent `DynamicItem`

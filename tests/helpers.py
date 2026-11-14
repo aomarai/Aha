@@ -161,6 +161,8 @@ class StubInteraction:
         self.guild_locale: discord.Locale | None = None
         self.sent: list[tuple[str, str | None, dict[str, Any]]] = []
         self.edited: list[dict[str, Any]] = []
+        #: ``ephemeral`` flags passed to ``response.defer``.
+        self.deferred: list[bool] = []
         outer = self
 
         class _Response:
@@ -172,6 +174,9 @@ class StubInteraction:
 
             async def edit_message(self, **kwargs: Any) -> None:
                 outer.edited.append(kwargs)
+
+            async def defer(self, *, ephemeral: bool = False) -> None:
+                outer.deferred.append(ephemeral)
 
         class _Followup:
             async def send(self, content: str | None = None, **kwargs: Any) -> None:

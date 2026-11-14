@@ -25,7 +25,7 @@
     "config.unavailable": "Server settings are not available: no database is configured.",
     "config.not_set": "not set",
     "config.none": "none",
-    "config.view": "**Log channel:** {channel}\n**Disabled commands:** {disabled}",
+    "config.view": "**Log channel:** {channel}\n**Disabled commands:** {disabled}\n**Summaries:** {summaries}",
     "config.bad_channel": "Give a text channel in this server, or `off`.",
     "config.log_set": "Log channel set.",
     "config.log_cleared": "Log channel cleared.",
@@ -70,7 +70,19 @@
     "8ball.answer.16": "My reply is no.",
     "8ball.answer.17": "My sources say no.",
     "8ball.answer.18": "Outlook not so good.",
-    "8ball.answer.19": "Very doubtful."
+    "8ball.answer.19": "Very doubtful.",
+    "summarize.title": "Summary",
+    "summarize.unavailable": "Summaries are not available: no model API key is configured.",
+    "summarize.guild_only": "Summaries only work in servers.",
+    "summarize.disabled": "Summaries are off in this server. A server admin can turn them on with `/configure summaries on`.",
+    "summarize.empty": "There is no text to summarize.",
+    "summarize.quota": "You have used all {quota} summaries for today (UTC). Try again tomorrow.",
+    "summarize.failed": "I couldn't produce a summary right now. It did not count against your daily limit.",
+    "config.on": "on",
+    "config.off": "off",
+    "config.bad_toggle": "Say `on` or `off`.",
+    "config.summaries_on": "Summaries are on for this server. Text people ask to summarize is sent to the Claude API.",
+    "config.summaries_off": "Summaries are off for this server."
   },
   "commands": {}
 }

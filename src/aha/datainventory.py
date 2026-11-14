@@ -43,6 +43,14 @@ INVENTORY: dict[str, TableData] = {
             "then the row is deleted; updated_by is only the id of the last admin who changed it"
         ),
     ),
+    "summarize_usage": TableData(
+        user_column="user_id",
+        guild_column=None,
+        retention=(
+            "a daily counter per user (never the text), kept 7 days and then deleted; deleted at "
+            "once by /forgetme"
+        ),
+    ),
     "scheduled_jobs": TableData(
         user_column="user_id",
         guild_column="guild_id",

@@ -56,6 +56,14 @@ _TOKEN_ENCODING = "utf-8"
 #: Fraction of the daily gateway sessions below which the bot waits for the reset (0 disables).
 DEFAULT_SESSION_START_FLOOR = 0.1
 
+#: ``/summarize`` defaults: a Haiku-class model, a small daily quota per user, bounded input/output.
+DEFAULT_ANTHROPIC_MODEL = "claude-haiku-5-5"
+DEFAULT_SUMMARIZE_DAILY_QUOTA = 10
+MAX_SUMMARIZE_DAILY_QUOTA = 1000
+DEFAULT_SUMMARIZE_MAX_CHARS = 4000
+MIN_SUMMARIZE_MAX_CHARS = 100
+MAX_SUMMARIZE_MAX_CHARS = 20_000
+
 #: Most shards one deployment may declare (only catches typos; Discord has its own ceiling).
 MAX_SHARD_COUNT = 10_000
 
@@ -184,6 +192,16 @@ def _parse_optional_int(raw: str | None, *, name: str) -> int | None:
         raise ConfigError(f"{name} must be an integer, got {raw!r}") from exc
 
 
+def _parse_bounded_int(raw: str | None, *, name: str, default: int, low: int, high: int) -> int:
+    """Parse an integer in ``low..high``; unset or blank gives ``default``."""
+    value = _parse_optional_int(raw, name=name)
+    if value is None:
+        return default
+    if not low <= value <= high:
+        raise ConfigError(f"{name} must be {low}..{high}, got {value}")
+    return value
+
+
 def _parse_fraction(raw: str | None, *, name: str, default: float) -> float:
     """Parse a fraction in ``0 <= x < 1``; unset or blank gives ``default``."""
     if raw is None or not raw.strip():
@@ -278,6 +296,13 @@ class Settings:
     shard_ids: tuple[int, ...] | None = None
     #: Refuse to identify when fewer than this fraction of the daily sessions remain (0 disables).
     session_start_floor: float = DEFAULT_SESSION_START_FLOOR
+    #: Anthropic API key for ``/summarize``; ``None`` leaves the command unavailable.
+    anthropic_api_key: str | None = field(default=None, repr=False)
+    anthropic_model: str = DEFAULT_ANTHROPIC_MODEL
+    #: Summaries one user may request per UTC day.
+    summarize_daily_quota: int = DEFAULT_SUMMARIZE_DAILY_QUOTA
+    #: Longest text (characters) that is sent to the model.
+    summarize_max_chars: int = DEFAULT_SUMMARIZE_MAX_CHARS
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -353,6 +378,22 @@ class Settings:
             )
 
         shard_count, shard_ids = _parse_shards(source)
+        anthropic_api_key = _read_secret(source, "ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY_FILE")
+        anthropic_model = (source.get("ANTHROPIC_MODEL") or "").strip() or DEFAULT_ANTHROPIC_MODEL
+        summarize_daily_quota = _parse_bounded_int(
+            source.get("SUMMARIZE_DAILY_QUOTA"),
+            name="SUMMARIZE_DAILY_QUOTA",
+            default=DEFAULT_SUMMARIZE_DAILY_QUOTA,
+            low=1,
+            high=MAX_SUMMARIZE_DAILY_QUOTA,
+        )
+        summarize_max_chars = _parse_bounded_int(
+            source.get("SUMMARIZE_MAX_CHARS"),
+            name="SUMMARIZE_MAX_CHARS",
+            default=DEFAULT_SUMMARIZE_MAX_CHARS,
+            low=MIN_SUMMARIZE_MAX_CHARS,
+            high=MAX_SUMMARIZE_MAX_CHARS,
+        )
         session_start_floor = _parse_fraction(
             source.get("SESSION_START_FLOOR"),
             name="SESSION_START_FLOOR",
@@ -376,4 +417,8 @@ class Settings:
             shard_count=shard_count,
             shard_ids=shard_ids,
             session_start_floor=session_start_floor,
+            anthropic_api_key=anthropic_api_key,
+            anthropic_model=anthropic_model,
+            summarize_daily_quota=summarize_daily_quota,
+            summarize_max_chars=summarize_max_chars,
         )

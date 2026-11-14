@@ -644,3 +644,77 @@ def test_a_floor_that_is_not_a_number_is_rejected() -> None:
         _floor("ten")
 
     assert str(caught.value) == "SESSION_START_FLOOR must be a number, got 'ten'"
+
+
+# --------------------------------------------------------- /summarize settings (#110)
+
+
+def _env(**extra: str) -> Settings:
+    return Settings.from_env({"DISCORD_BOT_TOKEN": "t", **extra})
+
+
+def test_summarize_is_off_without_a_key_and_has_conservative_defaults() -> None:
+    settings = _env()
+
+    assert settings.anthropic_api_key is None
+    assert settings.anthropic_model == "claude-haiku-5-5"
+    assert settings.summarize_daily_quota == 10
+    assert settings.summarize_max_chars == 4000
+
+
+def test_the_api_key_comes_from_the_environment_or_a_file_but_never_both(
+    tmp_path: Path,
+) -> None:
+    assert _env(ANTHROPIC_API_KEY=" sk-1 ").anthropic_api_key == "sk-1"
+    secret = tmp_path / "key"
+    secret.write_text("sk-file\n", encoding="utf-8")
+    assert _env(ANTHROPIC_API_KEY_FILE=str(secret)).anthropic_api_key == "sk-file"
+    with pytest.raises(ConfigError) as caught:
+        _env(ANTHROPIC_API_KEY="a", ANTHROPIC_API_KEY_FILE=str(secret))
+    assert (
+        str(caught.value)
+        == "Set only one of ANTHROPIC_API_KEY and ANTHROPIC_API_KEY_FILE, not both."
+    )
+
+
+def test_the_key_is_not_shown_in_the_settings_repr() -> None:
+    assert "sk-secret" not in repr(_env(ANTHROPIC_API_KEY="sk-secret"))
+
+
+def test_the_model_and_limits_are_configurable() -> None:
+    settings = _env(
+        ANTHROPIC_MODEL=" claude-sonnet-5-5 ", SUMMARIZE_DAILY_QUOTA="3", SUMMARIZE_MAX_CHARS="500"
+    )
+
+    assert (settings.anthropic_model, settings.summarize_daily_quota) == ("claude-sonnet-5-5", 3)
+    assert settings.summarize_max_chars == 500
+
+
+@pytest.mark.parametrize(
+    ("name", "raw", "message"),
+    [
+        ("SUMMARIZE_DAILY_QUOTA", "0", "SUMMARIZE_DAILY_QUOTA must be 1..1000, got 0"),
+        ("SUMMARIZE_DAILY_QUOTA", "1001", "SUMMARIZE_DAILY_QUOTA must be 1..1000, got 1001"),
+        ("SUMMARIZE_MAX_CHARS", "99", "SUMMARIZE_MAX_CHARS must be 100..20000, got 99"),
+        ("SUMMARIZE_MAX_CHARS", "20001", "SUMMARIZE_MAX_CHARS must be 100..20000, got 20001"),
+    ],
+)
+def test_out_of_range_limits_are_rejected(name: str, raw: str, message: str) -> None:
+    with pytest.raises(ConfigError) as caught:
+        _env(**{name: raw})
+
+    assert str(caught.value) == message
+
+
+def test_the_limit_boundaries_are_accepted() -> None:
+    settings = _env(SUMMARIZE_DAILY_QUOTA="1000", SUMMARIZE_MAX_CHARS="100")
+    assert (settings.summarize_daily_quota, settings.summarize_max_chars) == (1000, 100)
+    settings = _env(SUMMARIZE_DAILY_QUOTA="1", SUMMARIZE_MAX_CHARS="20000")
+    assert (settings.summarize_daily_quota, settings.summarize_max_chars) == (1, 20000)
+
+
+def test_a_non_numeric_limit_names_the_variable() -> None:
+    with pytest.raises(ConfigError) as caught:
+        _env(SUMMARIZE_DAILY_QUOTA="lots")
+
+    assert str(caught.value) == "SUMMARIZE_DAILY_QUOTA must be an integer, got 'lots'"

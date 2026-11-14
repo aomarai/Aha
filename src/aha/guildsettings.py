@@ -42,6 +42,9 @@ class SettingsBackend(Protocol):
     async def set_log_channel(self, guild_id: int, channel_id: int | None, by: int) -> None:
         """Set or clear the log channel."""
 
+    async def set_summaries(self, guild_id: int, enabled: bool, by: int) -> None:
+        """Turn summaries on or off."""
+
     async def disable(self, guild_id: int, command: str, by: int) -> None:
         """Disable a command."""
 
@@ -78,6 +81,10 @@ class GuildSettingsCache:
 
     async def set_log_channel(self, guild_id: int, channel_id: int | None, by: int) -> None:
         await self._store.set_log_channel(guild_id, channel_id, by)
+        self._entries.pop(guild_id, None)
+
+    async def set_summaries(self, guild_id: int, enabled: bool, by: int) -> None:
+        await self._store.set_summaries(guild_id, enabled, by)
         self._entries.pop(guild_id, None)
 
     async def disable(self, guild_id: int, command: str, by: int) -> None:
