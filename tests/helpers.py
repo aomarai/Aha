@@ -156,6 +156,9 @@ class StubInteraction:
         self.guild_id = 11 if guild else None
         self.channel_id = 22
         self.user = Named(id=user_id)
+        #: Discord's ``locale`` / ``guild_locale``; ``None`` models "not sent".
+        self.locale: discord.Locale | None = None
+        self.guild_locale: discord.Locale | None = None
         self.sent: list[tuple[str, str | None, dict[str, Any]]] = []
         self.edited: list[dict[str, Any]] = []
         outer = self

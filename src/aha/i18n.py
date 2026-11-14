@@ -127,12 +127,15 @@ def locale_of(source: Any) -> str:
     The invoking user's client language, else the server's preferred language, else the base locale.
     A message (prefix) invocation has neither, so it gets the base locale.
     """
-    interaction = getattr(source, "interaction", None) or (
-        source if isinstance(source, discord.Interaction) else None
-    )
+    interaction = getattr(source, "interaction", None)
+    if interaction is None and (
+        isinstance(source, discord.Interaction) or hasattr(source, "locale")
+    ):
+        interaction = source
     if interaction is None:
         return DEFAULT_LOCALE
-    for candidate in (interaction.locale, interaction.guild_locale):
+    for name in ("locale", "guild_locale"):
+        candidate = getattr(interaction, name, None)
         if candidate is not None:
             return str(candidate.value)
     return DEFAULT_LOCALE

@@ -3,7 +3,15 @@
     "ping.latency": "WebSocket latency: {latency}",
     "coin.heads": "Heads",
     "coin.tails": "Tails",
-    "coin.result": "{side}!"
+    "coin.result": "{side}!",
+    "error.bot_missing_permissions": "I'm missing permissions to do that: {permissions}.",
+    "error.missing_permissions": "You need these permissions to do that: {permissions}.",
+    "error.missing_role": "You don't have the role required to do that.",
+    "error.cooldown": "That command is on cooldown. Try again in {seconds}s.",
+    "error.no_private_message": "This command can't be used in direct messages.",
+    "error.command_disabled": "That command is disabled in this server.",
+    "error.not_allowed": "You're not allowed to use that command.",
+    "error.unexpected": "Something went wrong. If it keeps happening, quote error ID `{error_id}`."
   },
   "commands": {}
 }

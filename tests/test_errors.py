@@ -7,6 +7,7 @@ import json
 import logging
 from typing import Any, cast
 
+import discord
 import pytest
 from discord import app_commands
 from discord.ext import commands
@@ -328,3 +329,82 @@ def test_unexpected_slash_error_logs_json_with_the_interaction_ids() -> None:
     assert payload["interaction_id"] == 777
     assert payload["command"] == "ping"
     assert payload["exc"].endswith("RuntimeError: boom")
+
+
+def test_expected_errors_are_answered_in_the_users_language_on_the_slash_surface() -> None:
+    interaction = StubInteraction()
+    interaction.locale = discord.Locale.german
+    interaction.guild_locale = None
+    error = app_commands.MissingPermissions(["kick_members"])
+
+    asyncio.run(_cog().on_app_command_error(as_interaction(interaction), error))
+
+    ((_, content, _),) = interaction.sent
+    assert content == "Dafür brauchst du diese Berechtigungen: kick members."
+
+
+def test_the_unexpected_error_message_is_translated_and_keeps_its_id(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    interaction = StubInteraction()
+    interaction.locale = discord.Locale.german
+    interaction.guild_locale = None
+
+    with caplog.at_level(logging.ERROR, logger="aha.cogs.errors"):
+        asyncio.run(
+            _cog().on_app_command_error(
+                as_interaction(interaction), cast("Any", ValueError("unexpected"))
+            )
+        )
+
+    ((_, content, _),) = interaction.sent
+    assert content is not None
+    assert content.startswith(
+        "Etwas ist schiefgelaufen. Wenn es weiter passiert, nenne die Fehler-ID `"
+    )
+
+
+def test_the_message_surface_replies_in_english() -> None:
+    ctx = StubContext()
+
+    asyncio.run(_cog().on_command_error(as_context(ctx), commands.NoPrivateMessage()))
+
+    assert ctx.replies[0][0] == "This command can't be used in direct messages."
+
+
+def test_every_expected_error_has_a_german_translation_with_the_same_placeholders() -> None:
+    from aha.i18n import default_catalogue
+
+    catalogue = default_catalogue()
+    keys = [key for key in catalogue._messages["en-US"] if key.startswith("error.")]
+
+    assert len(keys) == 8
+    for key in keys:
+        assert key in catalogue._messages["de"], key
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (
+            commands.BotMissingPermissions(["send_messages"]),
+            "Mir fehlen Berechtigungen dafür: send messages.",
+        ),
+        (
+            commands.MissingPermissions(["kick_members"]),
+            "Dafür brauchst du diese Berechtigungen: kick members.",
+        ),
+        (commands.MissingRole("Admin"), "Dir fehlt die dafür nötige Rolle."),
+        (
+            commands.CommandOnCooldown(commands.Cooldown(1, 5), 2.5, commands.BucketType.user),
+            "Dieser Befehl ist gerade gesperrt. Versuche es in 2.5s erneut.",
+        ),
+        (commands.NoPrivateMessage(), "Dieser Befehl funktioniert nicht in Direktnachrichten."),
+        (CommandDisabled("x"), "Dieser Befehl ist auf diesem Server deaktiviert."),
+        (commands.CheckFailure(), "Du darfst diesen Befehl nicht verwenden."),
+    ],
+)
+def test_every_expected_error_has_its_german_wording(error: Exception, expected: str) -> None:
+    from aha.cogs.errors import _describe
+
+    assert _describe(error, "de") == expected

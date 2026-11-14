@@ -20,6 +20,7 @@ from discord.ext import commands
 
 from aha.commands import BotLike
 from aha.guildsettings import CommandDisabled
+from aha.i18n import DEFAULT_LOCALE, locale_of, t
 from aha.replies import reply, respond
 
 __all__ = ["WRAPPERS", "Errors", "setup"]
@@ -40,25 +41,27 @@ def _join(names: list[str]) -> str:
     return ", ".join(name.replace("_", " ") for name in names)
 
 
-def _describe(error: Exception) -> str | None:
+def _describe(error: Exception, locale: str = DEFAULT_LOCALE) -> str | None:
     """Return a user-facing message for an expected error, else ``None``.
 
     Specific types are tested before ``CheckFailure`` since they subclass it.
     """
     if isinstance(error, (commands.BotMissingPermissions, app_commands.BotMissingPermissions)):
-        return f"I'm missing permissions to do that: {_join(error.missing_permissions)}."
+        return t(
+            "error.bot_missing_permissions", locale, permissions=_join(error.missing_permissions)
+        )
     if isinstance(error, (commands.MissingPermissions, app_commands.MissingPermissions)):
-        return f"You need these permissions to do that: {_join(error.missing_permissions)}."
+        return t("error.missing_permissions", locale, permissions=_join(error.missing_permissions))
     if isinstance(error, (commands.MissingRole, app_commands.MissingRole)):
-        return "You don't have the role required to do that."
+        return t("error.missing_role", locale)
     if isinstance(error, (commands.CommandOnCooldown, app_commands.CommandOnCooldown)):
-        return f"That command is on cooldown. Try again in {error.retry_after:.1f}s."
+        return t("error.cooldown", locale, seconds=f"{error.retry_after:.1f}")
     if isinstance(error, (commands.NoPrivateMessage, app_commands.NoPrivateMessage)):
-        return "This command can't be used in direct messages."
+        return t("error.no_private_message", locale)
     if isinstance(error, CommandDisabled):
-        return "That command is disabled in this server."
+        return t("error.command_disabled", locale)
     if isinstance(error, (commands.CheckFailure, app_commands.CheckFailure)):
-        return "You're not allowed to use that command."
+        return t("error.not_allowed", locale)
     return None
 
 
@@ -92,6 +95,7 @@ class Errors(commands.Cog):
             guild_id=ctx.guild.id if ctx.guild else None,
             channel_id=ctx.channel.id,
             user_id=ctx.author.id,
+            locale=locale_of(ctx),
             respond=send_error,
         )
 
@@ -110,6 +114,7 @@ class Errors(commands.Cog):
             guild_id=interaction.guild_id,
             channel_id=interaction.channel_id,
             user_id=interaction.user.id,
+            locale=locale_of(interaction),
             respond=send_error,
         )
 
@@ -121,12 +126,13 @@ class Errors(commands.Cog):
         guild_id: int | None,
         channel_id: int | None,
         user_id: int,
+        locale: str,
         respond: _Respond,
     ) -> None:
         while isinstance(error, WRAPPERS):
             error = error.original
 
-        message = _describe(error)
+        message = _describe(error, locale)
         if message is None:
             error_id = uuid.uuid4().hex[:8]
             log.error(
@@ -138,7 +144,7 @@ class Errors(commands.Cog):
                 user_id,
                 exc_info=error,
             )
-            message = f"Something went wrong. If it keeps happening, quote error ID `{error_id}`."
+            message = t("error.unexpected", locale, error_id=error_id)
 
         try:
             await respond(message)
