@@ -82,16 +82,12 @@ class Meta(commands.Cog):
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def privacy(self, ctx: commands.Context[commands.Bot]) -> None:
         """Summarise the privacy policy and link to it (private to the invoker)."""
-        text = (
-            "Aha does **not** store your messages or the text of your commands. It keeps only "
-            "what you ask it to: reminders you set (until delivered or cancelled) and, for server "
-            "settings, the id of the admin who last changed them. `/forgetme` deletes it. "
-            "Operational logs record who ran which command (IDs and option *names*, never "
-            "values).\n\n"
-            f"Read the full policy: <{PRIVACY_URL}>\nTerms: <{TERMS_URL}>"
-        )
+        locale = locale_of(ctx)
+        text = t("privacy.body", locale, privacy_url=PRIVACY_URL, terms_url=TERMS_URL)
         try:
-            await reply(ctx, embed=embeds.info(text, title="Privacy"), ephemeral=True)
+            await reply(
+                ctx, embed=embeds.info(text, title=t("privacy.title", locale)), ephemeral=True
+            )
         except discord.HTTPException:
             await reply(ctx, text, ephemeral=True)
 

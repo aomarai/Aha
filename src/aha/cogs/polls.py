@@ -17,6 +17,7 @@ from discord.ext import commands
 
 from aha import embeds
 from aha.commands import BotLike, hybrid_command
+from aha.i18n import locale_of, t
 from aha.replies import reply, respond
 
 __all__ = [
@@ -100,7 +101,7 @@ class Polls(commands.Cog):
         """Create a native Discord poll in the channel."""
         asked = question.strip()
         if not asked or len(asked) > MAX_QUESTION_LENGTH:
-            problem = f"The question must be 1 to {MAX_QUESTION_LENGTH} characters long."
+            problem = t("polls.bad_question", locale_of(ctx), limit=MAX_QUESTION_LENGTH)
             await reply(ctx, embed=embeds.error(problem), ephemeral=True)
             return
         answers = parse_options(options)
@@ -117,7 +118,8 @@ class Polls(commands.Cog):
     ) -> None:
         """Tell the user, privately, how many of each reaction a message has."""
         if not message.reactions:
-            await respond(interaction, "There are no reactions on that message.", ephemeral=True)
+            text = t("polls.no_reactions", locale_of(interaction))
+            await respond(interaction, text, ephemeral=True)
             return
         lines = [f"{reaction.emoji} {reaction.count}" for reaction in message.reactions]
         await respond(interaction, "\n".join(lines), ephemeral=True)

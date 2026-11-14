@@ -467,3 +467,22 @@ def test_a_limit_too_small_for_any_text_degrades_to_ellipses_not_errors() -> Non
 
     # "**Info** (continued)" alone is 20 characters, so there is no room for text.
     assert pages == ["**Info**\n…\n**Fun**\n…"]
+
+
+def test_help_with_nothing_to_show_speaks_german() -> None:
+    ctx = StubContext()
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+
+    _run_help(_cog([stub_command("secret", hidden=True)]), ctx)
+
+    assert ctx.replies[0][0] == "Keine Befehle verfügbar."
+
+
+def test_a_german_click_on_an_emptied_menu_speaks_german() -> None:
+    interaction, item = _click("aha:help:next:1:33", [stub_command("secret", hidden=True)])
+    assert item is not None
+    interaction.locale = discord.Locale.german
+
+    asyncio.run(item.callback(as_interaction(interaction)))
+
+    assert interaction.edited[0]["content"] == "Keine Befehle verfügbar."

@@ -661,3 +661,59 @@ def test_coin_answers_in_the_users_language(monkeypatch: pytest.MonkeyPatch) -> 
     asyncio.run(cast("Any", cog.coin.callback)(cog, as_context(ctx)))
 
     assert ctx.replies[0][1]["embed"].description == "Zahl!"
+
+
+# ------------------------------------------------------------------------- German
+
+
+def german(ctx: StubContext) -> StubContext:
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+    return ctx
+
+
+def test_fun_replies_follow_the_users_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(random, "randint", lambda a, b: 4)
+    cog = Fun(as_bot(StubBot()))
+
+    ctx = german(StubContext())
+    asyncio.run(cast("Any", cog.roll.callback)(cog, as_context(ctx), sides=6))
+    assert ctx.replies[0][1]["embed"].description == "**4** auf einem W6 gewürfelt."
+
+    ctx = german(StubContext())
+    asyncio.run(cast("Any", cog.roll.callback)(cog, as_context(ctx), sides=0))
+    assert ctx.replies[0][1]["embed"].description == "`sides` muss mindestens 1 sein."
+
+    ctx = german(StubContext())
+    asyncio.run(cast("Any", cog.time_in.callback)(cog, as_context(ctx), tz="Nowhere/Land"))
+    assert ctx.replies[0][1]["embed"].description == (
+        "`Nowhere/Land` ist keine Zeitzone, die ich kenne. Probiere `Europe/Berlin`."
+    )
+
+    ctx = german(StubContext())
+    asyncio.run(cast("Any", cog.countdown.callback)(cog, as_context(ctx), when="soon"))
+    assert ctx.replies[0][1]["embed"].description.startswith("Dieses Datum konnte ich nicht lesen.")
+
+    monkeypatch.setattr(fun_module, "utcnow", lambda: datetime(2030, 1, 1, tzinfo=UTC))
+    ctx = german(StubContext())
+    asyncio.run(cast("Any", cog.countdown.callback)(cog, as_context(ctx), when="2020-01-01"))
+    assert ctx.replies[0][1]["embed"].description == (
+        "Dieser Zeitpunkt liegt bereits in der Vergangenheit."
+    )
+
+    ctx = german(StubContext())
+    asyncio.run(cast("Any", cog.countdown.callback)(cog, as_context(ctx), when="2031-01-01"))
+    assert ctx.replies[0][1]["embed"].description.startswith("**Countdown**: <t:")
+
+
+def test_every_8ball_answer_has_a_german_translation(monkeypatch: pytest.MonkeyPatch) -> None:
+    cog = Fun(as_bot(StubBot()))
+    seen = set()
+    for answer in ANSWERS:
+        monkeypatch.setattr(random, "choice", lambda seq, answer=answer: answer)
+        ctx = german(StubContext())
+        asyncio.run(cast("Any", cog.eight_ball.callback)(cog, as_context(ctx), question="Will it?"))
+        text = ctx.replies[0][1]["embed"].description
+        assert text.startswith("> Will it?\n🎱 ")
+        seen.add(text.split("🎱 ", 1)[1])
+    assert len(seen) == len(ANSWERS)
+    assert seen.isdisjoint(set(ANSWERS) - {"Ja."})  # none left in English (except the shared one)

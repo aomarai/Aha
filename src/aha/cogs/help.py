@@ -11,6 +11,7 @@ from discord.ext import commands
 
 from aha.commands import BotLike, hybrid_command
 from aha.components import require_invoker
+from aha.i18n import locale_of, t
 from aha.replies import edit_message, reply
 
 __all__ = [
@@ -192,7 +193,7 @@ class HelpButton(
         """Show the page this button leads to."""
         pages = build_pages(interaction.client)
         if not pages:
-            await edit_message(interaction, "No commands available.", view=None)
+            await edit_message(interaction, t("help.none", locale_of(interaction)), view=None)
             return
         index = min(self.page, len(pages) - 1)
         await edit_message(
@@ -216,7 +217,7 @@ class Help(commands.Cog):
         """Reply privately with every visible command and its description."""
         pages = build_pages(self.bot)
         if not pages:
-            await reply(ctx, "No commands available.", ephemeral=True)
+            await reply(ctx, t("help.none", locale_of(ctx)), ephemeral=True)
         elif len(pages) == 1:
             await reply(ctx, pages[0], ephemeral=True)
         else:

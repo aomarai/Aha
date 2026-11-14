@@ -240,3 +240,21 @@ def test_setup_registers_the_polls_cog() -> None:
 
 def test_the_polls_cog_is_loaded_at_startup() -> None:
     assert "aha.cogs.polls" in COG_MODULES
+
+
+def test_poll_and_reaction_messages_follow_the_users_language() -> None:
+    ctx = StubContext()
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+
+    _poll(ctx, "", "a,b")
+
+    assert _error(ctx) == "Die Frage muss 1 bis 300 Zeichen lang sein."
+
+    interaction = StubInteraction()
+    interaction.locale = discord.Locale.german
+    asyncio.run(
+        Polls(as_bot(StubBot())).count_reactions(
+            as_interaction(interaction), cast("Any", Named(reactions=[]))
+        )
+    )
+    assert interaction.sent[-1][1] == "Diese Nachricht hat keine Reaktionen."
