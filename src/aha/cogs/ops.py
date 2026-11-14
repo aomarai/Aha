@@ -16,6 +16,7 @@ from discord.ext import commands
 from aha import embeds
 from aha.bot import AhaBot
 from aha.commands import hybrid_command
+from aha.i18n import locale_of, t
 from aha.replies import reply
 
 __all__ = ["Operator", "setup"]
@@ -48,10 +49,8 @@ class Operator(commands.Cog):
         # after which a reply would be rejected.
         await ctx.defer(ephemeral=True)
         results = await self.bot.sync_commands()
-        if any(result.synced for result in results):
-            text = "Application commands synced."
-        else:
-            text = "Application commands are already up to date."
+        locale = locale_of(ctx)
+        text = t("sync.done" if any(r.synced for r in results) else "sync.unchanged", locale)
         try:
             await reply(ctx, embed=embeds.success(text))
         except discord.HTTPException:

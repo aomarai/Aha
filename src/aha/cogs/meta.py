@@ -50,23 +50,24 @@ class Meta(commands.Cog):
         Static metadata only: no secrets, no guild names, no user data. The guild count covers
         the shards of *this* process; a fleet-wide total needs shared state (#84).
         """
+        locale = locale_of(ctx)
         info = build_info()
         shards = ", ".join(str(state.shard_id) for state in self.bot.shard_states())
         fields = [
-            ("Version", f"v{info.version}"),
-            ("Commit", info.short_commit),
-            ("Started", f"<t:{int(self.bot.started_at)}:R>"),
-            ("Guilds (this process)", str(len(self.bot.guilds))),
-            ("Shards (this process)", shards or "none"),
-            ("Latency", format_latency(self.bot.latency)),
-            ("Runtime", f"Python {info.python}, discord.py {info.discord_py}"),
+            (t("about.version", locale), f"v{info.version}"),
+            (t("about.commit", locale), info.short_commit),
+            (t("about.started", locale), f"<t:{int(self.bot.started_at)}:R>"),
+            (t("about.guilds", locale), str(len(self.bot.guilds))),
+            (t("about.shards", locale), shards or t("about.none", locale)),
+            (t("about.latency", locale), format_latency(self.bot.latency)),
+            (t("about.runtime", locale), f"Python {info.python}, discord.py {info.discord_py}"),
         ]
         try:
             await reply(
                 ctx,
                 embed=embeds.info(
-                    "Source: https://github.com/aomarai/Aha",
-                    title="About Aha",
+                    t("about.source", locale),
+                    title=t("about.title", locale),
                     fields=[(name, value, True) for name, value in fields],
                 ),
             )

@@ -258,3 +258,24 @@ def test_poll_and_reaction_messages_follow_the_users_language() -> None:
         )
     )
     assert interaction.sent[-1][1] == "Diese Nachricht hat keine Reaktionen."
+
+
+def test_poll_option_errors_are_translated() -> None:
+    assert parse_options("a", "de") == "Gib mindestens 2 Optionen an, durch Kommas getrennt."
+    assert parse_options(",".join("abcdefghijk"), "de") == (
+        "Eine Umfrage kann höchstens 10 Optionen haben (du hast 11 angegeben)."
+    )
+    assert (
+        parse_options("a," + "b" * 56, "de") == "Jede Option darf höchstens 55 Zeichen lang sein."
+    )
+    assert parse_options("a, A", "de") == "Jede Option muss anders sein."
+    assert parse_options("a, b", "de") == ["a", "b"]
+
+
+def test_the_poll_command_reports_option_problems_in_the_users_language() -> None:
+    ctx = StubContext()
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+
+    _poll(ctx, "Lunch?", "only-one")
+
+    assert _error(ctx) == "Gib mindestens 2 Optionen an, durch Kommas getrennt."

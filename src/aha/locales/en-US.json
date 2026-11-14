@@ -82,7 +82,23 @@
     "config.off": "off",
     "config.bad_toggle": "Say `on` or `off`.",
     "config.summaries_on": "Summaries are on for this server. Text people ask to summarize is sent to the Claude API.",
-    "config.summaries_off": "Summaries are off for this server."
+    "config.summaries_off": "Summaries are off for this server.",
+    "polls.too_few": "Give at least {minimum} options, separated by commas.",
+    "polls.too_many": "A poll can have at most {maximum} options (you gave {given}).",
+    "polls.too_long": "Each option can be at most {limit} characters.",
+    "polls.duplicate": "Each option must be different.",
+    "sync.done": "Application commands synced.",
+    "sync.unchanged": "Application commands are already up to date.",
+    "about.title": "About Aha",
+    "about.source": "Source: https://github.com/aomarai/Aha",
+    "about.version": "Version",
+    "about.commit": "Commit",
+    "about.started": "Started",
+    "about.guilds": "Guilds (this process)",
+    "about.shards": "Shards (this process)",
+    "about.none": "none",
+    "about.latency": "Latency",
+    "about.runtime": "Runtime"
   },
   "commands": {}
 }
