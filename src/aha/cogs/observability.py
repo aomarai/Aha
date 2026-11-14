@@ -29,6 +29,7 @@ from discord.ext import commands
 
 from aha.bot import AhaBot
 from aha.cogs.errors import WRAPPERS
+from aha.metrics import Metrics
 
 __all__ = ["AUDIT_LOGGER", "Observability", "outcome_of", "setup"]
 
@@ -36,6 +37,35 @@ __all__ = ["AUDIT_LOGGER", "Observability", "outcome_of", "setup"]
 AUDIT_LOGGER = "aha.audit"
 
 audit = logging.getLogger(AUDIT_LOGGER)
+
+#: discord.py logs every 429 it handles on this logger (#103); it is the only place they show up.
+HTTP_LOGGER = "discord.http"
+
+#: Start of the message discord.py logs for a rate limit on the whole bot token.
+_GLOBAL_429 = "Global rate limit has been hit"
+#: Start of the message it logs for a per-route (or shared-bucket) 429.
+_ROUTE_429 = "We are being rate limited."
+
+
+class RateLimitCounter(logging.Handler):
+    """Counts the 429s discord.py reports, as ``aha_rest_rate_limited_total{kind}``.
+
+    discord.py handles a 429 internally (it sleeps and retries), so the log line is the only
+    signal. Discord's ``X-RateLimit-Scope`` header is not exposed, so the kinds are the two
+    messages discord.py distinguishes: ``global`` (the whole token, the dangerous one) and
+    ``route`` (a bucket). It never alters or drops a record.
+    """
+
+    def __init__(self, metrics: Metrics) -> None:
+        super().__init__(level=logging.WARNING)
+        self._metrics = metrics
+
+    def emit(self, record: logging.LogRecord) -> None:
+        message = str(record.msg)
+        if message.startswith(_GLOBAL_429):
+            self._metrics.rest_rate_limited.labels(kind="global").inc()
+        elif message.startswith(_ROUTE_429):
+            self._metrics.rest_rate_limited.labels(kind="route").inc()
 
 
 def outcome_of(error: Exception) -> str:
@@ -54,6 +84,18 @@ class Observability(commands.Cog):
 
     def __init__(self, bot: AhaBot) -> None:
         self.bot = bot
+        self._rate_limits = RateLimitCounter(bot.metrics)
+
+    async def cog_load(self) -> None:
+        """Start counting 429s. The logger must let warnings through even at a quieter LOG_LEVEL."""
+        logger = logging.getLogger(HTTP_LOGGER)
+        logger.addHandler(self._rate_limits)
+        if not logger.isEnabledFor(logging.WARNING):
+            logger.setLevel(logging.WARNING)
+
+    async def cog_unload(self) -> None:
+        """Stop counting."""
+        logging.getLogger(HTTP_LOGGER).removeHandler(self._rate_limits)
 
     @commands.Cog.listener("on_command_completion")
     async def on_command_completion(self, ctx: commands.Context[commands.Bot]) -> None:

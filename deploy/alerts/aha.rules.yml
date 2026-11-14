@@ -65,3 +65,26 @@ groups:
             a crash loop (AhaReconnectStorm, pod restarts). Below the configured floor
             (SESSION_START_FLOOR, default 10%) pods stop identifying and wait for the reset; see
             docs/runbooks/session-budget.md.
+
+      - alert: AhaGlobalRateLimit
+        expr: sum(increase(aha_rest_rate_limited_total{kind="global"}[10m])) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "Discord applied a GLOBAL rate limit to the bot token"
+          description: >-
+            Every pod shares one token-wide REST budget. Find what is sending in bursts (a loop, a
+            mass edit) and stop it: above 10,000 invalid requests (401/403/429) per 10 minutes
+            Cloudflare bans the egress IP for every pod. This is the trigger for the shared REST
+            proxy in ADR 0001 section 6.
+
+      - alert: AhaRouteRateLimited
+        expr: sum(increase(aha_rest_rate_limited_total{kind="route"}[10m])) > 20
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Discord is rate limiting individual REST routes ({{ $value }} in 10 minutes)"
+          description: >-
+            discord.py retries these, so users only see delay, but sustained route 429s with
+            several pods means the buckets are no longer shared sensibly (ADR 0001 section 6).

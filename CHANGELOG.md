@@ -20,6 +20,9 @@ for how a release is cut.
 - `/remind`, `/reminders`, `/unremind`: reminders stored in PostgreSQL and delivered by whichever
   pod runs the scheduler (needs `DATABASE_URL`). Delivery pings only the invoker, falls back to a
   DM, and drops the reminder if neither works. Limits: 25 per user, 1 year ahead, 1,000 characters.
+- `aha_rest_rate_limited_total{kind=global|route}` (counted from discord.py's 429 log lines) with
+  alerts `AhaGlobalRateLimit` and `AhaRouteRateLimited`; the trigger and candidate for a shared REST
+  proxy are in ADR 0001 section 6.
 - `/summarize` and a "Summarize" message menu (Claude API): off in every server until an admin runs
   `/configure summaries on`, unavailable without `ANTHROPIC_API_KEY`, a per-user daily quota that is
   refunded when the model call fails, bounded input and output, the text sent as data, answers shown

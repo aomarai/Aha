@@ -54,6 +54,9 @@ Due jobs (reminders and similar) live in Postgres. Any pod claims them with `SEL
 
 ### 6. Discord limits that pods do not raise
 - **REST:** a global ~50 req/s per bot token, shared by every pod, plus per-route buckets. **Invalid requests** (401/403/429) above 10,000 per 10 minutes trigger a temporary Cloudflare ban of the IP. A shared REST proxy is introduced on trigger (#103).
+  - *Signal now:* each pod exports `aha_rest_rate_limited_total{kind="global|route"}` (counted from discord.py's own 429 log lines, since it handles them internally) with alerts `AhaGlobalRateLimit` (any global 429) and `AhaRouteRateLimited` (sustained route 429s).
+  - *Trigger:* sustained route 429s, any global 429 that is not explained by a bug, or more than about four gateway pods.
+  - *Candidate approach:* run one small in-cluster REST proxy that owns the token-wide and per-route buckets and point `discord.http`'s base URL at it; evaluate an off-the-shelf Discord REST proxy before writing one. Not built until the trigger.
 - **Session start limit:** identifies per 24 h (typically 1,000), with `max_concurrency` buckets. A crash loop can exhaust it and lock the bot out for a day. Mitigated by #94.
 - **3-second interaction ack:** anything that can be slow (outbound HTTP, an LLM call, a DB call under load) defers first. The interaction token is then valid for 15 minutes.
 
