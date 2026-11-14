@@ -3,7 +3,15 @@
     "ping.latency": "WebSocket-Latenz: {latency}",
     "coin.heads": "Kopf",
     "coin.tails": "Zahl",
-    "coin.result": "{side}!"
+    "coin.result": "{side}!",
+    "error.bot_missing_permissions": "Mir fehlen Berechtigungen dafür: {permissions}.",
+    "error.missing_permissions": "Dafür brauchst du diese Berechtigungen: {permissions}.",
+    "error.missing_role": "Dir fehlt die dafür nötige Rolle.",
+    "error.cooldown": "Dieser Befehl ist gerade gesperrt. Versuche es in {seconds}s erneut.",
+    "error.no_private_message": "Dieser Befehl funktioniert nicht in Direktnachrichten.",
+    "error.command_disabled": "Dieser Befehl ist auf diesem Server deaktiviert.",
+    "error.not_allowed": "Du darfst diesen Befehl nicht verwenden.",
+    "error.unexpected": "Etwas ist schiefgelaufen. Wenn es weiter passiert, nenne die Fehler-ID `{error_id}`."
   },
   "commands": {
     "Check the bot's WebSocket latency.": "Prüft die WebSocket-Latenz des Bots.",

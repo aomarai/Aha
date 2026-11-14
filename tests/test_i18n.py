@@ -179,7 +179,9 @@ def test_an_interaction_can_be_passed_directly() -> None:
     real.guild_locale = None
 
     assert locale_of(real) == "ja"
-    assert locale_of(as_interaction(interaction)) == DEFAULT_LOCALE  # a stub is not an Interaction
+    assert locale_of(as_interaction(interaction)) == DEFAULT_LOCALE  # a stub with no locale sent
+    interaction.locale = discord.Locale.german
+    assert locale_of(as_interaction(interaction)) == "de"
 
 
 def test_t_uses_the_shipped_catalogue() -> None:
@@ -285,3 +287,12 @@ def test_files_are_read_as_utf8_in_name_order_and_missing_sections_are_empty() -
 
 def test_a_catalogue_without_a_base_locale_still_answers_with_the_key() -> None:
     assert Catalogue({}, {}).message("k") == "k"
+
+
+def test_a_context_interaction_wins_over_a_locale_on_the_context_itself() -> None:
+    ctx = Named(
+        interaction=Named(locale=discord.Locale.german, guild_locale=None),
+        locale=discord.Locale.french,
+    )
+
+    assert locale_of(ctx) == "de"
