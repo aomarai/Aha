@@ -86,11 +86,13 @@ class Fun(commands.Cog):
         self, ctx: commands.Context[commands.Bot], sides: app_commands.Range[int, 1, MAX_SIDES] = 6
     ) -> None:
         """Roll a die with the given number of sides (default d6)."""
+        locale = locale_of(ctx)
         if sides < 1:
-            await reply(ctx, embed=embeds.error("`sides` must be at least 1."), ephemeral=True)
+            message = t("roll.too_few", locale)
+            await reply(ctx, embed=embeds.error(message), ephemeral=True)
             return
         result = random.randint(1, sides)
-        text = f"Rolled **{result}** on a d{sides}."
+        text = t("roll.result", locale, result=result, sides=sides)
         try:
             await reply(ctx, embed=embeds.info(text))
         except discord.HTTPException:
@@ -115,9 +117,10 @@ class Fun(commands.Cog):
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def time_in(self, ctx: commands.Context[commands.Bot], tz: str = "UTC") -> None:
         """Show the current time in ``tz`` (default UTC)."""
+        locale = locale_of(ctx)
         name = self._zones.get(tz.strip().lower())
         if name is None:
-            hint = f"`{code(tz.strip())[:40]}` is not a timezone I know. Try `Europe/Berlin`."
+            hint = t("time.unknown", locale, zone=code(tz.strip())[:40])
             await reply(ctx, embed=embeds.error(hint), ephemeral=True)
             return
         now = utcnow().astimezone(zoneinfo.ZoneInfo(name))
@@ -151,7 +154,15 @@ class Fun(commands.Cog):
         shown = plain(question.strip())
         if len(shown) > _QUESTION_LIMIT:
             shown = shown[: _QUESTION_LIMIT - 1] + "…"
-        text = f"> {shown}\n🎱 {random.choice(ANSWERS)}"
+        locale = locale_of(ctx)
+        answer = random.choice(ANSWERS)
+        # ANSWERS stays the English source of truth; the catalogue is keyed by position.
+        text = t(
+            "8ball.reply",
+            locale,
+            question=shown,
+            answer=t(f"8ball.answer.{ANSWERS.index(answer)}", locale),
+        )
         try:
             await reply(ctx, embed=embeds.info(text))
         except discord.HTTPException:
@@ -169,19 +180,18 @@ class Fun(commands.Cog):
         self, ctx: commands.Context[commands.Bot], when: str, *, label: str = ""
     ) -> None:
         """Show how long until ``when``, in every viewer's own timezone."""
+        locale = locale_of(ctx)
         target = _parse_when(when)
         if target is None:
-            hint = (
-                "I couldn't read that date. Use `2026-12-25` or `2026-12-25 18:00`, "
-                "optionally with an offset like `+01:00` (otherwise UTC)."
-            )
+            hint = t("countdown.unreadable", locale)
             await reply(ctx, embed=embeds.error(hint), ephemeral=True)
             return
         if target <= utcnow():
-            await reply(ctx, embed=embeds.error("That time has already passed."), ephemeral=True)
+            message = t("countdown.past", locale)
+            await reply(ctx, embed=embeds.error(message), ephemeral=True)
             return
         stamp = int(target.timestamp())
-        title = plain(label.strip())[:_INPUT_LIMIT] or "Countdown"
+        title = plain(label.strip())[:_INPUT_LIMIT] or t("countdown.default_title", locale)
         text = f"**{title}**: <t:{stamp}:R> (<t:{stamp}:F>)"
         try:
             await reply(ctx, embed=embeds.info(text))

@@ -212,3 +212,15 @@ def test_ping_answers_in_the_users_language(monkeypatch: pytest.MonkeyPatch) -> 
     _run(Meta(bot), ctx, "ping")
 
     assert ctx.replies[0][1]["embed"].description == "WebSocket-Latenz: 42 ms"
+
+
+def test_privacy_answers_in_german() -> None:
+    ctx = StubContext()
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+
+    _run(Meta(_bot()), ctx, "privacy")
+
+    embed = ctx.replies[0][1]["embed"]
+    assert embed.title == "Datenschutz"
+    assert embed.description.startswith("Aha speichert deine Nachrichten")
+    assert "<https://github.com/aomarai/Aha/blob/main/docs/privacy.md>" in embed.description
