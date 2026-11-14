@@ -7,6 +7,7 @@ for how a release is cut.
 ## [Unreleased]
 
 ### Added
+- Token rotation runbook now documents the Sealed Secrets procedure, rehearsed on staging (#106).
 - `aha sync [--guild ID] [--dry-run]`: syncs slash commands over REST, only when they differ.
   Production no longer syncs at startup; `SYNC_ON_STARTUP` opts a single process in.
 - Health, readiness and Prometheus metrics server (`/livez`, `/readyz`, `/metrics`) with
