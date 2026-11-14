@@ -12,6 +12,7 @@ import pytest
 from discord import app_commands
 
 from aha.bot import COG_MODULES, OPERATOR_COG, AhaBot
+from aha.cmdsync import local_signature
 from aha.config import Settings
 from aha.i18n import AhaTranslator
 from tests.helpers import http_error
@@ -576,3 +577,37 @@ def test_the_guild_target_is_fetched_with_localizations_too(
     )
     assert seen[0] == (guild_url, {"with_localizations": "true"})
     assert all(params == {"with_localizations": "true"} for _, params in seen)
+
+
+def test_a_synced_dev_guild_compares_clean_although_discord_returns_default_contexts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live bug: a guild command comes back with default contexts and no install types."""
+    harness = Harness(monkeypatch, dev_guild_id=GUILD_ID)
+
+    async def scenario() -> Any:
+        await harness.load()
+
+        @app_commands.guild_only()
+        async def server_only(interaction: discord.Interaction) -> None:
+            return None
+
+        harness.bot.tree.add_command(
+            app_commands.Command(name="serveronly", description="Servers.", callback=server_only)
+        )
+        guild = discord.Object(id=GUILD_ID)
+        harness.bot.tree.copy_global_to(guild=guild)
+        local = [c.to_dict(harness.bot.tree) for c in harness.bot.tree.get_commands(guild=guild)]
+        assert all(p["integration_types"] == [0] for p in local)  # declared locally ...
+        assert any(local_signature(p)["contexts"] == [0] for p in local)  # (guild-only ones) ...
+        # ... but Discord returns the defaults for a guild command, whatever was sent.
+        harness.http.guild_commands = [
+            {**_remote_view(p), "contexts": [0, 1, 2], "integration_types": None} for p in local
+        ]
+        harness.http.global_commands = []
+        return await harness.bot.sync_commands(dry_run=True)
+
+    guild_result, global_result = asyncio.run(scenario())
+
+    assert guild_result.diff.unchanged is True
+    assert global_result.diff.unchanged is True

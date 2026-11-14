@@ -258,3 +258,20 @@ def test_a_non_empty_list_or_dict_is_a_change() -> None:
 
     assert _diff([_ROLL], [_remote(with_choices)]) == CommandDiff(changed=("roll",))
     assert _diff([with_choices], [_remote(_ROLL)]) == CommandDiff(changed=("roll",))
+
+
+def test_a_guild_target_does_not_compare_install_contexts() -> None:
+    """A guild command keeps neither install contexts nor contexts; Discord returns the defaults."""
+    declared = {**_PING, "integration_types": [0], "contexts": [0], "dm_permission": False}
+    guild_copy = {
+        k: v for k, v in _remote(declared).items() if k not in ("integration_types", "contexts")
+    }
+    defaulted = _remote(declared, contexts=[0, 1, 2], integration_types=[0, 1])
+
+    assert _diff([declared], [guild_copy]) == CommandDiff(changed=("ping",))  # global: a difference
+    assert diff_commands([declared], [guild_copy], guild=True).unchanged is True
+    assert _diff([declared], [defaulted]) == CommandDiff(changed=("ping",))
+    assert diff_commands([declared], [defaulted], guild=True).unchanged is True
+    # everything else is still compared for a guild
+    renamed = {**guild_copy, "description": "something else"}
+    assert diff_commands([declared], [renamed], guild=True) == CommandDiff(changed=("ping",))
