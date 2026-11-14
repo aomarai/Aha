@@ -25,9 +25,6 @@ _DEFAULT_CONTEXTS = [0, 1, 2]
 #: Contexts of a command that is guild-only (the legacy ``dm_permission=False``).
 _GUILD_ONLY_CONTEXTS = [0]
 
-#: ``integration_types`` Discord assumes when unset: guild install only.
-_DEFAULT_INSTALLS = [0]
-
 #: ``AppCommandType.chat_input``; other types are context menus, which are labelled as such.
 _CHAT_INPUT = 1
 
@@ -77,8 +74,13 @@ def _contexts(contexts: Iterable[int] | None, dm_permission: bool) -> list[int]:
     return list(_DEFAULT_CONTEXTS if dm_permission else _GUILD_ONLY_CONTEXTS)
 
 
-def _installs(installs: Iterable[int] | None) -> list[int]:
-    return list(_DEFAULT_INSTALLS) if installs is None else sorted(installs)
+def _installs(installs: Iterable[int] | None) -> list[int] | None:
+    """The install contexts, or ``None`` when the command does not say.
+
+    A command that does not declare them gets whatever the application allows in the Developer
+    Portal (which can include user installs), so the comparison must not assume a default.
+    """
+    return None if installs is None else sorted(installs)
 
 
 def local_signature(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -140,6 +142,10 @@ def diff_commands(
     """
     local_by_key = {_key(sig): sig for sig in map(local_signature, local)}
     remote_by_key = {_key(sig): sig for sig in map(remote_signature, remote)}
+    for key, sig in local_by_key.items():
+        # Undeclared locally means "the application's default": whatever Discord holds is right.
+        if sig["integration_types"] is None and key in remote_by_key:
+            remote_by_key[key] = {**remote_by_key[key], "integration_types": None}
     added = sorted(_label(local_by_key[key]) for key in local_by_key.keys() - remote_by_key.keys())
     removed = sorted(
         _label(remote_by_key[key]) for key in remote_by_key.keys() - local_by_key.keys()

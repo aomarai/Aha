@@ -14,6 +14,7 @@ from typing import Any
 import discord
 from discord import app_commands
 from discord.ext import commands
+from discord.http import Route
 
 from aha import logctx
 from aha.cmdsync import CommandDiff, diff_commands
@@ -510,6 +511,31 @@ class AhaBot(commands.AutoShardedBot):
                     self.tree.add_command(command)
             return results
 
+    async def _fetch_remote_commands(
+        self, application_id: int, guild: discord.Object | None
+    ) -> list[dict[str, Any]]:
+        """Fetch Discord's copy of a target's commands, **with** their localizations.
+
+        Without ``with_localizations`` Discord omits ``name_localizations`` and
+        ``description_localizations``, so a synced translation would look like a difference on
+        every comparison. discord.py's own helper has no parameter for it, hence the raw request.
+        """
+        if guild is None:
+            route = Route(
+                "GET", "/applications/{application_id}/commands", application_id=application_id
+            )
+        else:
+            route = Route(
+                "GET",
+                "/applications/{application_id}/guilds/{guild_id}/commands",
+                application_id=application_id,
+                guild_id=guild.id,
+            )
+        commands_: list[dict[str, Any]] = await self.http.request(
+            route, params={"with_localizations": "true"}
+        )
+        return commands_
+
     async def _sync_target(self, guild: discord.Object | None, *, dry_run: bool) -> SyncResult:
         """Compare one target with Discord and sync it when it differs."""
         application_id = self.application_id
@@ -525,11 +551,7 @@ class AhaBot(commands.AutoShardedBot):
             else command.to_dict(self.tree)
             for command in self.tree.get_commands(guild=guild)
         ]
-        remote = (
-            await self.http.get_global_commands(application_id)
-            if guild is None
-            else await self.http.get_guild_commands(application_id, guild.id)
-        )
+        remote = await self._fetch_remote_commands(application_id, guild)
         diff = diff_commands(local, remote)
         if diff.unchanged:
             log.info("Skipped sync: %s commands are unchanged", label)
