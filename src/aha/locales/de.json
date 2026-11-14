@@ -98,7 +98,22 @@
     "about.shards": "Shards (dieser Prozess)",
     "about.none": "keine",
     "about.latency": "Latenz",
-    "about.runtime": "Laufzeit"
+    "about.runtime": "Laufzeit",
+    "net.invalid_link": "Das sieht nicht nach einem gültigen Link aus.",
+    "net.scheme": "Nur Links mit http:// oder https:// werden unterstützt.",
+    "net.credentials": "Links mit Benutzername oder Passwort werden nicht unterstützt.",
+    "net.port": "Nur die üblichen Web-Ports (80 und 443) werden unterstützt.",
+    "net.blocked": "Diese Adresse ist nicht erlaubt.",
+    "net.redirect_nowhere": "Die Seite hat eine Weiterleitung ohne Ziel geschickt.",
+    "net.http_status": "Die Seite hat mit HTTP {status} geantwortet.",
+    "net.not_html": "Dieser Link ist keine Webseite, die ich lesen kann.",
+    "net.too_many_redirects": "Der Link leitet zu oft weiter.",
+    "net.timeout": "Die Seite hat zu lange nicht geantwortet.",
+    "net.connect": "Ich konnte mich nicht mit dieser Seite verbinden.",
+    "net.unreadable": "Ich konnte diesen Link nicht lesen.",
+    "web.no_description": "Diese Seite hat keine Beschreibung.",
+    "web.site": "Seite",
+    "web.link": "Adresse"
   },
   "commands": {
     "Check the bot's WebSocket latency.": "Prüft die WebSocket-Latenz des Bots.",

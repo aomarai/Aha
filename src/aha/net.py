@@ -79,7 +79,16 @@ _NO_REDIRECTS: dict[str, Any] = {"allow_redirects": False}
 
 
 class FetchError(Exception):
-    """A fetch failed in a way that is safe to explain to the user (the text is shown as is)."""
+    """A fetch failed in a way that is safe to explain to the user.
+
+    ``str(error)`` is the English text. ``key`` and ``values`` name the catalogue message
+    (``aha.i18n``) that says the same thing in the user's language.
+    """
+
+    def __init__(self, message: str, key: str, **values: object) -> None:
+        super().__init__(message)
+        self.key = key
+        self.values = values
 
 
 class BlockedAddressError(OSError):
@@ -133,24 +142,24 @@ def validate_url(raw: str, policy: FetchPolicy = DEFAULT_POLICY) -> yarl.URL:
         or not text.isprintable()
         or any(c.isspace() for c in text)
     ):
-        raise FetchError("That doesn't look like a valid link.")
+        raise FetchError("That doesn't look like a valid link.", "net.invalid_link")
     try:
         url = yarl.URL(text)
         port = url.port
     except ValueError, UnicodeError:
-        raise FetchError("That doesn't look like a valid link.") from None
+        raise FetchError("That doesn't look like a valid link.", "net.invalid_link") from None
     if url.scheme not in {"http", "https"} or not url.host:
-        raise FetchError("Only http:// and https:// links are supported.")
+        raise FetchError("Only http:// and https:// links are supported.", "net.scheme")
     if url.user is not None or url.password is not None:
-        raise FetchError("Links with a username or password are not supported.")
+        raise FetchError("Links with a username or password are not supported.", "net.credentials")
     if policy.ports is not None and port not in policy.ports:
-        raise FetchError("Only the standard web ports (80 and 443) are supported.")
+        raise FetchError("Only the standard web ports (80 and 443) are supported.", "net.port")
     try:
         literal = ipaddress.ip_address(url.host)
     except ValueError:
         return url  # a name: judged when it is resolved
     if not policy.allowed(literal):
-        raise FetchError("That address isn't allowed.")
+        raise FetchError("That address isn't allowed.", "net.blocked")
     return url
 
 
@@ -327,26 +336,33 @@ async def fetch_preview(raw_url: str, policy: FetchPolicy = DEFAULT_POLICY) -> P
                     if response.status in _REDIRECT_STATUSES:
                         location = response.headers.get(hdrs.LOCATION)
                         if not location:
-                            raise FetchError("The site sent a redirect with nowhere to go.")
+                            raise FetchError(
+                                "The site sent a redirect with nowhere to go.",
+                                "net.redirect_nowhere",
+                            )
                         url = validate_url(str(url.join(yarl.URL(location))), policy)
                         continue
                     if response.status != 200:
-                        raise FetchError(f"The site answered with HTTP {response.status}.")
+                        raise FetchError(
+                            f"The site answered with HTTP {response.status}.",
+                            "net.http_status",
+                            status=response.status,
+                        )
                     kind = response.content_type.lower()
                     if kind not in _HTML_TYPES:
-                        raise FetchError("That link isn't a web page I can read.")
+                        raise FetchError("That link isn't a web page I can read.", "net.not_html")
                     body = await _read_limited(response, policy.max_bytes)
                     return parse_preview(str(url), _decode(response, body))
-            raise FetchError("The link redirects too many times.")
+            raise FetchError("The link redirects too many times.", "net.too_many_redirects")
     except TimeoutError:
-        raise FetchError("The site took too long to answer.") from None
+        raise FetchError("The site took too long to answer.", "net.timeout") from None
     except aiohttp.ClientConnectorError as exc:
         if isinstance(exc.os_error, BlockedAddressError):
-            raise FetchError("That address isn't allowed.") from None
-        raise FetchError("I couldn't connect to that site.") from None
+            raise FetchError("That address isn't allowed.", "net.blocked") from None
+        raise FetchError("I couldn't connect to that site.", "net.connect") from None
     except aiohttp.ClientError, UnicodeError, ValueError:
         log.debug("Fetching %s failed", url, exc_info=True)
-        raise FetchError("I couldn't read that link.") from None
+        raise FetchError("I couldn't read that link.", "net.unreadable") from None
 
 
 @dataclass(slots=True)

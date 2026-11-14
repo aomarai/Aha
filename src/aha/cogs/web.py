@@ -17,6 +17,7 @@ from discord.ext import commands
 
 from aha import embeds
 from aha.commands import BotLike, hybrid_command
+from aha.i18n import DEFAULT_LOCALE, locale_of, t
 from aha.net import FetchError, Preview, TTLCache, fetch_preview, validate_url
 from aha.replies import reply
 from aha.textutil import clip, plain
@@ -52,10 +53,11 @@ class Web(commands.Cog):
     @commands.cooldown(1, 15, commands.BucketType.user)
     async def url(self, ctx: commands.Context[commands.Bot], link: str) -> None:
         """Fetch ``link`` and show its title and description."""
+        locale = locale_of(ctx)
         try:
             normalised = str(validate_url(link))
         except FetchError as exc:
-            await reply(ctx, embed=embeds.error(str(exc)), ephemeral=True)
+            await reply(ctx, embed=embeds.error(t(exc.key, locale, **exc.values)), ephemeral=True)
             return
         preview = self._cache.get(normalised)
         if preview is None:
@@ -64,27 +66,27 @@ class Web(commands.Cog):
             try:
                 preview = await self._fetch(normalised)
             except FetchError as exc:
-                await reply(ctx, embed=embeds.error(str(exc)))
+                await reply(ctx, embed=embeds.error(t(exc.key, locale, **exc.values)))
                 return
             self._cache.put(normalised, preview)
-        await reply(ctx, embed=_embed(preview))
+        await reply(ctx, embed=_embed(preview, locale))
 
 
-def _embed(preview: Preview) -> discord.Embed:
+def _embed(preview: Preview, locale: str = DEFAULT_LOCALE) -> discord.Embed:
     """Render a preview, neutralising everything the page said."""
     host = urlsplit(preview.url).hostname or preview.url
     title = clip(plain(preview.title), _TITLE_LIMIT) if preview.title else host
     description = (
         clip(plain(preview.description), _DESCRIPTION_LIMIT)
         if preview.description
-        else "This page has no description."
+        else t("web.no_description", locale)
     )
     return embeds.info(
         description,
         title=title,
         fields=[
-            ("Site", plain(preview.site_name) if preview.site_name else host, True),
-            ("Link", preview.url, False),
+            (t("web.site", locale), plain(preview.site_name) if preview.site_name else host, True),
+            (t("web.link", locale), preview.url, False),
         ],
     )
 
