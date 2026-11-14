@@ -88,8 +88,9 @@ every change must keep:
   appending its dotted path to `COG_MODULES` in `bot.py`** (a test asserts all entries are under
   `aha.cogs.`).
 - Use `aha.commands.hybrid_command`, not `discord.ext.commands.hybrid_command`, for hybrid
-  (slash + mention) commands. The wrapper exists purely so mypy strict accepts the decorator on cog
-  methods without `# type: ignore`.
+  commands. They are slash commands only: the bot subscribes to no message events (the `@Aha`
+  mention surface was removed, #101), so the prefix half never fires. The wrapper exists purely so
+  mypy strict accepts the decorator on cog methods without `# type: ignore`.
 - Hybrid commands run `prepare()` on the slash path too, so `commands.cooldown`,
   `commands.guild_only`, and `commands.has_permissions` apply to both surfaces.
   `app_commands.default_permissions` (Discord-side visibility) and `app_commands.checks.*`
@@ -109,7 +110,7 @@ every change must keep:
 - Cog replies go through `aha.replies.reply`, which defaults to
   `allowed_mentions=AllowedMentions.none()`; never call `ctx.reply` directly, or user text can
   ping roles or `@everyone`. A bot-wide per-user budget is enforced by
-  `AhaTree.interaction_check` (slash) and `AhaBot._enforce_rate_limit` (mentions), so a new
+  `AhaTree.interaction_check` (slash) and `AhaBot._enforce_rate_limit` (text commands; unreachable without message intents), so a new
   command inherits rate limiting without its own decorator. The budget lives behind
   `aha.ratelimit.RateLimitBackend` (async `consume`; `bot.rate_limiter`) and is per process today
   (`LocalBackend`): a user whose interactions reach several processes can use up to `rate` times
@@ -118,7 +119,7 @@ every change must keep:
   `aha.replies.respond` / `edit_message`, which apply the same mention policy.
 - Logging: `aha.logctx` carries the per-invocation fields (`shard_id`, `guild_id`, `channel_id`,
   `user_id`, `interaction_id`/`message_id`, `command`) in a `ContextVar`, bound by
-  `AhaTree.interaction_check` (slash), `AhaBot._enforce_rate_limit` (mentions) and a view's own
+  `AhaTree.interaction_check` (slash), `AhaBot._enforce_rate_limit` (text commands; unreachable without message intents) and a view's own
   `interaction_check` (button clicks never pass the tree, so call `logctx.bind_interaction`
   there); `TaskRegistry` runs spawned tasks in a clean context. The JSON
   formatter (`LOG_FORMAT=json`) adds them to every record, so do not repeat those ids in log

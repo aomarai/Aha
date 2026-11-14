@@ -8,7 +8,7 @@ Issue references below (`#N`) point at github.com/aomarai/Aha issues.
 
 ## Context
 
-Aha is a slash-first discord.py **gateway** bot with no privileged intents, running as one process. Hybrid commands (such as `/ping` and `/roll`) are also invocable by `@Aha` mention, which Discord delivers without the Message Content intent (whether that surface stays is #101). Per-process state today: the `RateLimiter`, the `sync_commands` lock, and the `/help` paginator views (in memory, 120 s). There is no database.
+Aha is a slash-first discord.py **gateway** bot with no privileged intents, running as one process. Commands are slash commands and menus only: the `@Aha` mention surface was removed (#101), so the bot subscribes to no message events. Per-process state today: the `RateLimiter`, the `sync_commands` lock, and the `/help` paginator views (in memory, 120 s). There is no database.
 
 **Implementation status:** this ADR describes the *target*. Settings such as `SYNC_ON_STARTUP`, `SHARD_COUNT`/`SHARD_IDS` and `DATABASE_URL`, the `aha sync` and `aha migrate` commands, and the `/help` paginator rework do not exist yet. Each is delivered by the issue linked where it is mentioned, and until then the code behaves as the README describes.
 

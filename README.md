@@ -123,14 +123,12 @@ leave Message Content, Server Members and Presence switched off in the Developer
 Portal. Discord's guidance is to migrate text commands to slash commands, and
 privileged-intent access above 10,000 unique users requires an application that
 must be renewed annually (rule change of 2026-06-10), so the bot avoids needing
-it. The only text trigger left is an `@Aha` mention, which Discord delivers
-without the Message Content intent. Set `MENTION_COMMANDS=false` to drop that trigger and the
-`guild_messages` / `dm_messages` intents with it, leaving guild lifecycle as the only event stream.
+it. There is no text trigger at all: the `@Aha command` mention surface was removed, so the bot
+subscribes to no message events.
 
 The bot also requests only the **non-privileged intents it uses**, not `Intents.default()`:
-`guilds` (the guild and channel cache, `on_guild_remove`), and `guild_messages` / `dm_messages`
-so that an `@Aha` mention reaches the command parser. Typing, voice, invites, emoji, reactions,
-scheduled events and the rest are not subscribed, and no message cache is kept (`max_messages=None`),
+`guilds` (the guild and channel cache, `on_guild_remove`) and nothing else. Messages, typing, voice,
+invites, emoji, reactions, scheduled events and the rest are not subscribed, and no message cache is kept (`max_messages=None`),
 no member cache (`MemberCacheFlags.none()`) and no guild chunking at startup.
 Each unused event stream costs bandwidth, CPU and memory on every shard. Add an intent in
 `aha.bot.gateway_intents` only together with the feature that needs it. If a future feature genuinely needs message
@@ -293,7 +291,6 @@ Real environment variables take precedence over `.env`.
 | `ANTHROPIC_API_KEY` | no | – | Enables `/summarize` (or `ANTHROPIC_API_KEY_FILE`; set at most one). Off per server until an admin runs `/configure summaries on` |
 | `ANTHROPIC_MODEL` | no | `claude-haiku-5-5` | Model used for summaries |
 | `SUMMARIZE_DAILY_QUOTA`, `SUMMARIZE_MAX_CHARS` | no | `10`, `4000` | Summaries per user per UTC day (1-1000); characters sent to the model (100-20000) |
-| `MENTION_COMMANDS`  | no       | `true`  | `@Aha command` works; `false` drops the message intents (the busiest event stream); slash commands are unaffected |
 | `SESSION_START_FLOOR` | no     | `0.1`   | Wait for Discord's reset instead of identifying when fewer than this fraction of the daily gateway sessions remain (`0` disables); see [the runbook](docs/runbooks/session-budget.md) |
 | `SHARDS_PER_POD`, `POD_INDEX` | no | – | Derive `SHARD_IDS` from a StatefulSet ordinal instead (needs `SHARD_COUNT`) |
 
@@ -324,8 +321,7 @@ rules for the metrics that exist today are in [`deploy/alerts/aha.rules.yml`](de
 record carries `ts` (UTC, ISO 8601), `level`, `logger` and `msg`, plus `exc` for a traceback. When
 set in the environment, `HOSTNAME` (as `pod`), `AHA_VERSION` (`version`) and `AHA_COMMIT`
 (`commit`) are added to every record. While a command is being handled, its records also carry
-`shard_id`, `guild_id`, `channel_id`, `user_id`, `interaction_id` (or `message_id` for `@Aha`
-mentions) and `command`. Every completed command is also written to the `aha.audit` logger at
+`shard_id`, `guild_id`, `channel_id`, `user_id`, `interaction_id` and `command`. Every completed command is also written to the `aha.audit` logger at
 INFO as an audit trail (`event=command`, `outcome=ok`, the argument **names**, `duration_ms`); argument
 values are never logged, since they are user content. Filter on that logger name to route or silence
 the trail. The bot token is replaced with `***` in both formats, including inside
