@@ -107,6 +107,8 @@ def test_bot_passes_its_minimal_intents_and_no_message_cache(
     assert captured["intents"] == gateway_intents()
     assert captured["intents"] != discord.Intents.default()
     assert captured["max_messages"] is None  # no per-channel message cache
+    assert captured["member_cache_flags"] == discord.MemberCacheFlags.none()
+    assert captured["chunk_guilds_at_startup"] is False
 
 
 def test_bot_prefix_is_mention_only(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1132,3 +1134,10 @@ def test_the_health_server_is_already_up_while_the_budget_guard_waits(
     asyncio.run(scenario())
 
     assert seen == [True]
+
+
+def test_a_real_bot_keeps_no_member_cache_and_does_not_chunk_guilds() -> None:
+    bot = _bot()
+
+    assert bot._connection.member_cache_flags == discord.MemberCacheFlags.none()
+    assert bot._connection._chunk_guilds is False
