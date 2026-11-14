@@ -33,7 +33,8 @@ strict, pytest with 95% branch coverage, then a **mutation-testing job** that fa
 mutmut score drops below `THRESHOLD` in `scripts/mutation_score.py` (currently 0.98 against a
 measured 100%, a ratchet meant to be raised as surviving mutants are killed) and when the campaign
 enumerates fewer than `MIN_MUTANTS`, so a silently shrinking campaign cannot pass. Separate
-workflows run security checks and SonarQube. Every third-party action in `.github/workflows/` is pinned to a full commit SHA with a version
+workflows run security checks and SonarQube (advisory only: the job is `continue-on-error` because the
+cluster is short on memory, and Community Build gates `main`, not PRs). Every third-party action in `.github/workflows/` is pinned to a full commit SHA with a version
 comment (`# v7.0.1`); Dependabot's `github-actions` ecosystem bumps both. A new `uses:` must be pinned the
 same way, and a checkout that does not push sets `persist-credentials: false`.
 `.github/workflows/image.yml` builds the production
