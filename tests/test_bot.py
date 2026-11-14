@@ -13,7 +13,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from aha import logctx
-from aha.bot import COG_MODULES, WATCHDOG_TASK, AhaBot, gateway_intents
+from aha.bot import COG_MODULES, HEALTH_TASK, WATCHDOG_TASK, AhaBot, gateway_intents
 from aha.config import Settings
 from aha.guildsettings import CommandDisabled
 from aha.ratelimit import LocalBackend, RateLimiter
@@ -1108,3 +1108,27 @@ def test_without_coordination_discordpys_own_hook_runs(monkeypatch: pytest.Monke
     asyncio.run(bot.before_identify_hook(None))  # a non-sharded client has no shard id
 
     assert seen == [(2, True), (None, False)]
+
+
+def test_the_health_server_is_already_up_while_the_budget_guard_waits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[bool] = []
+
+    async def waiting_guard(self: AhaBot) -> None:
+        seen.append(HEALTH_TASK in self.tasks)  # a liveness probe must be answerable now
+
+    async def fake_load_extension(name: str) -> None:
+        return None
+
+    monkeypatch.setattr(AhaBot, "_guard_session_budget", waiting_guard)
+    bot = AhaBot(Settings(token="test-token", health_port=8080))
+    monkeypatch.setattr(bot, "load_extension", fake_load_extension)
+
+    async def scenario() -> None:
+        await bot.setup_hook()
+        await bot.tasks.close()
+
+    asyncio.run(scenario())
+
+    assert seen == [True]

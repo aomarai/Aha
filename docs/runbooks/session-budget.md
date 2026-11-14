@@ -15,7 +15,8 @@ budget locks the bot out of the gateway until it resets.
 - **Floor guard**: when `remaining` is below `SESSION_START_FLOOR` of `total` (default `0.1`, `0`
   disables it), the pod logs a **CRITICAL** line and sleeps until `reset_after` (plus a margin)
   instead of identifying, then looks again. Kubernetes' restart back-off alone is far too short for this.
-  While it sleeps the pod is **not ready** and serves no commands.
+  While it sleeps the pod is **not ready** and serves no commands, but the health server is already up
+  (it starts first), so a liveness probe keeps passing and Kubernetes does not kill the waiting pod.
 - **Cross-pod IDENTIFY lock** (multi-pod only: needs `DATABASE_URL` and an explicit `SHARD_IDS` /
   `SHARDS_PER_POD`): before each shard identifies, the pod takes a PostgreSQL advisory lock for the
   shard's bucket and keeps it for 5 seconds, so pods that start together do not identify at once.
