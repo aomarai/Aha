@@ -26,6 +26,8 @@ for how a release is cut.
 - `MENTION_COMMANDS=false` drops `@Aha command` and the message intents; `aha sync --check` is a dry
   run that exits 3 on drift (a post-deploy smoke test); gitleaks rules for Discord bot tokens and
   Anthropic keys; `docs/environments.md` describes staging versus production.
+- Commands and menus declare **server-only** installs, so they stay server-only even if user installs
+  are enabled in the Developer Portal.
 - `aha_rest_rate_limited_total{kind=global|route}` (counted from discord.py's 429 log lines) with
   alerts `AhaGlobalRateLimit` and `AhaRouteRateLimited`; the trigger and candidate for a shared REST
   proxy are in ADR 0001 section 6.
