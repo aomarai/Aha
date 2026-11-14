@@ -20,6 +20,9 @@ for how a release is cut.
 - `/remind`, `/reminders`, `/unremind`: reminders stored in PostgreSQL and delivered by whichever
   pod runs the scheduler (needs `DATABASE_URL`). Delivery pings only the invoker, falls back to a
   DM, and drops the reminder if neither works. Limits: 25 per user, 1 year ahead, 1,000 characters.
+- `/forgetme`: deletes the invoker's reminders and scheduled jobs and anonymises their id in server
+  settings, behind an expiring, invoker-only confirm button. A test fails when a table with personal
+  data has no purge path.
 - Gateway session-start budget: logged and exported at startup, a guard that waits for Discord's
   reset instead of identifying when it is nearly spent (`SESSION_START_FLOOR`), and a PostgreSQL
   advisory lock that serialises IDENTIFY across pods. Runbook: `docs/runbooks/session-budget.md`.

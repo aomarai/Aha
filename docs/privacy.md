@@ -44,8 +44,10 @@ Every table in the database must declare how to delete a user's or a server's ro
 
 ## Your choices
 
-- **Delete your data**: once the database holds personal data, a `/privacy` option will delete your
-  rows. Until then there is nothing stored to delete, apart from log lines (ask the operator).
+- **Delete your data**: run `/forgetme` and press the confirm button (it expires after 5 minutes).
+  It deletes your pending reminders and any other scheduled jobs, and removes your id from server
+  settings you changed (the settings stay with the server). Log lines are not in the database; ask
+  the operator about those.
 - **Stop**: remove the bot from your server, or stop using its commands. Its server data is deleted
   after 30 days.
 - **Ask or complain**: open an issue at <https://github.com/aomarai/Aha/issues>, or contact the

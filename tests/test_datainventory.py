@@ -75,3 +75,16 @@ def test_an_entry_describes_its_owner_columns() -> None:
     entry = TableData(user_column="user_id", guild_column="guild_id", retention="until delivered")
 
     assert (entry.user_column, entry.guild_column) == ("user_id", "guild_id")
+
+
+def test_every_table_with_personal_columns_has_a_deletion_path() -> None:
+    """Adding a table to the inventory without teaching ``aha.privacy`` to purge it fails here."""
+    from aha.privacy import GUILD_TABLES, USER_TABLES
+
+    with_user = {name for name, entry in INVENTORY.items() if entry.user_column}
+    with_guild = {name for name, entry in INVENTORY.items() if entry.guild_column}
+
+    assert with_user <= USER_TABLES, f"no /forgetme purge for {sorted(with_user - USER_TABLES)}"
+    assert with_guild <= GUILD_TABLES, f"no guild purge for {sorted(with_guild - GUILD_TABLES)}"
+    assert with_user >= USER_TABLES  # and nothing stale is claimed
+    assert with_guild >= GUILD_TABLES

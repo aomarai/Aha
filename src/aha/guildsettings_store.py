@@ -84,6 +84,14 @@ class GuildSettingsStore:
                 by,
             )
 
+    async def anonymise_user(self, user_id: int) -> int:
+        """Replace a user's id as "last changed by" with 0; return how many rows were touched."""
+        async with self._db.acquire() as conn:
+            result: str = await conn.execute(
+                "UPDATE guild_settings SET updated_by = 0 WHERE updated_by = $1", user_id
+            )
+        return int(result.rsplit(" ", 1)[-1])
+
     async def delete(self, guild_id: int) -> bool:
         """Delete a guild's row; ``True`` when there was one."""
         async with self._db.acquire() as conn:
