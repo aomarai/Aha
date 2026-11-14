@@ -20,6 +20,9 @@ for how a release is cut.
 - `/remind`, `/reminders`, `/unremind`: reminders stored in PostgreSQL and delivered by whichever
   pod runs the scheduler (needs `DATABASE_URL`). Delivery pings only the invoker, falls back to a
   DM, and drops the reminder if neither works. Limits: 25 per user, 1 year ahead, 1,000 characters.
+- The bot and `aha migrate` wait up to 60 s for the database when it is not reachable yet (a new pod's
+  first packets can be dropped while the cluster programs its network policy; PostgreSQL may still be
+  starting), instead of failing the pod or the deploy.
 - `MENTION_COMMANDS=false` drops `@Aha command` and the message intents; `aha sync --check` is a dry
   run that exits 3 on drift (a post-deploy smoke test); gitleaks rules for Discord bot tokens and
   Anthropic keys; `docs/environments.md` describes staging versus production.
