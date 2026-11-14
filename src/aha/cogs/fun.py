@@ -12,6 +12,7 @@ from discord.ext import commands
 
 from aha import embeds
 from aha.commands import BotLike, hybrid_command
+from aha.i18n import locale_of, t
 from aha.replies import reply
 from aha.textutil import code, plain
 
@@ -99,8 +100,9 @@ class Fun(commands.Cog):
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def coin(self, ctx: commands.Context[commands.Bot]) -> None:
         """Flip a coin and report heads or tails."""
-        result = random.choice(("heads", "tails"))
-        text = f"{result.title()}!"
+        locale = locale_of(ctx)
+        side = t(f"coin.{random.choice(('heads', 'tails'))}", locale)
+        text = t("coin.result", locale, side=side)
         try:
             await reply(ctx, embed=embeds.info(text))
         except discord.HTTPException:

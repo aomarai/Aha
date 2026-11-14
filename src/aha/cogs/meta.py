@@ -9,6 +9,7 @@ from aha import embeds
 from aha.bot import AhaBot
 from aha.botinfo import build_info, format_latency
 from aha.commands import hybrid_command
+from aha.i18n import locale_of, t
 from aha.replies import reply
 
 __all__ = ["PRIVACY_URL", "TERMS_URL", "Meta", "setup"]
@@ -30,7 +31,7 @@ class Meta(commands.Cog):
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def ping(self, ctx: commands.Context[commands.Bot]) -> None:
         """Reply with the current gateway latency in milliseconds."""
-        text = f"WebSocket latency: {format_latency(self.bot.latency)}"
+        text = t("ping.latency", locale_of(ctx), latency=format_latency(self.bot.latency))
         try:
             await reply(ctx, embed=embeds.status(text))
         except discord.HTTPException:

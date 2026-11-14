@@ -33,6 +33,10 @@ echo "== time zones resolve (the image has no system tzdata, so this needs the t
 docker run --rm "$image" "$python" -c \
   "from zoneinfo import ZoneInfo; ZoneInfo('Europe/Berlin'); ZoneInfo('Asia/Kolkata')"
 
+echo "== the message catalogues and migrations ship inside the package"
+docker run --rm "$image" "$python" -c \
+  "from aha.i18n import t; from aha.dbmigrate import load_migrations; assert t('coin.heads', 'de') == 'Kopf'; assert load_migrations()"
+
 echo "== the build identity is baked in"
 source_version="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/aha/__init__.py)"
 identity="$(docker run --rm "$image" "$python" -c \

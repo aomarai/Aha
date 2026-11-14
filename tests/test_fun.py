@@ -8,13 +8,14 @@ import zoneinfo
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import discord
 import pytest
 from discord.ext import commands
 
 from aha.cogs import fun as fun_module
 from aha.cogs.fun import ANSWERS, Fun, format_offset, timezone_names
 from aha.cogs.fun import setup as fun_setup
-from tests.helpers import StubBot, StubContext, as_bot, as_context, assert_reply, http_error
+from tests.helpers import Named, StubBot, StubContext, as_bot, as_context, assert_reply, http_error
 
 
 def test_roll_reports_the_result(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -649,3 +650,14 @@ def test_roll_declares_native_slash_bounds_and_a_description() -> None:
     assert (sides.min_value, sides.max_value) == (1, 1_000_000)
     assert sides.description == "How many sides the die has (1 to 1,000,000, default 6)."
     assert sides.required is False
+
+
+def test_coin_answers_in_the_users_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(random, "choice", lambda seq: "tails")
+    cog = Fun(as_bot(StubBot()))
+    ctx = StubContext()
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+
+    asyncio.run(cast("Any", cog.coin.callback)(cog, as_context(ctx)))
+
+    assert ctx.replies[0][1]["embed"].description == "Zahl!"

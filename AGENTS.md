@@ -165,6 +165,10 @@ every change must keep:
   user column. A new table must be added to `aha.privacy.USER_TABLES` / `GUILD_TABLES` and get a purge
   method, or `tests/test_datainventory.py` fails. Its confirm button is a persistent `DynamicItem`
   that expires (state in the `custom_id`).
+- Strings: user-facing text goes through `aha.i18n.t(key, locale_of(ctx), ...)` with the English in
+  `src/aha/locales/en-US.json` (new commands should; older commands still use literals and migrate
+  as touched). discord.py marks command text translatable, and `_sync_target` compares the
+  translated payload, so keep that when touching sync. See `docs/i18n.md`.
 - Reminders (`cogs/remind.py`, `aha.durations`) are `scheduled_jobs` of kind `reminder`; delivery
   pings only the invoker and falls back to a DM.
 - Scheduled work: due jobs live in `scheduled_jobs` and any pod runs them (`aha.scheduler`,
