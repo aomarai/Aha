@@ -248,3 +248,45 @@ def test_setup_registers_the_persistent_button_and_the_cog() -> None:
     assert bot.items == [ForgetButton]
     (cog,) = bot.cogs
     assert cog.bot is bot
+
+
+# ------------------------------------------------------------------------- German
+
+
+def test_forgetme_speaks_german_to_a_german_client() -> None:
+    cog = Forget(cast("Any", FakeBot(db=Named())))
+    ctx = StubContext()
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+
+    run(cog, ctx)
+
+    ((_, kwargs),) = ctx.replies
+    assert kwargs["embed"].title == "Deine Daten löschen?"
+    assert kwargs["embed"].description.startswith("Das löscht deine ausstehenden Erinnerungen")
+    assert kwargs["view"].children[0].item.label == "Meine Daten löschen"
+
+
+def test_the_confirm_click_answers_in_german(monkeypatch: pytest.MonkeyPatch) -> None:
+    jobs, settings = FakeJobs(2), FakeSettings(1)
+    monkeypatch.setattr(forget_module, "JobStore", lambda db: jobs)
+    monkeypatch.setattr(forget_module, "GuildSettingsStore", lambda db: settings)
+    interaction = interaction_with(FakeBot(db=Named()))
+    interaction.locale = discord.Locale.german
+
+    click(ForgetButton(33, int(NOW) + 10), interaction)
+    assert interaction.edited[0]["embed"].description == (
+        "Fertig. 2 Erinnerung(en) und geplante Aufgabe(n) gelöscht und deine ID aus 1 "
+        "Servereinstellung(en) entfernt."
+    )
+
+    expired = interaction_with(FakeBot(db=Named()))
+    expired.locale = discord.Locale.german
+    click(ForgetButton(33, int(NOW) - 1), expired)
+    assert expired.edited[0]["embed"].description == (
+        "Diese Bestätigung ist abgelaufen. Führe `/forgetme` erneut aus."
+    )
+
+    no_db = interaction_with(FakeBot(db=None))
+    no_db.locale = discord.Locale.german
+    click(ForgetButton(33, int(NOW) + 10), no_db)
+    assert no_db.edited[0]["embed"].description.startswith("Aha speichert in dieser Installation")

@@ -52,6 +52,7 @@ def test_text_that_is_not_a_duration_is_rejected_with_usage(text: str) -> None:
         parse_duration(text)
 
     assert str(caught.value) == USAGE
+    assert caught.value.key == "duration.invalid"
 
 
 def test_a_zero_length_is_rejected() -> None:
@@ -59,6 +60,7 @@ def test_a_zero_length_is_rejected() -> None:
         parse_duration("0m")
 
     assert str(caught.value) == "The duration must be longer than zero."
+    assert caught.value.key == "duration.zero"
 
 
 def test_an_absurdly_large_number_is_rejected_not_an_overflow() -> None:
@@ -66,9 +68,17 @@ def test_an_absurdly_large_number_is_rejected_not_an_overflow() -> None:
         parse_duration("99999999999999999999d")
 
     assert str(caught.value) == USAGE
+    assert caught.value.key == "duration.invalid"
 
 
 def test_the_largest_accepted_number_has_seven_digits() -> None:
     assert parse_duration("9999999s") == timedelta(seconds=9_999_999)
     with pytest.raises(DurationError):
         parse_duration("10000000s")
+
+
+def test_an_unknown_unit_inside_a_valid_shape_is_the_same_usage_error() -> None:
+    with pytest.raises(DurationError) as caught:
+        parse_duration("5 parsecs")
+
+    assert (str(caught.value), caught.value.key) == (USAGE, "duration.invalid")

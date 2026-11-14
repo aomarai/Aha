@@ -22,6 +22,7 @@ from aha import embeds
 from aha.bot import AhaBot
 from aha.commands import hybrid_command
 from aha.guildsettings import PROTECTED_COMMANDS, GuildSettingsCache
+from aha.i18n import locale_of, t
 from aha.jobstore import Job, JobStore
 from aha.replies import reply
 from aha.textutil import code
@@ -38,8 +39,6 @@ PURGE_KIND = "guild_purge"
 PURGE_DELAY = timedelta(days=30)
 
 _CHANNEL = re.compile(r"(?:<#)?(\d{1,20})>?")
-
-_UNAVAILABLE = "Server settings are not available: no database is configured."
 
 
 def _span(text: str) -> str:
@@ -72,14 +71,21 @@ class Config(commands.Cog):
     @commands.cooldown(1, 5, commands.BucketType.guild)
     async def config(self, ctx: commands.Context[commands.Bot]) -> None:
         """Show the settings in force for this server."""
+        locale = locale_of(ctx)
         settings = self._settings()
         if settings is None or ctx.guild is None:
-            await reply(ctx, embed=embeds.error(_UNAVAILABLE), ephemeral=True)
+            await reply(ctx, embed=embeds.error(t("config.unavailable", locale)), ephemeral=True)
             return
         current = await settings.get(ctx.guild.id)
-        channel = f"<#{current.log_channel_id}>" if current.log_channel_id else "not set"
-        disabled = ", ".join(_span(name) for name in sorted(current.disabled_commands)) or "none"
-        text = f"**Log channel:** {channel}\n**Disabled commands:** {disabled}"
+        channel = (
+            f"<#{current.log_channel_id}>"
+            if current.log_channel_id
+            else t("config.not_set", locale)
+        )
+        disabled = ", ".join(_span(name) for name in sorted(current.disabled_commands)) or t(
+            "config.none", locale
+        )
+        text = t("config.view", locale, channel=channel, disabled=disabled)
         await reply(ctx, embed=embeds.info(text), ephemeral=True)
 
     @hybrid_command(
@@ -103,42 +109,36 @@ class Config(commands.Cog):
         value: str,
     ) -> None:
         """Change one setting. Only members with Manage Server get this far."""
+        locale = locale_of(ctx)
         settings = self._settings()
         if settings is None or ctx.guild is None:
-            await reply(ctx, embed=embeds.error(_UNAVAILABLE), ephemeral=True)
+            await reply(ctx, embed=embeds.error(t("config.unavailable", locale)), ephemeral=True)
             return
         guild, by, text = ctx.guild, ctx.author.id, value.strip()
         if setting == "log-channel":
             channel_id = self._parse_channel(guild, text)
             if channel_id is False:
-                await reply(
-                    ctx,
-                    embed=embeds.error("Give a text channel in this server, or `off`."),
-                    ephemeral=True,
-                )
+                message = t("config.bad_channel", locale)
+                await reply(ctx, embed=embeds.error(message), ephemeral=True)
                 return
             await settings.set_log_channel(guild.id, channel_id, by)
-            done = "Log channel cleared." if channel_id is None else "Log channel set."
+            done = t("config.log_cleared" if channel_id is None else "config.log_set", locale)
         else:
             name = text.lstrip("/").lower()
             if name in PROTECTED_COMMANDS:
-                await reply(
-                    ctx,
-                    embed=embeds.error(f"{_span(name)} can't be disabled."),
-                    ephemeral=True,
-                )
+                message = t("config.protected", locale, name=_span(name))
+                await reply(ctx, embed=embeds.error(message), ephemeral=True)
                 return
             if ctx.bot.get_command(name) is None:
-                await reply(
-                    ctx, embed=embeds.error(f"There is no command {_span(name)}."), ephemeral=True
-                )
+                message = t("config.unknown_command", locale, name=_span(name))
+                await reply(ctx, embed=embeds.error(message), ephemeral=True)
                 return
             if setting == "disable":
                 await settings.disable(guild.id, name, by)
-                done = f"{_span(name)} is now disabled in this server."
+                done = t("config.disabled", locale, name=_span(name))
             else:
                 await settings.enable(guild.id, name, by)
-                done = f"{_span(name)} is enabled in this server."
+                done = t("config.enabled", locale, name=_span(name))
         audit.info("Server setting changed", extra={"event": "config.changed", "setting": setting})
         await reply(ctx, embed=embeds.success(done), ephemeral=True)
 

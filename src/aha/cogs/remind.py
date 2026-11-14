@@ -19,6 +19,7 @@ from aha import embeds
 from aha.bot import AhaBot
 from aha.commands import hybrid_command
 from aha.durations import DurationError, parse_duration
+from aha.i18n import locale_of, t
 from aha.jobstore import Job, JobStore
 from aha.replies import reply
 from aha.textutil import plain
@@ -68,9 +69,7 @@ class Reminders(commands.Cog):
         """Return the store, or tell the user reminders are off in this deployment."""
         if self._store is None:
             await reply(
-                ctx,
-                embed=embeds.error("Reminders are not available: no database is configured."),
-                ephemeral=True,
+                ctx, embed=embeds.error(t("remind.unavailable", locale_of(ctx))), ephemeral=True
             )
         return self._store
 
@@ -84,34 +83,24 @@ class Reminders(commands.Cog):
         store = await self._require_store(ctx)
         if store is None:
             return
+        locale = locale_of(ctx)
         try:
             delay = parse_duration(when)
         except DurationError as error:
-            await reply(ctx, embed=embeds.error(str(error)), ephemeral=True)
+            await reply(ctx, embed=embeds.error(t(error.key, locale)), ephemeral=True)
             return
         if delay > MAX_HORIZON:
-            await reply(
-                ctx,
-                embed=embeds.error(f"Reminders can be at most {MAX_HORIZON.days} days ahead."),
-                ephemeral=True,
-            )
+            message = t("remind.too_far", locale, days=MAX_HORIZON.days)
+            await reply(ctx, embed=embeds.error(message), ephemeral=True)
             return
         text = what.strip()
         if not text or len(text) > TEXT_LIMIT:
-            await reply(
-                ctx,
-                embed=embeds.error(f"Say what to remind you of (up to {TEXT_LIMIT} characters)."),
-                ephemeral=True,
-            )
+            message = t("remind.bad_text", locale, limit=TEXT_LIMIT)
+            await reply(ctx, embed=embeds.error(message), ephemeral=True)
             return
         if await store.count(KIND, ctx.author.id) >= MAX_ACTIVE:
-            await reply(
-                ctx,
-                embed=embeds.error(
-                    f"You already have {MAX_ACTIVE} reminders. Cancel one with `/unremind`."
-                ),
-                ephemeral=True,
-            )
+            message = t("remind.too_many", locale, limit=MAX_ACTIVE)
+            await reply(ctx, embed=embeds.error(message), ephemeral=True)
             return
         run_at = utcnow() + delay
         job_id = await store.enqueue(
@@ -121,13 +110,9 @@ class Reminders(commands.Cog):
             guild_id=ctx.guild.id if ctx.guild else None,
             payload={"channel_id": ctx.channel.id, "text": text},
         )
-        await reply(
-            ctx,
-            embed=embeds.success(
-                f"I'll remind you {discord.utils.format_dt(run_at, 'R')} (reminder `{job_id}`)."
-            ),
-            ephemeral=True,
-        )
+        when_text = discord.utils.format_dt(run_at, "R")
+        message = t("remind.created", locale, when=when_text, id=job_id)
+        await reply(ctx, embed=embeds.success(message), ephemeral=True)
 
     @hybrid_command(
         name="reminders", description="List your reminders.", extras={"category": "Info"}
@@ -140,7 +125,8 @@ class Reminders(commands.Cog):
             return
         jobs = await store.list_for_user(KIND, ctx.author.id, MAX_ACTIVE)
         if not jobs:
-            await reply(ctx, embed=embeds.info("You have no reminders."), ephemeral=True)
+            message = t("remind.none", locale_of(ctx))
+            await reply(ctx, embed=embeds.info(message), ephemeral=True)
             return
         lines = [
             f"`{job.id}` {discord.utils.format_dt(job.run_at, 'R')}: "
@@ -159,12 +145,13 @@ class Reminders(commands.Cog):
         store = await self._require_store(ctx)
         if store is None:
             return
+        locale = locale_of(ctx)
         if await store.cancel(KIND, ctx.author.id, reminder):
-            await reply(ctx, embed=embeds.success("Reminder cancelled."), ephemeral=True)
+            message = t("remind.cancelled", locale)
+            await reply(ctx, embed=embeds.success(message), ephemeral=True)
         else:
-            await reply(
-                ctx, embed=embeds.error("You have no reminder with that id."), ephemeral=True
-            )
+            message = t("remind.not_found", locale)
+            await reply(ctx, embed=embeds.error(message), ephemeral=True)
 
     @unremind.autocomplete("reminder")
     async def reminder_autocomplete(

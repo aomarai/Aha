@@ -39,7 +39,15 @@ _MAX_DIGITS = 7
 
 
 class DurationError(ValueError):
-    """The text is not a duration this bot understands."""
+    """The text is not a duration this bot understands.
+
+    ``key`` names the catalogue message (``aha.i18n``) that says the same thing in the user's
+    language; ``str(error)`` stays the English text.
+    """
+
+    def __init__(self, message: str, key: str) -> None:
+        super().__init__(message)
+        self.key = key
 
 
 def parse_duration(text: str) -> timedelta:
@@ -50,12 +58,12 @@ def parse_duration(text: str) -> timedelta:
     """
     cleaned = text.strip().lower()
     if not _WHOLE.fullmatch(cleaned):
-        raise DurationError("Use a duration like `30m`, `2h` or `1d 12h`.")
+        raise DurationError("Use a duration like `30m`, `2h` or `1d 12h`.", "duration.invalid")
     total = 0
     for number, unit in _PART.findall(cleaned):
         if unit not in _UNITS or len(number) > _MAX_DIGITS:
-            raise DurationError("Use a duration like `30m`, `2h` or `1d 12h`.")
+            raise DurationError("Use a duration like `30m`, `2h` or `1d 12h`.", "duration.invalid")
         total += int(number) * _UNITS[unit]
     if total <= 0:
-        raise DurationError("The duration must be longer than zero.")
+        raise DurationError("The duration must be longer than zero.", "duration.zero")
     return timedelta(seconds=total)

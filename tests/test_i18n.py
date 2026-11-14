@@ -296,3 +296,10 @@ def test_a_context_interaction_wins_over_a_locale_on_the_context_itself() -> Non
     )
 
     assert locale_of(ctx) == "de"
+
+
+def test_german_covers_every_base_message() -> None:
+    c = default_catalogue()
+    missing = sorted(set(c._messages[DEFAULT_LOCALE]) - set(c._messages["de"]))
+
+    assert not missing, f"no German for {missing}"
