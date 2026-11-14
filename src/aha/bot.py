@@ -548,7 +548,7 @@ class AhaBot(commands.AutoShardedBot):
             for command in self.tree.get_commands(guild=guild)
         ]
         remote = await self._fetch_remote_commands(application_id, guild)
-        diff = diff_commands(local, remote)
+        diff = diff_commands(local, remote, guild=guild is not None)
         if diff.unchanged:
             log.info("Skipped sync: %s commands are unchanged", label)
             return SyncResult(label, diff, synced=False)

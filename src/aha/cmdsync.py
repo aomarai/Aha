@@ -133,15 +133,24 @@ def _key(signature: Mapping[str, Any]) -> tuple[int, str]:
 
 
 def diff_commands(
-    local: Iterable[Mapping[str, Any]], remote: Iterable[Mapping[str, Any]]
+    local: Iterable[Mapping[str, Any]],
+    remote: Iterable[Mapping[str, Any]],
+    *,
+    guild: bool = False,
 ) -> CommandDiff:
     """Return what syncing ``local`` over ``remote`` would add, remove and change.
 
     Commands are matched by ``(type, name)``; a matched pair counts as changed when any
-    compared field differs.
+    compared field differs. ``guild`` marks a guild-scoped target: a guild command lives in that
+    guild only, so Discord keeps neither ``integration_types`` nor ``contexts`` for it (it returns
+    the defaults whatever was sent, verified live), and neither is compared there.
     """
     local_by_key = {_key(sig): sig for sig in map(local_signature, local)}
     remote_by_key = {_key(sig): sig for sig in map(remote_signature, remote)}
+    if guild:
+        unscoped = {"integration_types": None, "contexts": None}
+        local_by_key = {key: {**sig, **unscoped} for key, sig in local_by_key.items()}
+        remote_by_key = {key: {**sig, **unscoped} for key, sig in remote_by_key.items()}
     for key, sig in local_by_key.items():
         # Undeclared locally means "the application's default": whatever Discord holds is right.
         if sig["integration_types"] is None and key in remote_by_key:
