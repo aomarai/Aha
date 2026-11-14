@@ -17,7 +17,7 @@ from discord.ext import commands
 
 from aha import embeds
 from aha.commands import BotLike, hybrid_command
-from aha.i18n import locale_of, t
+from aha.i18n import DEFAULT_LOCALE, locale_of, t
 from aha.replies import reply, respond
 
 __all__ = [
@@ -40,21 +40,21 @@ MAX_ANSWER_LENGTH = 55
 MAX_DURATION_HOURS = 768
 
 
-def parse_options(raw: str) -> list[str] | str:
+def parse_options(raw: str, locale: str = DEFAULT_LOCALE) -> list[str] | str:
     """Split a comma-separated list of poll answers.
 
     Returns the answers, or a message explaining what is wrong with the input.
     """
     options = [part.strip() for part in raw.split(",") if part.strip()]
     if len(options) < MIN_OPTIONS:
-        return f"Give at least {MIN_OPTIONS} options, separated by commas."
+        return t("polls.too_few", locale, minimum=MIN_OPTIONS)
     if len(options) > MAX_OPTIONS:
-        return f"A poll can have at most {MAX_OPTIONS} options (you gave {len(options)})."
+        return t("polls.too_many", locale, maximum=MAX_OPTIONS, given=len(options))
     too_long = next((option for option in options if len(option) > MAX_ANSWER_LENGTH), None)
     if too_long is not None:
-        return f"Each option can be at most {MAX_ANSWER_LENGTH} characters."
+        return t("polls.too_long", locale, limit=MAX_ANSWER_LENGTH)
     if len({option.casefold() for option in options}) != len(options):
-        return "Each option must be different."
+        return t("polls.duplicate", locale)
     return options
 
 
@@ -104,7 +104,7 @@ class Polls(commands.Cog):
             problem = t("polls.bad_question", locale_of(ctx), limit=MAX_QUESTION_LENGTH)
             await reply(ctx, embed=embeds.error(problem), ephemeral=True)
             return
-        answers = parse_options(options)
+        answers = parse_options(options, locale_of(ctx))
         if isinstance(answers, str):
             await reply(ctx, embed=embeds.error(answers), ephemeral=True)
             return

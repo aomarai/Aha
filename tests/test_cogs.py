@@ -224,3 +224,37 @@ def test_privacy_answers_in_german() -> None:
     assert embed.title == "Datenschutz"
     assert embed.description.startswith("Aha speichert deine Nachrichten")
     assert "<https://github.com/aomarai/Aha/blob/main/docs/privacy.md>" in embed.description
+
+
+def test_about_is_labelled_in_the_users_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    ctx = StubContext()
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+
+    _run(Meta(_about_bot(monkeypatch)), ctx, "about")
+
+    embed = ctx.replies[0][1]["embed"]
+    assert embed.title == "Über Aha"
+    assert embed.description == "Quellcode: https://github.com/aomarai/Aha"
+    assert [f.name for f in embed.fields] == [
+        "Version",
+        "Commit",
+        "Gestartet",
+        "Server (dieser Prozess)",
+        "Shards (dieser Prozess)",
+        "Latenz",
+        "Laufzeit",
+    ]
+
+
+def test_about_says_none_when_this_process_owns_no_shard_in_german(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _about_bot(monkeypatch)
+    monkeypatch.setattr(bot, "shard_states", lambda: [])
+    ctx = StubContext()
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+
+    _run(Meta(bot), ctx, "about")
+
+    shards = next(f for f in ctx.replies[0][1]["embed"].fields if f.name.startswith("Shards"))
+    assert shards.value == "keine"

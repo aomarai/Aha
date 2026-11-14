@@ -165,3 +165,22 @@ def test_setup_registers_the_operator_cog() -> None:
     cog = bot.get_cog("Operator")
     assert isinstance(cog, Operator)
     assert cog.bot is bot
+
+
+def test_sync_replies_in_the_operators_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    for synced, expected in (
+        (True, "Anwendungsbefehle synchronisiert."),
+        (False, "Die Anwendungsbefehle sind bereits aktuell."),
+    ):
+        bot = _bot()
+
+        async def fake_sync_commands(synced: bool = synced) -> list[SyncResult]:
+            return _results(synced=synced)
+
+        monkeypatch.setattr(bot, "sync_commands", fake_sync_commands)
+        ctx = StubContext()
+        ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+
+        _run(Operator(bot), ctx)
+
+        assert ctx.replies[0][1]["embed"].description == expected
