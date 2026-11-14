@@ -178,6 +178,7 @@ def test_privacy_summarises_the_policy_privately_with_links() -> None:
     embed = kwargs["embed"]
     assert embed.title == "Privacy"
     assert "does **not** store your messages" in embed.description
+    assert "`/forgetme` deletes it" in embed.description
     assert "<https://github.com/aomarai/Aha/blob/main/docs/privacy.md>" in embed.description
     assert "<https://github.com/aomarai/Aha/blob/main/docs/terms.md>" in embed.description
 

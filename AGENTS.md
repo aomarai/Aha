@@ -161,6 +161,10 @@ every change must keep:
   refuses disabled commands on both the slash and message surfaces and fails open. `config`,
   `configure` and `help` can never be disabled. A guild that removes the bot is purged after 30 days
   by a `guild_purge` scheduled job (`cogs/config.py`).
+- Deleting a person's data: `/forgetme` (`cogs/forget.py`, `aha.privacy`) purges every table with a
+  user column. A new table must be added to `aha.privacy.USER_TABLES` / `GUILD_TABLES` and get a purge
+  method, or `tests/test_datainventory.py` fails. Its confirm button is a persistent `DynamicItem`
+  that expires (state in the `custom_id`).
 - Reminders (`cogs/remind.py`, `aha.durations`) are `scheduled_jobs` of kind `reminder`; delivery
   pings only the invoker and falls back to a DM.
 - Scheduled work: due jobs live in `scheduled_jobs` and any pod runs them (`aha.scheduler`,

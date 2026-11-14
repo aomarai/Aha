@@ -416,3 +416,28 @@ async def test_the_identify_lock_serialises_a_bucket_across_connections(
     await impatient.acquire(0)
     assert len(released) == 3
     await asyncio.gather(*released)
+
+
+async def test_forgetme_removes_every_row_belonging_to_the_user(
+    store: JobStore, settings_store: GuildSettingsStore
+) -> None:
+    from aha.privacy import UserPurge, purge_user
+
+    soon = datetime.now(UTC) + timedelta(hours=1)
+    await store.enqueue("reminder", soon, user_id=7, guild_id=1)
+    await store.enqueue("reminder", soon, user_id=7)
+    keep = await store.enqueue("reminder", soon, user_id=8)
+    await settings_store.set_log_channel(1, 5, by=7)
+    await settings_store.disable(2, "roll", by=7)
+    await settings_store.disable(3, "roll", by=8)
+
+    result = await purge_user(store, settings_store, 7)
+
+    assert result == UserPurge(jobs=2, settings=2)
+    assert await store.count("reminder", 7) == 0
+    assert [job.id for job in await store.list_for_user("reminder", 8, 10)] == [keep]
+    async with store._db.acquire() as conn:
+        rows = await conn.fetch("SELECT guild_id, updated_by FROM guild_settings ORDER BY guild_id")
+    assert [(r["guild_id"], r["updated_by"]) for r in rows] == [(1, 0), (2, 0), (3, 8)]
+    # the settings themselves survive; only the person is forgotten
+    assert (await settings_store.get(1)) == GuildSettings(1, log_channel_id=5)
