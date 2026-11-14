@@ -465,3 +465,67 @@ def test_the_store_is_built_over_the_bots_database() -> None:
 
     assert cog._store is not None
     assert cast("Any", cog._store)._db is database
+
+
+# ------------------------------------------------------------------------- German
+
+
+def german(ctx: StubContext) -> StubContext:
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+    return ctx
+
+
+def test_reminder_replies_follow_the_users_language() -> None:
+    store = FakeStore()
+    ctx = german(StubContext())
+    call(make(store), Reminders.remind, ctx, "2h", what="x")
+    assert error_text(ctx) == (
+        f"Ich erinnere dich {discord.utils.format_dt(NOW + timedelta(hours=2), 'R')} "
+        "(Erinnerung `7`)."
+    )
+
+    for args, expected in (
+        (("soon",), "Nutze eine Dauer wie `30m`, `2h` oder `1d 12h`."),
+        (("0m",), "Die Dauer muss länger als null sein."),
+        (("366d",), "Erinnerungen können höchstens 365 Tage im Voraus gesetzt werden."),
+    ):
+        ctx = german(StubContext())
+        call(make(FakeStore()), Reminders.remind, ctx, *args, what="x")
+        assert error_text(ctx) == expected
+
+    ctx = german(StubContext())
+    call(make(FakeStore()), Reminders.remind, ctx, "5m", what="")
+    assert error_text(ctx) == "Sag, woran ich dich erinnern soll (höchstens 1000 Zeichen)."
+
+    ctx = german(StubContext())
+    call(
+        make(FakeStore(jobs=[job(i) for i in range(MAX_ACTIVE)])),
+        Reminders.remind,
+        ctx,
+        "5m",
+        what="x",
+    )
+    assert error_text(ctx) == "Du hast bereits 25 Erinnerungen. Lösche eine mit `/unremind`."
+
+
+def test_the_other_reminder_commands_and_the_missing_database_speak_german() -> None:
+    cases = [
+        (Reminders.reminders, (), FakeStore(), "Du hast keine Erinnerungen."),
+        (Reminders.unremind, (5,), FakeStore(), "Erinnerung gelöscht."),
+        (
+            Reminders.unremind,
+            (5,),
+            FakeStore(cancels=False),
+            "Du hast keine Erinnerung mit dieser ID.",
+        ),
+        (
+            Reminders.reminders,
+            (),
+            None,
+            "Erinnerungen sind nicht verfügbar: Es ist keine Datenbank konfiguriert.",
+        ),
+    ]
+    for command, args, store, expected in cases:
+        ctx = german(StubContext())
+        call(make(store), command, ctx, *args)
+        assert error_text(ctx) == expected

@@ -22,7 +22,8 @@ for how a release is cut.
   DM, and drops the reminder if neither works. Limits: 25 per user, 1 year ahead, 1,000 characters.
 - Translations (`aha.i18n`, `docs/i18n.md`): a JSON message catalogue with safe fallbacks, localized
   command names and descriptions sent by `aha sync`, and German as the first language; `/ping` and
-  `/coin` and every error reply use the user's Discord language.
+  `/coin`, every error reply, reminders, server settings and `/forgetme` use the user's Discord
+  language.
 - `/forgetme`: deletes the invoker's reminders and scheduled jobs and anonymises their id in server
   settings, behind an expiring, invoker-only confirm button. A test fails when a table with personal
   data has no purge path.

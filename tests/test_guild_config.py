@@ -374,3 +374,51 @@ def test_utcnow_is_timezone_aware(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert now.tzinfo is UTC
     assert abs((datetime.now(UTC) - now).total_seconds()) < 5
+
+
+# ------------------------------------------------------------------------- German
+
+
+def german(ctx: StubContext) -> StubContext:
+    ctx.interaction = Named(locale=discord.Locale.german, guild_locale=None)
+    return ctx
+
+
+def test_config_speaks_german_to_a_german_client() -> None:
+    cog = make(FakeSettings(GuildSettings(11, disabled_commands=frozenset({"roll"}))))
+    ctx = german(ctx_for(cast("Any", cog.bot)))
+    asyncio.run(cast("Any", cog.config.callback)(cog, as_context(ctx)))
+    assert text(ctx) == "**Log-Kanal:** nicht gesetzt\n**Deaktivierte Befehle:** `roll`"
+
+    cog = make(FakeSettings())
+    ctx = german(ctx_for(cast("Any", cog.bot)))
+    asyncio.run(cast("Any", cog.config.callback)(cog, as_context(ctx)))
+    assert text(ctx) == "**Log-Kanal:** nicht gesetzt\n**Deaktivierte Befehle:** keine"
+
+    cog = make(None)
+    ctx = german(ctx_for(cast("Any", cog.bot)))
+    asyncio.run(cast("Any", cog.config.callback)(cog, as_context(ctx)))
+    assert text(ctx) == (
+        "Servereinstellungen sind nicht verfügbar: Es ist keine Datenbank konfiguriert."
+    )
+
+
+def test_configure_confirmations_and_refusals_speak_german() -> None:
+    cases = [
+        ("log-channel", "off", "Log-Kanal entfernt."),
+        ("log-channel", "nonsense", "Gib einen Textkanal dieses Servers an, oder `off`."),
+        ("disable", "roll", "`roll` ist auf diesem Server jetzt deaktiviert."),
+        ("enable", "roll", "`roll` ist auf diesem Server aktiviert."),
+        ("disable", "config", "`config` kann nicht deaktiviert werden."),
+        ("disable", "nope", "Es gibt keinen Befehl `nope`."),
+    ]
+    for setting, value, expected in cases:
+        cog = make(FakeSettings())
+        ctx = german(ctx_for(cast("Any", cog.bot)))
+        configure(cog, ctx, setting, value)
+        assert text(ctx) == expected
+
+    cog = make(FakeSettings())
+    ctx = german(ctx_for(cast("Any", cog.bot), channels={55: FakeChannel(55)}))
+    configure(cog, ctx, "log-channel", "55")
+    assert text(ctx) == "Log-Kanal gesetzt."
