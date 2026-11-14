@@ -27,6 +27,8 @@ for how a release is cut.
   (`guilds` is the only gateway intent). `aha sync --check` is a dry
   run that exits 3 on drift (a post-deploy smoke test); gitleaks rules for Discord bot tokens and
   Anthropic keys; `docs/environments.md` describes staging versus production.
+- Staging environment in the cluster (docs/environments.md): generated from production, own database
+  and Discord application, smoke-checked before promotion.
 - Commands and menus declare **server-only** installs, so they stay server-only even if user installs
   are enabled in the Developer Portal.
 - `aha_rest_rate_limited_total{kind=global|route}` (counted from discord.py's 429 log lines) with
