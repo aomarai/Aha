@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 from aha import __version__
 from aha.bot import AhaBot, SyncResult
 from aha.config import MAX_SNOWFLAKE, ConfigError, Settings
-from aha.db import connect_once
+from aha.db import CONNECT_WAIT, connect_once
 from aha.dbmigrate import Migration, MigrationStatus, load_migrations, migrate, status
 from aha.logging_setup import configure_logging, static_fields_from_env
 
@@ -225,7 +225,7 @@ def _sync(settings: Settings, *, guild: int | None, dry_run: bool, check: bool =
 async def _migrate_once(url: str, *, status_only: bool) -> tuple[list[Migration], MigrationStatus]:
     """Connect once and migrate (or only report); returns what was applied and the status."""
     migrations = load_migrations()
-    connection = await connect_once(url)
+    connection = await connect_once(url, wait=CONNECT_WAIT)
     try:
         if status_only:
             return [], await status(connection, migrations)

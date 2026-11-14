@@ -18,7 +18,7 @@ from discord.ext import commands
 from aha import logctx
 from aha.cmdsync import CommandDiff, diff_commands
 from aha.config import Settings
-from aha.db import Database
+from aha.db import CONNECT_WAIT, Database
 from aha.dbmigrate import load_migrations, require_current
 from aha.gatewaybudget import SessionBudget, await_budget
 from aha.guildsettings import PROTECTED_COMMANDS, CommandDisabled, GuildSettingsCache
@@ -357,6 +357,7 @@ class AhaBot(commands.AutoShardedBot):
             url,
             max_size=self.settings.db_pool_max,
             statement_timeout=self.settings.db_statement_timeout,
+            wait=CONNECT_WAIT,
         )
         async with self.db.acquire() as connection:
             await require_current(connection, load_migrations())

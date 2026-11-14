@@ -745,8 +745,8 @@ def test_the_real_migrate_once_applies_and_closes_the_connection(
         async def close(self) -> None:
             events.append("close")
 
-    async def fake_connect(url: str) -> Conn:
-        events.append(f"connect {url}")
+    async def fake_connect(url: str, *, wait: float) -> Conn:
+        events.append(f"connect {url} wait={wait:g}")
         return Conn()
 
     seen: list[tuple[str, Any, Any]] = []
@@ -768,7 +768,9 @@ def test_the_real_migrate_once_applies_and_closes_the_connection(
     applied, current = asyncio.run(aha_main._migrate_once("postgresql://db/aha", status_only=False))
 
     assert ([m.version for m in applied], current.applied) == ([1], (1,))
-    assert events == ["connect postgresql://db/aha", "migrate", "status", "close"]
+    # It waits up to a minute for a database that is not reachable yet (a new pod's first packets
+    # can be dropped while the cluster programs its network policy).
+    assert events == ["connect postgresql://db/aha wait=60", "migrate", "status", "close"]
     packaged = load_migrations()
     assert [(kind, type(conn).__name__, migrations) for kind, conn, migrations in seen] == [
         ("migrate", "Conn", packaged),
@@ -785,7 +787,7 @@ def test_the_real_status_only_path_never_migrates_and_still_closes(
         async def close(self) -> None:
             events.append("close")
 
-    async def fake_connect(url: str) -> Conn:
+    async def fake_connect(url: str, *, wait: float) -> Conn:
         return Conn()
 
     async def fake_migrate(conn: Any, migrations: Any) -> list[Migration]:

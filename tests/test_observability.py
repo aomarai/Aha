@@ -665,7 +665,7 @@ def test_a_database_url_opens_a_pool_checks_the_schema_and_closes_it(
 
     (database,) = _FakeDatabase.instances
     assert database.url == "postgresql://u:pw@db/aha"
-    assert database.kwargs == {"max_size": 9, "statement_timeout": 1.5}
+    assert database.kwargs == {"max_size": 9, "statement_timeout": 1.5, "wait": 60.0}
     assert database.closed is True
     settings = cast("Any", bot.guild_settings)
     assert isinstance(settings, GuildSettingsCache)
