@@ -1,7 +1,7 @@
 # Prometheus alerting rules for Aha. Load with `rule_files:` or wrap in a PrometheusRule.
 #
-# Only metrics that exist today are alerted on. Alerts for the session-start budget, REST 429s
-# and scheduler lag ship with the issues that add those metrics (see the roadmap, #20).
+# Only metrics that exist today are alerted on. An alert for REST 429s ships with the issue that
+# adds that metric (see the roadmap, #20).
 groups:
   - name: aha
     rules:
@@ -53,3 +53,15 @@ groups:
           description: >-
             Due jobs (reminders and similar) are not being claimed. Check that a pod is running the
             scheduler task, the database is reachable, and handlers are not timing out.
+
+      - alert: AhaSessionBudgetLow
+        expr: min(aha_session_start_remaining / aha_session_start_total) < 0.2
+        labels:
+          severity: page
+        annotations:
+          summary: "Under 20% of today's Discord gateway sessions remain"
+          description: >-
+            Every pod restart spends a gateway session and the budget resets once a day. Look for
+            a crash loop (AhaReconnectStorm, pod restarts). Below the configured floor
+            (SESSION_START_FLOOR, default 10%) pods stop identifying and wait for the reset; see
+            docs/runbooks/session-budget.md.

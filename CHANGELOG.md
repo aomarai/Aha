@@ -20,6 +20,9 @@ for how a release is cut.
 - `/remind`, `/reminders`, `/unremind`: reminders stored in PostgreSQL and delivered by whichever
   pod runs the scheduler (needs `DATABASE_URL`). Delivery pings only the invoker, falls back to a
   DM, and drops the reminder if neither works. Limits: 25 per user, 1 year ahead, 1,000 characters.
+- Gateway session-start budget: logged and exported at startup, a guard that waits for Discord's
+  reset instead of identifying when it is nearly spent (`SESSION_START_FLOOR`), and a PostgreSQL
+  advisory lock that serialises IDENTIFY across pods. Runbook: `docs/runbooks/session-budget.md`.
 - Explicit shard assignment: `SHARD_COUNT`, `SHARD_IDS` or `SHARDS_PER_POD` + `POD_INDEX`, validated
   at startup; the bot is now an `AutoShardedBot` with per-shard readiness, reconnect metrics and
   disconnect watchdog. See `docs/sharding.md` (including the stop-the-world reshard procedure).

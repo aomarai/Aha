@@ -413,6 +413,7 @@ def test_sync_subcommand_syncs_and_prints_the_report(
     assert seen["bot"].sync_on_startup is False  # the Job syncs explicitly, once
     assert seen["bot"].health_server_enabled is False  # a short REST-only Job must not listen
     assert seen["bot"].use_database is False  # nor open the database
+    assert seen["bot"].gateway_enabled is False  # nor guard a gateway session it never opens
     assert seen["bot"].settings.dev_guild_id is None
     assert capsys.readouterr().out == "global: synced\n  + ping\n  - old\n  ~ help\n"
 

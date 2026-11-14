@@ -53,6 +53,9 @@ DEFAULT_DB_STATEMENT_TIMEOUT = 2.0
 MAX_DB_STATEMENT_TIMEOUT = 60.0
 _TOKEN_ENCODING = "utf-8"
 
+#: Fraction of the daily gateway sessions below which the bot waits for the reset (0 disables).
+DEFAULT_SESSION_START_FLOOR = 0.1
+
 #: Most shards one deployment may declare (only catches typos; Discord has its own ceiling).
 MAX_SHARD_COUNT = 10_000
 
@@ -181,6 +184,19 @@ def _parse_optional_int(raw: str | None, *, name: str) -> int | None:
         raise ConfigError(f"{name} must be an integer, got {raw!r}") from exc
 
 
+def _parse_fraction(raw: str | None, *, name: str, default: float) -> float:
+    """Parse a fraction in ``0 <= x < 1``; unset or blank gives ``default``."""
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw.strip())
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be a number, got {raw!r}") from exc
+    if not 0 <= value < 1:  # also rejects nan
+        raise ConfigError(f"{name} must be at least 0 and below 1, got {raw!r}")
+    return value
+
+
 def _parse_shard_ids(raw: str) -> tuple[int, ...]:
     """Parse ``SHARD_IDS`` such as ``0,1,2`` into a tuple of ints."""
     parts = [part.strip() for part in raw.split(",")]
@@ -260,6 +276,8 @@ class Settings:
     shard_count: int | None = None
     #: The shards this process owns; ``None`` means all of them. Needs ``shard_count``.
     shard_ids: tuple[int, ...] | None = None
+    #: Refuse to identify when fewer than this fraction of the daily sessions remain (0 disables).
+    session_start_floor: float = DEFAULT_SESSION_START_FLOOR
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -335,6 +353,11 @@ class Settings:
             )
 
         shard_count, shard_ids = _parse_shards(source)
+        session_start_floor = _parse_fraction(
+            source.get("SESSION_START_FLOOR"),
+            name="SESSION_START_FLOOR",
+            default=DEFAULT_SESSION_START_FLOOR,
+        )
 
         return cls(
             token=token,
@@ -352,4 +375,5 @@ class Settings:
             health_port=health_port,
             shard_count=shard_count,
             shard_ids=shard_ids,
+            session_start_floor=session_start_floor,
         )

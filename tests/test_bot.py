@@ -865,7 +865,7 @@ def test_a_settings_outage_fails_open_and_is_logged(caplog: pytest.LogCaptureFix
         asyncio.run(bot.ensure_command_enabled(11, "ping"))
 
     assert caplog.messages == ["Could not read guild settings; allowing the command"]
-    assert caplog.records[0].exc_info is not None
+    assert isinstance(caplog.records[0].exc_info, tuple)
     assert str(caplog.records[0].exc_info[1]) == "db down"
 
 
@@ -957,3 +957,154 @@ def test_real_discordpy_accepts_the_assignment_and_exposes_it() -> None:
     bot = _bot(shard_count=4, shard_ids=(1, 2))
 
     assert (bot.shard_count, bot.shard_ids) == (4, [1, 2])
+
+
+# ------------------------------------------------- session budget and identify lock (#94)
+
+
+class _Http:
+    def __init__(self, limit: dict[str, int] | Exception) -> None:
+        self.limit = limit
+        self.calls = 0
+
+    async def get_bot_gateway(self) -> tuple[int, str, Any]:
+        self.calls += 1
+        if isinstance(self.limit, Exception):
+            raise self.limit
+        return 1, "wss://gateway", self.limit
+
+
+def _real_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests import conftest
+
+    monkeypatch.setattr(AhaBot, "_guard_session_budget", conftest.REAL_GUARD)
+
+
+def test_the_budget_guard_reads_discord_exports_metrics_and_learns_the_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _real_guard(monkeypatch)
+    bot = _bot()
+    http = _Http({"total": 1000, "remaining": 900, "reset_after": 60_000, "max_concurrency": 16})
+    bot.http = cast("Any", http)
+
+    asyncio.run(bot._guard_session_budget())
+
+    registry = bot.metrics.registry
+    assert registry.get_sample_value("aha_session_start_remaining") == 900
+    assert registry.get_sample_value("aha_session_start_total") == 1000
+    assert registry.get_sample_value("aha_session_start_reset_after_seconds") == 60.0
+    assert bot.max_concurrency == 16
+
+
+def test_a_low_budget_makes_the_bot_wait_before_connecting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _real_guard(monkeypatch)
+    bot = _bot(session_start_floor=0.5)  # not the default: 400 of 1000 is only low at this floor
+    readings = [
+        {"total": 1000, "remaining": 400, "reset_after": 120_000, "max_concurrency": 1},
+        {"total": 1000, "remaining": 1000, "reset_after": 86_400_000, "max_concurrency": 1},
+    ]
+    waits: list[float] = []
+
+    class Http:
+        async def get_bot_gateway(self) -> tuple[int, str, Any]:
+            return 1, "wss://gateway", readings.pop(0)
+
+    async def fake_sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    bot.http = cast("Any", Http())
+    bot.budget_sleep = fake_sleep
+
+    asyncio.run(bot._guard_session_budget())
+
+    assert waits == [125.0]  # reset_after plus the margin, then it looked again
+    assert readings == []
+
+
+def test_an_unreadable_budget_does_not_block_startup(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _real_guard(monkeypatch)
+    bot = _bot()
+    http = _Http(discord.ClientException("no gateway"))
+    bot.http = cast("Any", http)
+
+    with caplog.at_level(logging.WARNING, logger="aha.bot"):
+        asyncio.run(bot._guard_session_budget())
+
+    assert caplog.messages == ["Could not read the gateway session budget; continuing"]
+    assert isinstance(caplog.records[0].exc_info, tuple)  # the cause is in the log
+    assert bot.max_concurrency == 1
+
+
+def test_the_budget_guard_waits_with_asyncio_sleep_unless_told_otherwise() -> None:
+    assert _bot().budget_sleep is asyncio.sleep
+
+
+def test_setup_hook_guards_the_budget_only_for_a_gateway_bot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    async def fake_guard(self: Any) -> None:
+        calls.append("guard")
+
+    async def fake_load_extension(name: str) -> None:
+        return None
+
+    monkeypatch.setattr(AhaBot, "_guard_session_budget", fake_guard)
+    for gateway in (True, False):
+        bot = AhaBot(Settings(token="test-token", health_port=0), gateway=gateway)
+        monkeypatch.setattr(bot, "load_extension", fake_load_extension)
+        asyncio.run(bot.setup_hook())
+        asyncio.run(bot.tasks.close())
+
+    assert calls == ["guard"]  # the REST-only `aha sync` Job never touches the gateway budget
+
+
+class _Coordinator:
+    def __init__(self) -> None:
+        self.buckets: list[int] = []
+
+    async def acquire(self, bucket: int) -> None:
+        self.buckets.append(bucket)
+
+
+def test_the_identify_hook_takes_the_lock_for_the_shards_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _bot()
+    coordinator = _Coordinator()
+    bot.identify = cast("Any", coordinator)
+    bot.max_concurrency = 4
+    defaults: list[Any] = []
+
+    async def fake_super(self: Any, shard_id: Any, *, initial: bool = False) -> None:
+        defaults.append(shard_id)
+
+    monkeypatch.setattr(commands.AutoShardedBot, "before_identify_hook", fake_super)
+
+    asyncio.run(bot.before_identify_hook(6))
+    asyncio.run(bot.before_identify_hook(3, initial=True))
+
+    assert coordinator.buckets == [2, 3]  # shard_id % max_concurrency
+    assert defaults == []  # discord.py's own 5 s sleep is replaced, not added
+
+
+def test_without_coordination_discordpys_own_hook_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = _bot()
+    seen: list[tuple[Any, bool]] = []
+
+    async def fake_super(self: Any, shard_id: Any, *, initial: bool = False) -> None:
+        seen.append((shard_id, initial))
+
+    monkeypatch.setattr(commands.AutoShardedBot, "before_identify_hook", fake_super)
+
+    asyncio.run(bot.before_identify_hook(2, initial=True))
+    bot.identify = cast("Any", _Coordinator())
+    asyncio.run(bot.before_identify_hook(None))  # a non-sharded client has no shard id
+
+    assert seen == [(2, True), (None, False)]

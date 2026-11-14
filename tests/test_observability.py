@@ -885,3 +885,63 @@ def test_the_watchdog_counts_from_the_longest_outage_of_any_shard(
     assert caplog.messages == [
         "Gateway has been disconnected for 70.0 s (limit 60.0 s); closing the bot"
     ]
+
+
+def test_identify_coordination_needs_a_database_and_an_explicit_shard_assignment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_require_current(connection: object, migrations: object) -> None:
+        return None
+
+    monkeypatch.setattr("aha.bot.require_current", fake_require_current)
+    url = "postgresql://u:pw@db/aha"
+    cases: list[tuple[dict[str, Any], bool, bool]] = [
+        ({"database_url": url, "shard_count": 4, "shard_ids": (0, 1)}, True, True),
+        ({"database_url": url}, True, False),  # one pod owns every shard: nothing to coordinate
+        ({"database_url": url, "shard_count": 4, "shard_ids": (0,)}, False, False),
+    ]
+    for settings, gateway, expected in cases:
+        bot = _database_bot(monkeypatch, **settings)
+        bot.gateway_enabled = gateway
+
+        async def scenario(bot: AhaBot = bot) -> None:
+            await bot.setup_hook()
+            await bot.close()
+
+        asyncio.run(scenario())
+
+        assert (bot.identify is not None) is expected
+        if expected:
+            assert cast("Any", bot.identify)._db is bot.db
+
+
+def test_the_coordinator_releases_through_a_supervised_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_require_current(connection: object, migrations: object) -> None:
+        return None
+
+    monkeypatch.setattr("aha.bot.require_current", fake_require_current)
+    bot = _database_bot(
+        monkeypatch,
+        database_url="postgresql://u:pw@db/aha",
+        shard_count=2,
+        shard_ids=(0,),
+    )
+    ran: list[str] = []
+
+    async def scenario() -> None:
+        await bot.setup_hook()
+        coordinator = cast("Any", bot.identify)
+
+        async def release() -> None:
+            ran.append("released")
+
+        coordinator._spawn(release, "identify-release-1")
+        assert "identify-release-1" in bot.tasks
+        await asyncio.sleep(0.01)
+        await bot.close()
+
+    asyncio.run(scenario())
+
+    assert ran == ["released"]
