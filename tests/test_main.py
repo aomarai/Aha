@@ -14,6 +14,7 @@ from aha import __main__ as aha_main
 from aha import __version__
 from aha.bot import AhaBot, SyncResult
 from aha.cmdsync import CommandDiff
+from aha.config import Settings
 from aha.dbmigrate import Migration, MigrationStatus, load_migrations
 
 #: Environment variables :meth:`Settings.from_env` reads, besides the token.
@@ -549,13 +550,15 @@ _MAIN_HELP = (
 )
 
 _SYNC_HELP = (
-    "usage: aha sync [-h] [--guild ID] [--dry-run]\n\n"
+    "usage: aha sync [-h] [--guild ID] [--dry-run] [--check]\n\n"
     "Compare the bot's slash commands with Discord's and sync only if they differ. "
     "Uses REST only (no\ngateway connection), so it is safe to run as a deploy Job.\n\n"
     "options:\n  -h, --help  show this help message and exit\n"
     "  --guild ID  sync to this guild (as a dev server) instead of globally; "
     "overrides DEV_GUILD_ID\n"
     "  --dry-run   show what would change without syncing\n"
+    "  --check     like --dry-run, but exit with code 3 when Discord differs (a post-deploy "
+    "smoke test)\n"
 )
 
 
@@ -816,3 +819,60 @@ def test_migrate_status_joins_several_versions_and_says_none_pending(
     assert aha_main.main(["migrate", "--status"]) == 0
 
     assert capsys.readouterr().out == "applied: 0001, 0002, 0003\npending: none\n"
+
+
+def test_sync_check_is_a_dry_run_that_exits_three_when_discord_differs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    seen: dict[str, Any] = {}
+    results = [
+        SyncResult("global", CommandDiff(), synced=False),
+        SyncResult("dev guild 5", CommandDiff(added=("ping",)), synced=False),
+    ]
+    _fake_sync_once(monkeypatch, results, seen)
+
+    assert aha_main.main(["sync", "--check"]) == aha_main.EXIT_DRIFT == 3
+
+    assert seen["dry_run"] is True  # nothing is ever written by a check
+    assert capsys.readouterr().out == (
+        "global: unchanged\ndev guild 5: would change (dry run)\n  + ping\n"
+    )
+
+
+def test_sync_check_exits_zero_when_nothing_differs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    _fake_sync_once(monkeypatch, [SyncResult("global", CommandDiff(), synced=False)])
+
+    assert aha_main.main(["sync", "--check"]) == 0
+    assert capsys.readouterr().out == "global: unchanged\n"
+
+
+def test_a_plain_dry_run_still_exits_zero_even_with_a_difference(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    _fake_sync_once(monkeypatch, [SyncResult("global", CommandDiff(added=("a",)), synced=False)])
+
+    assert aha_main.main(["sync", "--dry-run"]) == 0
+
+
+def test_a_failed_check_is_an_error_not_drift(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _isolate_environment(monkeypatch, tmp_path)
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "dummy-token")
+    _fake_sync_once(monkeypatch, RuntimeError("rejected token"))
+
+    assert aha_main.main(["sync", "--check"]) == 1
+
+
+def test_a_direct_sync_call_does_not_check_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_sync_once(monkeypatch, [SyncResult("global", CommandDiff(added=("a",)), synced=True)])
+
+    assert aha_main._sync(Settings(token="t"), guild=None, dry_run=False) == 0

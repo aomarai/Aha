@@ -718,3 +718,20 @@ def test_a_non_numeric_limit_names_the_variable() -> None:
         _env(SUMMARIZE_DAILY_QUOTA="lots")
 
     assert str(caught.value) == "SUMMARIZE_DAILY_QUOTA must be an integer, got 'lots'"
+
+
+# ------------------------------------------------------------ MENTION_COMMANDS (#101)
+
+
+def test_mention_commands_default_on_and_can_be_turned_off() -> None:
+    assert _env().mention_commands is True
+    assert _env(MENTION_COMMANDS="false").mention_commands is False
+    assert _env(MENTION_COMMANDS="0").mention_commands is False
+    assert _env(MENTION_COMMANDS="yes").mention_commands is True
+
+
+def test_a_malformed_mention_commands_value_is_rejected() -> None:
+    with pytest.raises(ConfigError) as caught:
+        _env(MENTION_COMMANDS="sometimes")
+
+    assert str(caught.value) == "MENTION_COMMANDS must be true or false, got 'sometimes'"

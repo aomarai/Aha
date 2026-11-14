@@ -296,6 +296,8 @@ class Settings:
     shard_ids: tuple[int, ...] | None = None
     #: Refuse to identify when fewer than this fraction of the daily sessions remain (0 disables).
     session_start_floor: float = DEFAULT_SESSION_START_FLOOR
+    #: Whether ``@Aha command`` works. ``False`` drops the message intents (the busiest stream).
+    mention_commands: bool = True
     #: Anthropic API key for ``/summarize``; ``None`` leaves the command unavailable.
     anthropic_api_key: str | None = field(default=None, repr=False)
     anthropic_model: str = DEFAULT_ANTHROPIC_MODEL
@@ -378,6 +380,9 @@ class Settings:
             )
 
         shard_count, shard_ids = _parse_shards(source)
+        mention_commands = _parse_bool(
+            source.get("MENTION_COMMANDS"), name="MENTION_COMMANDS", default=True
+        )
         anthropic_api_key = _read_secret(source, "ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY_FILE")
         anthropic_model = (source.get("ANTHROPIC_MODEL") or "").strip() or DEFAULT_ANTHROPIC_MODEL
         summarize_daily_quota = _parse_bounded_int(
@@ -417,6 +422,7 @@ class Settings:
             shard_count=shard_count,
             shard_ids=shard_ids,
             session_start_floor=session_start_floor,
+            mention_commands=mention_commands,
             anthropic_api_key=anthropic_api_key,
             anthropic_model=anthropic_model,
             summarize_daily_quota=summarize_daily_quota,

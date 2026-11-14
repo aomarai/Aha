@@ -124,7 +124,8 @@ Portal. Discord's guidance is to migrate text commands to slash commands, and
 privileged-intent access above 10,000 unique users requires an application that
 must be renewed annually (rule change of 2026-06-10), so the bot avoids needing
 it. The only text trigger left is an `@Aha` mention, which Discord delivers
-without the Message Content intent.
+without the Message Content intent. Set `MENTION_COMMANDS=false` to drop that trigger and the
+`guild_messages` / `dm_messages` intents with it, leaving guild lifecycle as the only event stream.
 
 The bot also requests only the **non-privileged intents it uses**, not `Intents.default()`:
 `guilds` (the guild and channel cache, `on_guild_remove`), and `guild_messages` / `dm_messages`
@@ -292,6 +293,7 @@ Real environment variables take precedence over `.env`.
 | `ANTHROPIC_API_KEY` | no | – | Enables `/summarize` (or `ANTHROPIC_API_KEY_FILE`; set at most one). Off per server until an admin runs `/configure summaries on` |
 | `ANTHROPIC_MODEL` | no | `claude-haiku-5-5` | Model used for summaries |
 | `SUMMARIZE_DAILY_QUOTA`, `SUMMARIZE_MAX_CHARS` | no | `10`, `4000` | Summaries per user per UTC day (1-1000); characters sent to the model (100-20000) |
+| `MENTION_COMMANDS`  | no       | `true`  | `@Aha command` works; `false` drops the message intents (the busiest event stream); slash commands are unaffected |
 | `SESSION_START_FLOOR` | no     | `0.1`   | Wait for Discord's reset instead of identifying when fewer than this fraction of the daily gateway sessions remain (`0` disables); see [the runbook](docs/runbooks/session-budget.md) |
 | `SHARDS_PER_POD`, `POD_INDEX` | no | – | Derive `SHARD_IDS` from a StatefulSet ordinal instead (needs `SHARD_COUNT`) |
 
