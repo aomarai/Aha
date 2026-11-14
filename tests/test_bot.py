@@ -1141,3 +1141,20 @@ def test_a_real_bot_keeps_no_member_cache_and_does_not_chunk_guilds() -> None:
 
     assert bot._connection.member_cache_flags == discord.MemberCacheFlags.none()
     assert bot._connection._chunk_guilds is False
+
+
+def test_dropping_mention_commands_removes_every_message_intent() -> None:
+    intents = gateway_intents(mention_commands=False)
+
+    assert {name for name, on in intents if on} == {"guilds"}
+    assert intents.guild_messages is False
+    assert intents.dm_messages is False
+
+
+def test_mention_commands_are_on_by_default_and_the_setting_reaches_the_intents() -> None:
+    assert gateway_intents().guild_messages is True
+    assert gateway_intents(True).dm_messages is True
+    assert _bot().intents.guild_messages is True
+    quiet = _bot(mention_commands=False)
+    assert (quiet.intents.guild_messages, quiet.intents.dm_messages) == (False, False)
+    assert quiet.intents.guilds is True  # the guild cache and on_guild_remove still work

@@ -1,10 +1,10 @@
 """Entry point: ``python -m aha`` or the ``aha`` console script.
 
-``aha`` runs the bot. ``aha sync [--guild ID] [--dry-run]`` syncs the slash-command tree to
-Discord over REST (no gateway connection) and exits; it is the deploy-time sync that replaces
-syncing at every startup. ``aha migrate [--status]`` applies pending database migrations and
-exits; it too is a deploy Job and never runs at pod startup (see
-docs/adr/0001-runtime-architecture.md, sections 4 and 9).
+``aha`` runs the bot. ``aha sync [--guild ID] [--dry-run | --check]`` syncs the slash-command tree
+to Discord over REST (no gateway connection) and exits; it is the deploy-time sync that replaces
+syncing at every startup (``--check`` is the post-deploy smoke test: it exits 3 on drift).
+``aha migrate [--status]`` applies pending database migrations and exits; it too is a deploy Job
+and never runs at pod startup (see docs/adr/0001-runtime-architecture.md, sections 4 and 9).
 """
 
 from __future__ import annotations
@@ -109,6 +109,11 @@ def _build_parser() -> argparse.ArgumentParser:
     sync.add_argument(
         "--dry-run", action="store_true", help="show what would change without syncing"
     )
+    sync.add_argument(
+        "--check",
+        action="store_true",
+        help="like --dry-run, but exit with code 3 when Discord differs (a post-deploy smoke test)",
+    )
     migrate = commands.add_parser(
         "migrate",
         help="apply pending database migrations and exit",
@@ -189,8 +194,17 @@ def _print_report(results: list[SyncResult], *, dry_run: bool) -> None:
             print(f"  {line}")
 
 
-def _sync(settings: Settings, *, guild: int | None, dry_run: bool) -> int:
-    """Sync the command tree once; return the process exit code."""
+#: Exit code of ``aha sync --check`` when Discord's commands differ from the bot's.
+EXIT_DRIFT = 3
+
+
+def _sync(settings: Settings, *, guild: int | None, dry_run: bool, check: bool = False) -> int:
+    """Sync the command tree once; return the process exit code.
+
+    ``check`` implies ``dry_run`` (nothing is written) and turns a difference into
+    :data:`EXIT_DRIFT`, which is how a deploy pipeline asserts "the sync Job left no diff".
+    """
+    dry_run = dry_run or check
     if guild is not None:
         settings = replace(settings, dev_guild_id=guild)
     # The Job syncs explicitly below; the startup sync must not run a second time.
@@ -203,6 +217,8 @@ def _sync(settings: Settings, *, guild: int | None, dry_run: bool) -> int:
         log.exception("Command sync failed")
         return 1
     _print_report(results, dry_run=dry_run)
+    if check and not all(result.diff.unchanged for result in results):
+        return EXIT_DRIFT
     return 0
 
 
@@ -253,7 +269,7 @@ def main(argv: Sequence[str] = ()) -> int:
     if settings is None:
         return 1
     if args.command == "sync":
-        return _sync(settings, guild=args.guild, dry_run=args.dry_run)
+        return _sync(settings, guild=args.guild, dry_run=args.dry_run, check=args.check)
     if args.command == "migrate":
         return _migrate(settings, status_only=args.status)
     return _run(settings)

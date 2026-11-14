@@ -13,3 +13,16 @@ description = "Public SonarQube project key (not a credential)."
 regexes = [
   '''aomarai_Aha_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}''',
 ]
+
+# Secrets this project actually handles, as explicit rules on top of the defaults (#106).
+[[rules]]
+id = "aha-discord-bot-token"
+description = "A Discord bot token (three dot-separated base64url parts)."
+regex = '''[MNO][A-Za-z0-9_-]{23,27}\.[A-Za-z0-9_-]{6,7}\.[A-Za-z0-9_-]{27,40}'''
+keywords = ["."]
+
+[[rules]]
+id = "aha-anthropic-api-key"
+description = "An Anthropic API key."
+regex = '''sk-ant-[A-Za-z0-9_-]{20,}'''
+keywords = ["sk-ant-"]

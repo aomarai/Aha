@@ -90,7 +90,7 @@ WATCHDOG_TASK = "gateway-watchdog"
 GATEWAY_WATCHDOG_INTERVAL = 30.0
 
 
-def gateway_intents() -> discord.Intents:
+def gateway_intents(mention_commands: bool = True) -> discord.Intents:
     """Return the gateway intents the bot uses, and nothing else.
 
     ``discord.Intents.default()`` subscribes to every non-privileged event (typing, voice states,
@@ -99,12 +99,14 @@ def gateway_intents() -> discord.Intents:
 
     * ``guilds``: the guild, channel and role cache, and ``on_guild_remove``. Required.
     * ``guild_messages`` and ``dm_messages``: only so an ``@Aha`` mention reaches the command
-      parser. If that surface is ever dropped these go too (#101), leaving one event stream:
-      guild lifecycle.
+      parser. ``MENTION_COMMANDS=false`` drops that surface and these two intents with it (#101),
+      leaving one event stream: guild lifecycle. Slash commands and menus are unaffected.
 
     Add an intent here only together with the feature that needs it (``voice_states`` for #68).
     """
-    return discord.Intents(guilds=True, guild_messages=True, dm_messages=True)
+    return discord.Intents(
+        guilds=True, guild_messages=mention_commands, dm_messages=mention_commands
+    )
 
 
 _ACTIVITY_TYPES = {
@@ -181,7 +183,7 @@ class AhaBot(commands.AutoShardedBot):
         # does not warn about when the intent is off.
         super().__init__(
             command_prefix=commands.when_mentioned,
-            intents=gateway_intents(),
+            intents=gateway_intents(settings.mention_commands),
             # Slash commands and mentions never read old messages, so keep none: this is a
             # per-shard cache that would otherwise hold the last 1000 messages of every channel.
             max_messages=None,
