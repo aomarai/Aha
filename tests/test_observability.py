@@ -18,7 +18,7 @@ from discord.ext import commands
 
 from aha import logctx
 from aha.bot import HEALTH_TASK, READINESS_DISCONNECT_GRACE, AhaBot
-from aha.cogs.observability import AUDIT_LOGGER, Observability, outcome_of
+from aha.cogs.observability import AUDIT_LOGGER, Observability, RateLimitCounter, outcome_of
 from aha.cogs.observability import setup as observability_setup
 from aha.config import Settings
 from aha.dbmigrate import SchemaError, load_migrations
@@ -945,3 +945,115 @@ def test_the_coordinator_releases_through_a_supervised_task(
     asyncio.run(scenario())
 
     assert ran == ["released"]
+
+
+# ----------------------------------------------------------- 429 counting (#103)
+
+
+def _record(message: str, *args: object) -> logging.LogRecord:
+    return logging.LogRecord("discord.http", logging.WARNING, __file__, 1, message, args, None)
+
+
+def test_discordpys_429_log_lines_are_counted_by_kind() -> None:
+    bot = AhaBot(Settings(token="test-token"))
+    counter = RateLimitCounter(bot.metrics)
+
+    counter.handle(_record("Global rate limit has been hit. Retrying in %.2f seconds.", 1.5))
+    counter.handle(
+        _record(
+            "We are being rate limited. %s %s responded with 429. Retrying in %.2f seconds.",
+            "GET",
+            "/x",
+            2,
+        )
+    )
+    counter.handle(
+        _record(
+            "We are being rate limited. %s %s responded with 429. Retrying in %.2f seconds.",
+            "GET",
+            "/x",
+            2,
+        )
+    )
+
+    registry = bot.metrics.registry
+    assert registry.get_sample_value("aha_rest_rate_limited_total", {"kind": "global"}) == 1
+    assert registry.get_sample_value("aha_rest_rate_limited_total", {"kind": "route"}) == 2
+
+
+def test_other_http_log_lines_are_not_counted() -> None:
+    bot = AhaBot(Settings(token="test-token"))
+    counter = RateLimitCounter(bot.metrics)
+
+    counter.handle(
+        _record("A rate limit bucket (%s) has been exhausted. Pre-emptively rate limiting...", "x")
+    )
+    counter.handle(_record("%s has found its initial rate limit bucket hash (%s).", "GET", "x"))
+    counter.handle(_record("Global rate limit"))  # not discord.py's wording
+
+    registry = bot.metrics.registry
+    assert registry.get_sample_value("aha_rest_rate_limited_total", {"kind": "global"}) is None
+    assert registry.get_sample_value("aha_rest_rate_limited_total", {"kind": "route"}) is None
+
+
+def test_the_counter_only_listens_for_warnings_and_never_changes_a_record() -> None:
+    counter = RateLimitCounter(AhaBot(Settings(token="test-token")).metrics)
+    record = _record(
+        "We are being rate limited. %s %s responded with 429. Retrying in %.2f seconds.",
+        "GET",
+        "/x",
+        2,
+    )
+
+    counter.handle(record)
+
+    assert counter.level == logging.WARNING
+    assert record.getMessage().startswith("We are being rate limited. GET /x responded with 429")
+
+
+def test_the_cog_counts_while_loaded_and_stops_when_unloaded() -> None:
+    bot = AhaBot(Settings(token="test-token"))
+    cog = Observability(bot)
+    logger = logging.getLogger("discord.http")
+    before = list(logger.handlers)
+
+    asyncio.run(cog.cog_load())
+    assert cog._rate_limits in logger.handlers
+    logger.warning("Global rate limit has been hit. Retrying in %.2f seconds.", 3.0)
+    asyncio.run(cog.cog_unload())
+
+    assert logger.handlers == before
+    sample = bot.metrics.registry.get_sample_value(
+        "aha_rest_rate_limited_total", {"kind": "global"}
+    )
+    assert sample == 1
+
+
+def test_a_quiet_log_level_does_not_hide_429s_from_the_counter() -> None:
+    bot = AhaBot(Settings(token="test-token"))
+    cog = Observability(bot)
+    logger = logging.getLogger("discord.http")
+    old_level = logger.level
+    logger.setLevel(logging.ERROR)
+    try:
+        asyncio.run(cog.cog_load())
+
+        assert logger.isEnabledFor(logging.WARNING)
+    finally:
+        asyncio.run(cog.cog_unload())
+        logger.setLevel(old_level)
+
+
+def test_an_already_verbose_logger_keeps_its_level() -> None:
+    bot = AhaBot(Settings(token="test-token"))
+    cog = Observability(bot)
+    logger = logging.getLogger("discord.http")
+    old_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    try:
+        asyncio.run(cog.cog_load())
+
+        assert logger.level == logging.DEBUG
+    finally:
+        asyncio.run(cog.cog_unload())
+        logger.setLevel(old_level)

@@ -166,6 +166,7 @@ def test_the_exposition_text_parses_and_documents_every_metric() -> None:
         "aha_session_start_reset_after_seconds",
         "aha_summarize_requests",
         "aha_summarize_tokens",
+        "aha_rest_rate_limited",
     } <= set(families)  # counters also expose a ``*_created`` series
     documented = {
         name: family.documentation
@@ -190,6 +191,9 @@ def test_the_exposition_text_parses_and_documents_every_metric() -> None:
             "Gateway sessions Discord still allows this token to start before the daily reset."
         ),
         "aha_session_start_total": "Gateway sessions Discord allows this token to start per day.",
+        "aha_rest_rate_limited": (
+            "REST requests Discord answered with 429, by kind (global or route)."
+        ),
         "aha_summarize_requests": (
             "Summarize requests by outcome (ok, disabled, quota, failed, empty)."
         ),

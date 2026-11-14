@@ -105,6 +105,12 @@ class Metrics:
             "Seconds the oldest due scheduled job has been waiting to be claimed.",
             registry=self.registry,
         )
+        self.rest_rate_limited = Counter(
+            "aha_rest_rate_limited_total",
+            "REST requests Discord answered with 429, by kind (global or route).",
+            ["kind"],
+            registry=self.registry,
+        )
         self.summaries = Counter(
             "aha_summarize_requests_total",
             "Summarize requests by outcome (ok, disabled, quota, failed, empty).",
