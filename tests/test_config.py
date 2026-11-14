@@ -608,3 +608,39 @@ def test_non_integer_pod_settings_name_the_variable() -> None:
     assert _shard_error(SHARD_COUNT="4", SHARDS_PER_POD="2", POD_INDEX="first") == (
         "POD_INDEX must be an integer, got 'first'"
     )
+
+
+# ------------------------------------------------- session-start floor (#94)
+
+
+def _floor(raw: str | None) -> float:
+    env = {"DISCORD_BOT_TOKEN": "t"}
+    if raw is not None:
+        env["SESSION_START_FLOOR"] = raw
+    return Settings.from_env(env).session_start_floor
+
+
+def test_the_session_floor_defaults_to_ten_percent() -> None:
+    assert _floor(None) == 0.1
+    assert _floor("  ") == 0.1
+
+
+def test_the_session_floor_is_configurable_including_zero() -> None:
+    assert _floor("0.25") == 0.25
+    assert _floor("0") == 0.0
+    assert _floor("0.999") == 0.999
+
+
+@pytest.mark.parametrize("raw", ["1", "1.5", "-0.1", "nan"])
+def test_a_floor_outside_zero_to_below_one_is_rejected(raw: str) -> None:
+    with pytest.raises(ConfigError) as caught:
+        _floor(raw)
+
+    assert str(caught.value) == f"SESSION_START_FLOOR must be at least 0 and below 1, got {raw!r}"
+
+
+def test_a_floor_that_is_not_a_number_is_rejected() -> None:
+    with pytest.raises(ConfigError) as caught:
+        _floor("ten")
+
+    assert str(caught.value) == "SESSION_START_FLOOR must be a number, got 'ten'"

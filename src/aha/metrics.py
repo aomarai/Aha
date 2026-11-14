@@ -21,6 +21,8 @@ from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 from prometheus_client.core import GaugeMetricFamily, Metric
 from prometheus_client.registry import Collector
 
+from aha.gatewaybudget import SessionBudget
+
 __all__ = ["Metrics", "ShardState"]
 
 #: Seconds between a command's entry point and its completion or failure.
@@ -103,7 +105,28 @@ class Metrics:
             "Seconds the oldest due scheduled job has been waiting to be claimed.",
             registry=self.registry,
         )
+        self.session_start_remaining = Gauge(
+            "aha_session_start_remaining",
+            "Gateway sessions Discord still allows this token to start before the daily reset.",
+            registry=self.registry,
+        )
+        self.session_start_total = Gauge(
+            "aha_session_start_total",
+            "Gateway sessions Discord allows this token to start per day.",
+            registry=self.registry,
+        )
+        self.session_start_reset_after = Gauge(
+            "aha_session_start_reset_after_seconds",
+            "Seconds until the gateway session-start budget resets.",
+            registry=self.registry,
+        )
         self.registry.register(_BotCollector(shards, guilds))
+
+    def set_session_budget(self, budget: SessionBudget) -> None:
+        """Publish Discord's session-start limit as read at startup."""
+        self.session_start_remaining.set(budget.remaining)
+        self.session_start_total.set(budget.total)
+        self.session_start_reset_after.set(budget.reset_after)
 
     def start_timer(self) -> None:
         """Mark the start of a command in the current invocation's context."""

@@ -161,6 +161,9 @@ def test_the_exposition_text_parses_and_documents_every_metric() -> None:
         "aha_gateway_latency_seconds",
         "aha_guilds",
         "aha_scheduler_lag_seconds",
+        "aha_session_start_remaining",
+        "aha_session_start_total",
+        "aha_session_start_reset_after_seconds",
     } <= set(families)  # counters also expose a ``*_created`` series
     documented = {
         name: family.documentation
@@ -180,6 +183,13 @@ def test_the_exposition_text_parses_and_documents_every_metric() -> None:
         "aha_guilds": "Guilds served by the shard.",
         "aha_scheduler_lag_seconds": (
             "Seconds the oldest due scheduled job has been waiting to be claimed."
+        ),
+        "aha_session_start_remaining": (
+            "Gateway sessions Discord still allows this token to start before the daily reset."
+        ),
+        "aha_session_start_total": "Gateway sessions Discord allows this token to start per day.",
+        "aha_session_start_reset_after_seconds": (
+            "Seconds until the gateway session-start budget resets."
         ),
     }
 

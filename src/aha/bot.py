@@ -7,6 +7,7 @@ import logging
 import math
 import time
 from collections import Counter
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,9 +20,11 @@ from aha.cmdsync import CommandDiff, diff_commands
 from aha.config import Settings
 from aha.db import Database
 from aha.dbmigrate import load_migrations, require_current
+from aha.gatewaybudget import SessionBudget, await_budget
 from aha.guildsettings import PROTECTED_COMMANDS, CommandDisabled, GuildSettingsCache
 from aha.guildsettings_store import GuildSettingsStore
 from aha.health import HealthServer
+from aha.identify import IdentifyCoordinator
 from aha.jobstore import JobStore
 from aha.metrics import Metrics, ShardState
 from aha.ratelimit import LocalBackend, RateLimitBackend, RateLimiter
@@ -160,6 +163,7 @@ class AhaBot(commands.AutoShardedBot):
         sync_on_startup: bool | None = None,
         health_server: bool = True,
         use_database: bool = True,
+        gateway: bool = True,
     ) -> None:
         if (
             not math.isfinite(gateway_timeout)
@@ -194,6 +198,14 @@ class AhaBot(commands.AutoShardedBot):
         #: Runs durable jobs from the database; ``None`` without one. Cogs register handlers on it.
         self.scheduler: Scheduler | None = None
         self.guild_settings: GuildSettingsCache | None = None
+        #: False for REST-only jobs (``aha sync``): no gateway session, so nothing to guard.
+        self.gateway_enabled = gateway
+        #: Serialises IDENTIFY across pods (needs a database and an explicit shard assignment).
+        self.identify: IdentifyCoordinator | None = None
+        #: How the session-budget guard waits for Discord's reset (a seam for tests).
+        self.budget_sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+        #: Identifies allowed per 5 s per bucket; the real value is read from Discord at startup.
+        self.max_concurrency = 1
         #: False for short-lived jobs (``aha sync``) that must not open the database.
         self.use_database = use_database
         #: Unix time the bot object was created, shown by ``/about`` as the start of its uptime.
@@ -268,6 +280,8 @@ class AhaBot(commands.AutoShardedBot):
             log.info("Owning every shard (the count is chosen by Discord)")
         else:
             log.info("Owning shards %s of %s", sorted(self.shard_ids), self.shard_count)
+        if self.gateway_enabled:
+            await self._guard_session_budget()
         if self.use_database and self.settings.database_url is not None:
             await self._connect_database(self.settings.database_url)
 
@@ -291,6 +305,35 @@ class AhaBot(commands.AutoShardedBot):
         if WATCHDOG_TASK not in self.tasks:
             self.tasks.spawn(self._watch_gateway, name=WATCHDOG_TASK, restart=True, critical=True)
 
+    async def _guard_session_budget(self) -> None:
+        """Log and export the session-start budget; wait for the reset instead of spending the rest.
+
+        Not being able to read the budget never blocks startup: Discord enforces the limit anyway.
+        """
+
+        async def fetch() -> SessionBudget:
+            _, _, limit = await self.http.get_bot_gateway()
+            return SessionBudget.from_payload(limit)
+
+        try:
+            budget = await await_budget(
+                fetch,
+                floor=self.settings.session_start_floor,
+                on_budget=self.metrics.set_session_budget,
+                sleep=self.budget_sleep,
+            )
+        except discord.DiscordException:
+            log.warning("Could not read the gateway session budget; continuing", exc_info=True)
+            return
+        self.max_concurrency = budget.max_concurrency
+
+    async def before_identify_hook(self, shard_id: int | None, *, initial: bool = False) -> None:
+        """Take the cross-pod identify lock for the shard's bucket when coordination is on."""
+        if self.identify is not None and shard_id is not None:
+            await self.identify.acquire(shard_id % self.max_concurrency)
+            return
+        await super().before_identify_hook(shard_id, initial=initial)
+
     async def _connect_database(self, url: str) -> None:
         """Open the pool and refuse to run against a schema that is behind this build.
 
@@ -306,6 +349,10 @@ class AhaBot(commands.AutoShardedBot):
             await require_current(connection, load_migrations())
         self.scheduler = Scheduler(JobStore(self.db), on_lag=self.metrics.scheduler_lag.set)
         self.guild_settings = GuildSettingsCache(GuildSettingsStore(self.db))
+        if self.gateway_enabled and self.settings.shard_ids is not None:
+            self.identify = IdentifyCoordinator(
+                self.db, lambda factory, name: self.tasks.spawn(factory, name=name)
+            )
         log.info("Connected to the database; the schema is up to date")
 
     async def close(self) -> None:

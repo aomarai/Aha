@@ -31,6 +31,7 @@ from aha.dbmigrate import (
     status,
 )
 from aha.guildsettings_store import GuildSettings, GuildSettingsStore
+from aha.identify import IdentifyCoordinator
 from aha.jobstore import JobStore
 
 URL = os.environ.get("AHA_TEST_DATABASE_URL")
@@ -391,3 +392,27 @@ async def test_the_disabled_command_cap_is_enforced_by_the_database(
 
     with pytest.raises(asyncpg.CheckViolationError):
         await settings_store.disable(5, "one-too-many", by=1)
+
+
+async def test_the_identify_lock_serialises_a_bucket_across_connections(
+    store: JobStore,
+) -> None:
+    released: list[asyncio.Task[None]] = []
+
+    def spawn(factory: Any, name: str) -> None:
+        released.append(asyncio.create_task(factory(), name=name))
+
+    first = IdentifyCoordinator(store._db, spawn, hold=0.3, poll=0.05, timeout=5.0)
+    impatient = IdentifyCoordinator(store._db, spawn, hold=0.3, poll=0.05, timeout=0.1)
+
+    await first.acquire(0)
+    await impatient.acquire(0)  # same bucket while the first still holds it: gives up
+    assert len(released) == 1
+
+    await impatient.acquire(1)  # another bucket is free at once
+    assert len(released) == 2
+
+    await asyncio.gather(*released)  # the holds elapse and the locks are released
+    await impatient.acquire(0)
+    assert len(released) == 3
+    await asyncio.gather(*released)

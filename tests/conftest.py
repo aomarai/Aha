@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 
+from aha.bot import AhaBot
+
 
 class _IdleHealthServer:
     """Stands in for the real health server so no test binds a TCP port by accident."""
@@ -30,6 +32,20 @@ class _IdleScheduler:
 
     async def run(self) -> None:
         await asyncio.Event().wait()
+
+
+#: The real session-budget check, kept for the tests that exercise it.
+REAL_GUARD = AhaBot._guard_session_budget
+
+
+async def _no_budget_check(self: Any) -> None:
+    """Stands in for the session-budget check, which would call Discord's REST API."""
+
+
+@pytest.fixture(autouse=True)
+def _no_real_session_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``setup_hook`` reads the gateway session budget over REST; tests have no network."""
+    monkeypatch.setattr("aha.bot.AhaBot._guard_session_budget", _no_budget_check)
 
 
 @pytest.fixture(autouse=True)

@@ -32,8 +32,9 @@ passes — that is the global `--cov-fail-under=95` in `addopts`, not a real fai
 strict, pytest with 95% branch coverage, then a **mutation-testing job** that fails if the
 mutmut score drops below `THRESHOLD` in `scripts/mutation_score.py` (currently 0.98 against a
 measured 100%, a ratchet meant to be raised as surviving mutants are killed) and when the campaign
-enumerates fewer than `MIN_MUTANTS` (544), so a silently shrinking campaign cannot pass. Separate
-workflows run security checks and SonarQube. Every third-party action in `.github/workflows/` is pinned to a full commit SHA with a version
+enumerates fewer than `MIN_MUTANTS`, so a silently shrinking campaign cannot pass. Separate
+workflows run security checks and SonarQube (advisory only: the job is `continue-on-error` because the
+cluster is short on memory, and Community Build gates `main`, not PRs). Every third-party action in `.github/workflows/` is pinned to a full commit SHA with a version
 comment (`# v7.0.1`); Dependabot's `github-actions` ecosystem bumps both. A new `uses:` must be pinned the
 same way, and a checkout that does not push sets `persist-credentials: false`.
 `.github/workflows/image.yml` builds the production
@@ -145,6 +146,23 @@ every change must keep:
   schema changes only through `src/aha/migrations/NNNN_*.sql`, applied by `aha migrate` as a deploy
   Job and never at startup, forward-only and expand/contract (see `docs/migrations.md`). Every new
   table needs a user/guild purge path (#99).
+- Sharding and the gateway: `AhaBot` is an `AutoShardedBot`. `SHARD_COUNT` plus `SHARD_IDS` or
+  `SHARDS_PER_POD` + `POD_INDEX` give a pod its disjoint block (validated in `config._parse_shards`;
+  `shard_ids` is always passed to discord.py as a **list**, and only with `shard_count`; see
+  `docs/sharding.md`, a reshard is stop-the-world). Readiness, reconnect metrics and the watchdog are
+  **per shard** (`bot._shard_down`, driven by `on_shard_disconnect/ready/resumed`), so never add a
+  process-wide "connected" flag. Cog constructors take `aha.commands.BotLike` (`Bot | AutoShardedBot`),
+  not `commands.Bot`, which mypy does not treat as a supertype. `setup_hook` reads the session budget
+  (`aha.gatewaybudget`, floor `SESSION_START_FLOOR`) and, with a database and explicit shards,
+  `before_identify_hook` takes a cross-pod advisory lock (`aha.identify`, fails open); a REST-only job
+  builds the bot with `gateway=False` to skip both (`docs/runbooks/session-budget.md`).
+- Per-server settings: `guild_settings` (cache `aha.guildsettings`, SQL `guildsettings_store`) is
+  read through a 60 s per-pod cache that every write invalidates; `AhaBot.ensure_command_enabled`
+  refuses disabled commands on both the slash and message surfaces and fails open. `config`,
+  `configure` and `help` can never be disabled. A guild that removes the bot is purged after 30 days
+  by a `guild_purge` scheduled job (`cogs/config.py`).
+- Reminders (`cogs/remind.py`, `aha.durations`) are `scheduled_jobs` of kind `reminder`; delivery
+  pings only the invoker and falls back to a DM.
 - Scheduled work: due jobs live in `scheduled_jobs` and any pod runs them (`aha.scheduler`,
   `aha.jobstore`, see `docs/scheduler.md`). Handlers are at-least-once: make them idempotent, never
   rely on in-memory timers for anything that must fire. `jobstore.py` is pure SQL, excluded from
@@ -161,11 +179,17 @@ every change must keep:
 - Concurrency: every process is one asyncio event loop. `RateLimiter` and `sync_commands`
   state is process-local and safe because no critical section awaits; `sync_commands`
   serializes with an `asyncio.Lock` and restores the local tree in a `finally`. In-process
-  `AutoShardedClient` shards share that state; separate processes need #2.
-- Tests are plain pytest functions; async code is driven with `asyncio.run(...)`. The one exception
+  `AutoShardedClient` shards share that state; separate processes are the shard-group model in
+  `docs/sharding.md`.
+- Tests are plain pytest functions (`tests/test_config.py` tests `Settings`; the `/config` cog is in
+  `tests/test_guild_config.py`); async code is driven with `asyncio.run(...)`. The one exception
   is `tests/test_postgres_integration.py`, which uses pytest-asyncio (strict mode, opt-in per module)
   and runs only when `AHA_TEST_DATABASE_URL` points at a real PostgreSQL. Discord collaborators are replaced with `monkeypatch.setattr` fakes that
   record calls; logs are checked with `caplog` against the `aha.*` logger.
+- After changing tests, `rm -rf mutants` before `mutmut run`, or it reuses cached results; check the
+  log has no `failed to collect stats`. `jobstore.py` and `guildsettings_store.py` are pure SQL and
+  excluded (`do_not_mutate`); the real-PostgreSQL tests cover them. A `pytest.raises(match=...)` is a
+  regex *search*, so mutants that only add text survive it: assert the exact message instead.
 - Mutmut copies the repo to `mutants/` and runs `tests/` there with `--no-cov`; `scripts/` is in
   `also_copy` because `tests/test_mutation_score.py` imports the gate module. Keep that in mind
   if tests start importing other top-level directories.
