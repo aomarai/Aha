@@ -20,6 +20,7 @@ uv run mypy                               # strict type check of src/, tests/, s
 uv run pytest                             # full suite, enforces 95% coverage
 uv run pytest tests/test_bot.py::test_name --no-cov   # single test (--no-cov skips the 95% gate)
 uv run pre-commit run --all-files         # ruff + hygiene + gitleaks secret scan
+uv run python -m scripts.gen_command_docs # regenerate docs/commands.md after adding or changing a command
 uv run mutmut run && uv run mutmut export-cicd-stats && uv run python scripts/mutation_score.py
 ```
 
@@ -125,6 +126,11 @@ every change must keep:
   formatter (`LOG_FORMAT=json`) adds them to every record, so do not repeat those ids in log
   messages. Structured extras go in `extra={...}`. Both formatters mask the bot token. Never log
   `settings.token` deliberately, and keep new log fields free of user-supplied free text.
+- API docs: `docs/openapi.yaml` (OpenAPI 3.1) describes the health server and `docs/commands.md` is
+  generated from the command tree (`scripts/gen_command_docs.py`). Both are checked by tests
+  (`test_openapi.py`, `test_command_docs.py`): changing a route, a response, a metric, a command or an
+  option text fails them until the doc is updated (regenerate the command reference; edit the spec
+  by hand and list new metrics in its `/metrics` table).
 - Health and metrics: `aha.health.HealthServer` (started by `setup_hook` as the critical,
   restartable `health-server` task unless `HEALTH_PORT=0`) serves `/livez`, `/readyz`, `/metrics`;
   readiness is `bot.shard_states()` plus `bot.tasks.healthy`. Metrics live in the per-bot

@@ -7,6 +7,9 @@ for how a release is cut.
 ## [Unreleased]
 
 ### Added
+- API documentation: an OpenAPI 3.1 spec for the health, readiness and metrics endpoints
+  (`docs/openapi.yaml`) and a generated command reference (`docs/commands.md`), each kept in sync by
+  a test.
 - `/watch`, `/watching` and `/unwatch`: follow a show and get a reminder (by DM, or a ping in the
   channel) when each new episode comes out, optionally with a lead time. Schedules come from TVmaze;
   a postponed episode is rescheduled, and the subscription ends when the show does. `/forgetme` and
