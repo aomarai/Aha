@@ -12,6 +12,9 @@ info:
     default) and, in a cluster, the NetworkPolicy that only lets the kubelet and Prometheus in.
     Never expose it to the internet. `HEALTH_PORT=0` turns the server off.
 
+    `HEAD` is also accepted on each path (the web framework adds it to every `GET` route): same
+    status and headers, no body. Use `GET`; probes and Prometheus do.
+
     Each process reports on itself only: with several shard groups (see
     [sharding.md](sharding.md)), probe and scrape every pod.
 
@@ -78,7 +81,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Readiness"
+                $ref: "#/components/schemas/Ready"
               example:
                 status: ready
                 shards:
@@ -91,7 +94,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Readiness"
+                $ref: "#/components/schemas/NotReady"
               example:
                 status: not ready
                 shards:
@@ -161,15 +164,51 @@ components:
           minItems: 1
           items:
             type: string
-    Readiness:
+    Ready:
       type: object
-      description: Whether the process may take traffic, and why not when it may not.
+      description: |
+        Every owned shard is ready and no critical task has died or is restarting. Returned with
+        HTTP 200.
       required: [status, shards, failed_tasks, degraded_tasks]
       additionalProperties: false
       properties:
         status:
-          enum: [ready, not ready]
-          description: "`ready` exactly when the HTTP status is 200."
+          const: ready
+        shards:
+          type: array
+          description: The shards this process owns; there is at least one and all are ready.
+          minItems: 1
+          items:
+            type: object
+            required: [id, ready]
+            additionalProperties: false
+            properties:
+              id:
+                type: integer
+                minimum: 0
+              ready:
+                const: true
+        failed_tasks:
+          type: array
+          maxItems: 0
+          items:
+            type: string
+        degraded_tasks:
+          type: array
+          maxItems: 0
+          items:
+            type: string
+    NotReady:
+      type: object
+      description: |
+        At least one reason holds: no shard is known yet, a shard is not ready, or a critical task
+        has died (`failed_tasks`) or crashed and is being restarted (`degraded_tasks`). Returned
+        with HTTP 503.
+      required: [status, shards, failed_tasks, degraded_tasks]
+      additionalProperties: false
+      properties:
+        status:
+          const: not ready
         shards:
           type: array
           description: The shards this process owns (empty before the gateway has started).

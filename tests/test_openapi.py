@@ -16,7 +16,7 @@ from typing import Any, cast
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, ValidationError
 from openapi_spec_validator import validate
 from openapi_spec_validator.readers import read_from_filename
 
@@ -201,15 +201,57 @@ def test_readyz_before_the_gateway_starts_is_not_ready_with_no_shards(
     assert json.loads(body)["shards"] == []
 
 
-def test_the_readiness_status_is_ready_exactly_when_the_http_status_is_200(
+def test_the_declared_response_codes_are_exactly_the_ones_the_server_uses(
     spec: dict[str, Any],
 ) -> None:
-    schema = spec["components"]["schemas"]["Readiness"]
-
-    assert schema["properties"]["status"]["enum"] == ["ready", "not ready"]
     assert set(spec["paths"]["/readyz"]["get"]["responses"]) == {"200", "503"}
     assert set(spec["paths"]["/livez"]["get"]["responses"]) == {"200", "503"}
     assert set(spec["paths"]["/metrics"]["get"]["responses"]) == {"200"}
+
+
+def test_a_readiness_body_must_match_its_http_status(spec: dict[str, Any]) -> None:
+    ready = schema_of(declared(spec, "/readyz", 200), "application/json")
+    not_ready = schema_of(declared(spec, "/readyz", 503), "application/json")
+    all_ready = {
+        "status": "ready",
+        "shards": [{"id": 0, "ready": True}],
+        "failed_tasks": [],
+        "degraded_tasks": [],
+    }
+    nothing_yet = {**all_ready, "status": "not ready", "shards": []}
+
+    validate_body(spec, all_ready, ready)
+    validate_body(spec, nothing_yet, not_ready)
+    # Each status is accepted only on its own response.
+    with pytest.raises(ValidationError):
+        validate_body(spec, all_ready, not_ready)
+    with pytest.raises(ValidationError):
+        validate_body(spec, nothing_yet, ready)
+    # A 200 can never carry a shard that is not ready, a dead task or a restarting one.
+    for broken in (
+        {**all_ready, "shards": []},
+        {**all_ready, "shards": [{"id": 0, "ready": False}]},
+        {**all_ready, "failed_tasks": ["scheduler"]},
+        {**all_ready, "degraded_tasks": ["scheduler"]},
+    ):
+        with pytest.raises(ValidationError):
+            validate_body(spec, broken, ready)
+
+
+def test_head_is_accepted_with_the_same_status_and_no_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = bot_with(monkeypatch, [ShardState(0, True, 0.05)])
+
+    async def head(path: str) -> tuple[int, str]:
+        server = HealthServer(bot, "127.0.0.1", 0)
+        async with TestClient(TestServer(server.app())) as client:
+            response = await client.head(path)
+            return response.status, await response.text()
+
+    assert [asyncio.run(head(path)) for path in ("/livez", "/readyz", "/metrics")] == [
+        (200, ""),
+        (200, ""),
+        (200, ""),
+    ]
 
 
 # ----------------------------------------------------------------------------- /metrics
@@ -225,18 +267,60 @@ def test_metrics_use_the_documented_media_type(
     assert content_type in response["content"]
 
 
-def test_every_exposed_metric_is_listed_in_the_spec(
+def documented_metrics(spec: dict[str, Any]) -> dict[str, tuple[str, set[str]]]:
+    """The spec's metric table as ``{name: (type, labels)}``."""
+    description = spec["paths"]["/metrics"]["get"]["description"]
+    rows = re.findall(r"^\| `(aha_\w+)` \| (\w+) \| ([^|]*)\|", description, flags=re.MULTILINE)
+    return {name: (kind, set(re.findall(r"`(\w+)`", labels))) for name, kind, labels in rows}
+
+
+def exposed_metrics(bot: AhaBot, text: str) -> dict[str, tuple[str, set[str]]]:
+    """What the bot exposes as ``{name: (type, labels)}``, from its registry and exposition."""
+    kinds = dict(re.findall(r"^# TYPE (\S+) (\w+)$", text, flags=re.MULTILINE))
+    labels: dict[str, set[str]] = {name: set() for name in kinds}
+    # Instruments know their label names even before they have a sample.
+    for instrument in vars(bot.metrics).values():
+        names = getattr(instrument, "_labelnames", None)
+        base = getattr(instrument, "_name", None)
+        if names is not None and base is not None:
+            for name in labels:
+                if name == base or name == f"{base}_total":
+                    labels[name] = set(names)
+    # The shard families are built by a collector at scrape time, so read their samples.
+    for line in text.splitlines():
+        match = re.match(r"^(\w+)\{(.*)\} ", line)
+        if match and match[1] in labels and not labels[match[1]]:
+            labels[match[1]] = set(re.findall(r"(\w+)=", match[2]))
+    return {name: (kinds[name], labels[name]) for name in kinds}
+
+
+def test_every_exposed_metric_is_listed_with_its_type_and_labels(
     spec: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bot = bot_with(monkeypatch, [ShardState(0, True, 0.05)])
     _, _, text = asyncio.run(fetch(bot, "/metrics"))
 
-    exposed = set(re.findall(r"^# HELP (\S+) ", text, flags=re.MULTILINE))
-    description = spec["paths"]["/metrics"]["get"]["description"]
-    listed = set(re.findall(r"^\| `(aha_\w+)` \|", description, flags=re.MULTILINE))
+    exposed = exposed_metrics(bot, text)
 
     assert exposed  # the registry is not empty
-    assert exposed == listed
+    assert documented_metrics(spec) == exposed
+
+
+def test_the_metric_comparison_notices_a_changed_type_or_label(
+    spec: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bot = bot_with(monkeypatch, [ShardState(0, True, 0.05)])
+    _, _, text = asyncio.run(fetch(bot, "/metrics"))
+    exposed = exposed_metrics(bot, text)
+    documented = documented_metrics(spec)
+
+    assert documented["aha_commands_total"] == ("counter", {"command", "outcome"})
+    assert documented["aha_command_duration_seconds"] == ("histogram", {"command"})
+    assert documented["aha_shard_ready"] == ("gauge", {"shard"})
+    assert documented["aha_scheduler_lag_seconds"] == ("gauge", set())
+    changed = {**documented, "aha_guilds": ("counter", {"shard"})}
+    relabelled = {**documented, "aha_guilds": ("gauge", {"shard", "guild"})}
+    assert changed != exposed and relabelled != exposed
 
 
 def test_the_metrics_example_is_valid_exposition_text(spec: dict[str, Any]) -> None:

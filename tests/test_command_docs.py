@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path
 
 import discord
 import pytest
 from discord import app_commands
 from scripts import gen_command_docs as gen
+
+from aha.bot import AhaBot
 
 
 def test_the_committed_command_reference_is_current() -> None:
@@ -91,3 +94,53 @@ def test_permissions_are_named_when_a_command_needs_them() -> None:
     assert gen._permissions(discord.Permissions.none()) is None
     needs = gen._permissions(discord.Permissions(manage_guild=True, manage_messages=True))
     assert needs == "Manage Guild, Manage Messages"
+
+
+def test_a_server_wide_cooldown_is_not_described_as_personal() -> None:
+    text = gen.build_markdown()
+
+    assert "*cooldown: 1 per 5 s per server; servers only; needs: Manage Guild.*" in text
+    assert "cooldown: 1 per 5 s per user." in text
+
+
+def test_the_bot_wide_limit_is_stated_from_the_bots_own_setting() -> None:
+    rate, per = AhaBot.GLOBAL_RATE_LIMIT
+
+    assert (
+        f"**{rate} command uses per {per:g}\nseconds across all commands**" in gen.build_markdown()
+    )
+
+
+def test_every_bucket_type_has_a_description() -> None:
+    from discord.ext import commands
+
+    assert set(gen._SCOPES) == set(commands.BucketType)
+
+
+def test_the_file_is_replaced_in_one_step_and_leaves_no_temporary_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    target = tmp_path / "commands.md"
+    target.write_text("old\n", encoding="utf-8")
+
+    gen._write_atomically(target, "new\n")
+
+    assert target.read_text(encoding="utf-8") == "new\n"
+    assert [path.name for path in tmp_path.iterdir()] == ["commands.md"]
+
+
+def test_an_interrupted_write_leaves_the_old_file_intact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    target = tmp_path / "commands.md"
+    target.write_text("old\n", encoding="utf-8")
+
+    def interrupted(source: str, destination: Path) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(os, "replace", interrupted)
+
+    with pytest.raises(KeyboardInterrupt):
+        gen._write_atomically(target, "new\n")
+
+    assert target.read_text(encoding="utf-8") == "old\n"

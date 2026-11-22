@@ -4,8 +4,12 @@
      when this file does not match the bot's real commands. -->
 
 Aha is used through Discord's slash commands (there are no message commands: the bot does not read
-messages). This is every command, generated from the bot itself. Command names, option descriptions
-and replies are translated where the catalogue has a translation (see [i18n.md](i18n.md)).
+messages). This is every command, generated from the bot itself and shown here in English; Discord
+shows names and option texts in the user's language where the catalogue has a translation (see
+[i18n.md](i18n.md)).
+
+Besides each command's own cooldown, every user is limited to **10 command uses per 10
+seconds across all commands** (per bot process).
 
 Replies to commands that show personal data or settings are only visible to you. Commands that need
 a database (`/remind`, `/watch`, `/config` and others) say so when the bot runs without one. For the
@@ -208,7 +212,7 @@ Usage: `/time [tz]`
 
 Show this server's settings.
 
-*cooldown: 1 per 5 s per user; servers only; needs: Manage Guild.*
+*cooldown: 1 per 5 s per server; servers only; needs: Manage Guild.*
 
 ### `/configure`
 
@@ -221,7 +225,7 @@ Change a server setting.
 
 Usage: `/configure <setting> <value>`
 
-*cooldown: 1 per 5 s per user; servers only; needs: Manage Guild.*
+*cooldown: 1 per 5 s per server; servers only; needs: Manage Guild.*
 
 ## Context menus
 

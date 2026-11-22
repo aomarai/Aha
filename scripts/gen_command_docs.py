@@ -13,12 +13,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
+import os
 import sys
+import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import discord
 from discord import app_commands
+from discord.ext import commands
 
 from aha.bot import COG_MODULES, AhaBot
 from aha.config import Settings
@@ -37,13 +41,29 @@ HEADER = """\
      when this file does not match the bot's real commands. -->
 
 Aha is used through Discord's slash commands (there are no message commands: the bot does not read
-messages). This is every command, generated from the bot itself. Command names, option descriptions
-and replies are translated where the catalogue has a translation (see [i18n.md](i18n.md)).
+messages). This is every command, generated from the bot itself and shown here in English; Discord
+shows names and option texts in the user's language where the catalogue has a translation (see
+[i18n.md](i18n.md)).
+
+Besides each command's own cooldown, every user is limited to **{rate} command uses per {per:g}
+seconds across all commands** (per bot process).
 
 Replies to commands that show personal data or settings are only visible to you. Commands that need
 a database (`/remind`, `/watch`, `/config` and others) say so when the bot runs without one. For the
 HTTP endpoints of the bot process itself (probes and metrics) see [openapi.yaml](openapi.yaml).
 """
+
+
+#: How a cooldown's bucket reads in the reference.
+_SCOPES = {
+    commands.BucketType.default: "bot-wide",
+    commands.BucketType.user: "per user",
+    commands.BucketType.guild: "per server",
+    commands.BucketType.channel: "per channel",
+    commands.BucketType.member: "per member",
+    commands.BucketType.category: "per category",
+    commands.BucketType.role: "per role",
+}
 
 
 async def _bot() -> AhaBot:
@@ -87,7 +107,8 @@ def _slash(command: app_commands.Command[Any, ..., Any], bot: AhaBot) -> tuple[s
     facts: list[str] = []
     cooldown = getattr(text_command, "cooldown", None)
     if cooldown is not None:
-        facts.append(f"cooldown: {cooldown.rate} per {cooldown.per:g} s per user")
+        scope = _SCOPES[cast("Any", text_command)._buckets.type]
+        facts.append(f"cooldown: {cooldown.rate} per {cooldown.per:g} s {scope}")
     if command.guild_only:
         facts.append("servers only")
     needs = _permissions(command.default_permissions)
@@ -104,8 +125,12 @@ def _menu(command: app_commands.ContextMenu) -> str:
     return f"### {command.name} ({kind} menu)\n\nRight-click a {kind}: **{where}**.\n"
 
 
+@functools.cache
 def build_markdown() -> str:
-    """The whole reference as Markdown (deterministic, so it can be compared with the file)."""
+    """The whole reference as Markdown (deterministic, so it can be compared with the file).
+
+    Cached: building loads every cog into a throwaway bot, which hooks process-wide loggers.
+    """
     bot = asyncio.run(_bot())
     sections: dict[str, list[tuple[str, str]]] = {}
     for command in bot.tree.walk_commands():
@@ -122,7 +147,8 @@ def build_markdown() -> str:
         sections,
         key=lambda c: (CATEGORY_ORDER.index(c) if c in CATEGORY_ORDER else len(CATEGORY_ORDER), c),
     )
-    parts = [HEADER]
+    rate, per = AhaBot.GLOBAL_RATE_LIMIT
+    parts = [HEADER.format(rate=rate, per=per)]
     for category in ordered:
         parts.append(f"## {category}\n")
         parts.extend(text for _, text in sorted(sections[category]))
@@ -130,6 +156,15 @@ def build_markdown() -> str:
         parts.append("## Context menus\n")
         parts.extend(menus)
     return "\n".join(parts).rstrip() + "\n"
+
+
+def _write_atomically(path: Path, text: str) -> None:
+    """Replace ``path`` in one step, so an interruption cannot leave it empty or half-written."""
+    with tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", dir=path.parent, prefix=path.name, suffix=".tmp", delete=False
+    ) as handle:
+        handle.write(text)
+    os.replace(handle.name, path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{OUTPUT} is out of date; run: uv run python -m scripts.gen_command_docs")
             return 1
         return 0
-    OUTPUT.write_text(text, encoding="utf-8")
+    _write_atomically(OUTPUT, text)
     print(f"Wrote {OUTPUT}")
     return 0
 
