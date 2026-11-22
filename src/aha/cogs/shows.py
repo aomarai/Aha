@@ -465,7 +465,7 @@ class Shows(commands.Cog):
     ) -> None:
         """Schedule the show's next episode, a re-check, or end the subscription."""
         try:
-            schedule = await self._client.schedule(sub.show_id)
+            schedule = await self._client.schedule(sub.show_id, not_next=after)
         except TvmazeError as error:
             log.warning("Next-episode lookup failed, retrying later: %s", error)
             await store.advance(sub.id, job_id, utcnow() + RECHECK_SOON, {})

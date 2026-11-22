@@ -105,6 +105,7 @@ class FakeClient:
         self.schedules: dict[int, Schedule | Exception | None] = {}
         self.episodes: dict[int, Episode | Exception | None] = {}
         self.calls: list[tuple[str, Any]] = []
+        self.not_next: list[int | None] = []
         self.delay = 0.0
         self.search_error: Exception | None = None
 
@@ -115,8 +116,9 @@ class FakeClient:
             raise self.search_error
         return self.found
 
-    async def schedule(self, show_id: int) -> Schedule | None:
+    async def schedule(self, show_id: int, *, not_next: int | None = None) -> Schedule | None:
         self.calls.append(("schedule", show_id))
+        self.not_next.append(not_next)
         answer = self.schedules.get(show_id)
         if isinstance(answer, Exception):
             raise answer
@@ -1370,3 +1372,12 @@ def test_the_option_texts_are_translated_into_german() -> None:
 
     assert len(texts) == 6
     assert [text for text in texts if catalogue.command_text(text, "de") is None] == []
+
+
+def test_the_next_episode_lookup_says_which_episode_it_just_announced() -> None:
+    cog, _, client, _ = delivery_setup()
+
+    deliver(cog, job())
+    deliver(cog, job(payload={"sub": 9}))
+
+    assert client.not_next == [500, None]  # after an episode; and after a bare re-check

@@ -207,11 +207,20 @@ class TvmazeClient:
         self._searches.put(key, shows)
         return shows
 
-    async def schedule(self, show_id: int) -> Schedule | None:
-        """A show and its next episode; ``None`` when TVmaze has no such show."""
+    async def schedule(self, show_id: int, *, not_next: int | None = None) -> Schedule | None:
+        """A show and its next episode; ``None`` when TVmaze has no such show.
+
+        ``not_next`` is an episode that has just been announced: a remembered answer that still
+        names it as the next one is stale, so TVmaze is asked again (and the fresh answer is then
+        what the show's other followers get).
+        """
         key = str(show_id)
         cached = self._schedules.get(key)
-        if cached is not None:
+        if cached is not None and not (
+            not_next is not None
+            and cached.next_episode is not None
+            and cached.next_episode.id == not_next
+        ):
             return cached
         raw = await self._get(f"/shows/{show_id}", {"embed": "nextepisode"})
         if raw is None:

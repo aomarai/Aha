@@ -473,3 +473,34 @@ def test_other_failures_do_not_start_a_backoff() -> None:
 
     assert asyncio.run(client.episode(1)) == parse_episode(EPISODE)
     assert len(calls) == 2
+
+
+def test_a_remembered_schedule_naming_the_announced_episode_is_asked_for_again() -> None:
+    first = {**SHOW, "_embedded": {"nextepisode": EPISODE}}
+    second = {**SHOW, "_embedded": {"nextepisode": {**EPISODE, "id": 2}}}
+    client, calls = make(ok(first), ok(second))
+
+    before = asyncio.run(client.schedule(1))
+    assert before is not None and before.next_episode is not None
+    after = asyncio.run(client.schedule(1, not_next=before.next_episode.id))
+
+    assert after is not None and after.next_episode is not None
+    assert after.next_episode.id == 2
+    assert len(calls) == 2
+    # and the fresh answer is what the next follower of the show gets, without another request
+    assert asyncio.run(client.schedule(1, not_next=before.next_episode.id)) == after
+    assert len(calls) == 2
+
+
+def test_a_remembered_schedule_is_kept_when_it_names_another_episode_or_none() -> None:
+    client, calls = make(ok({**SHOW, "_embedded": {"nextepisode": EPISODE}}), ok(SHOW))
+
+    first = asyncio.run(client.schedule(1))
+    assert asyncio.run(client.schedule(1, not_next=999)) == first
+    assert asyncio.run(client.schedule(1, not_next=None)) == first
+    assert len(calls) == 1
+
+    client, calls = make(ok(SHOW))
+    bare = asyncio.run(client.schedule(2))
+    assert asyncio.run(client.schedule(2, not_next=5)) == bare  # nothing announced to be stale
+    assert len(calls) == 1
