@@ -14,17 +14,20 @@ from aha.cogs import shows as shows_module
 from aha.cogs.shows import (
     MAX_ACTIVE,
     MAX_LEAD,
+    PAGE_LIMIT,
     RECHECK_EMPTY,
     RECHECK_SOON,
+    REQUEUE_AFTER_ATTEMPTS,
     SLACK,
     Shows,
     episode_from_payload,
     episode_payload,
     format_lead,
+    pack,
 )
 from aha.cogs.shows import setup as shows_setup
 from aha.jobstore import Job
-from aha.showstore import KIND, Followed, Subscription
+from aha.showstore import KIND, Followed, ShowLimitError, Subscription
 from aha.tvmaze import Episode, Schedule, Show, TvmazeClient, TvmazeError
 from tests.helpers import Named, StubContext, as_context, http_error
 
@@ -51,6 +54,7 @@ class FakeStore:
     def __init__(self) -> None:
         self.added: list[dict[str, Any]] = []
         self.add_result: int | None = 9
+        self.add_error: Exception | None = None
         self.total = 0
         self.followed: list[Followed] = []
         self.subs: dict[int, Subscription] = {}
@@ -62,6 +66,8 @@ class FakeStore:
 
     async def add(self, **kwargs: Any) -> int | None:
         self.added.append(kwargs)
+        if self.add_error is not None:
+            raise self.add_error
         return self.add_result
 
     async def count(self, user_id: int) -> int:
@@ -172,6 +178,12 @@ def reply_of(ctx: StubContext) -> str:
     ((_, kwargs),) = ctx.replies
     assert kwargs["ephemeral"] is True
     return cast("str", kwargs["embed"].description)
+
+
+def pages_of(ctx: StubContext) -> list[str]:
+    ((_, kwargs),) = ctx.replies
+    assert kwargs["ephemeral"] is True
+    return [cast("str", embed.description) for embed in kwargs["embeds"]]
 
 
 def sub(
@@ -309,6 +321,7 @@ def test_watch_follows_the_top_match_by_direct_message() -> None:
         "locale": "en-US",
         "run_at": NOW + timedelta(days=2),
         "payload": episode_payload(episode()),
+        "limit": MAX_ACTIVE,
     }
     text = reply_of(ctx)
     assert text.startswith("You'll get reminders for **Severance** (Apple TV, 2022).")
@@ -634,7 +647,8 @@ def test_watching_lists_each_show_with_its_next_episode_and_where() -> None:
 
     asyncio.run(cast("Any", cog.watching.callback)(cog, as_context(ctx)))
 
-    lines = reply_of(ctx).split("\n")
+    (page,) = pages_of(ctx)
+    lines = page.split("\n")
     assert store.calls == [("list", 33, MAX_ACTIVE)]
     assert lines[0].startswith("`1` **Severance** · S2E04 “Woe's Hollow” <t:")
     assert lines[0].endswith("· DM")
@@ -762,6 +776,7 @@ def test_a_due_episode_is_announced_by_dm_and_the_next_one_scheduled() -> None:
         "<@33> 📺 **Severance**: S2E04 “Woe's Hollow” <t:1893499200:R> (<t:1893499200:f>)"
     )
     assert kwargs["nonce"] == 70
+    assert kwargs["enforce_nonce"] is True
     assert kwargs["allowed_mentions"].users == [discord.Object(id=33)]
     assert kwargs["allowed_mentions"].everyone is False
     assert store.advanced == [
@@ -973,14 +988,42 @@ def test_a_finished_show_ends_the_subscription_and_says_so() -> None:
     )
 
 
-def test_an_ended_notice_is_only_sent_by_the_job_that_really_ended_it() -> None:
-    cog, store, client, bot = delivery_setup()
-    store.drop_result = False
+def test_a_failing_ended_notice_keeps_the_subscription_so_the_retry_can_send_it() -> None:
+    bot = FakeBot()
+    bot.user = FakeChannel(error=http_error())
+    cog, store, client, _ = delivery_setup(bot=bot)
+    client.schedules[SHOW.id] = Schedule(Show(SHOW.id, "Severance", "Ended", 2022, None), None)
+    client.episodes[500] = None  # nothing to announce: the job only finds the show has ended
+
+    with pytest.raises(discord.HTTPException):
+        deliver(cog, job())
+
+    assert store.dropped == []
+
+
+def test_the_subscription_is_dropped_only_after_the_ended_notice_was_sent() -> None:
+    order: list[str] = []
+
+    class OrderedChannel(FakeChannel):
+        async def send(self, content: str | None = None, **kwargs: Any) -> Any:
+            order.append("send")
+            return await super().send(content, **kwargs)
+
+    class OrderedStore(FakeStore):
+        async def drop(self, sub_id: int, expected: int) -> bool:
+            order.append("drop")
+            return await super().drop(sub_id, expected)
+
+    bot = FakeBot()
+    bot.user = OrderedChannel()
+    store, client = OrderedStore(), FakeClient()
+    store.subs[9] = sub()
+    client.episodes[500] = episode(airs_in=timedelta(0))
     client.schedules[SHOW.id] = Schedule(Show(SHOW.id, "Severance", "Ended", 2022, None), None)
 
-    deliver(cog, job())
+    deliver(make(store, client, bot), job())
 
-    assert len(bot.user.sent) == 1  # the episode announcement only
+    assert order == ["send", "send", "drop"]  # the episode, the ended notice, then the drop
 
 
 def test_a_show_that_disappeared_from_tvmaze_ends_quietly(caplog: pytest.LogCaptureFixture) -> None:
@@ -1132,7 +1175,8 @@ def test_the_list_follows_the_users_language() -> None:
 
     asyncio.run(cast("Any", cog.watching.callback)(cog, as_context(ctx)))
 
-    first, second, _, credit = reply_of(ctx).split("\n")
+    (page,) = pages_of(ctx)
+    first, second, _, credit = page.split("\n")
     assert first.startswith("`1` **Severance** · eine neue Folge <t:")
     assert first.endswith("· Direktnachricht · 2h vorher")
     assert second == "`2` **Severance** · wartet auf ein Datum · Direktnachricht"
@@ -1175,7 +1219,7 @@ def test_the_ended_notice_goes_to_the_channel_with_the_subscription_as_its_nonce
     announcement, ended = channel.sent
     assert announcement[1]["nonce"] == 70  # the job
     assert ended[0] == "<@33> 📺 **Severance** has ended, so I've stopped following it."
-    assert ended[1]["nonce"] == 9  # the subscription
+    assert ended[1]["nonce"] == "end9"  # the subscription, never a bare id a job could share
 
 
 def test_unreachable_people_are_logged_with_what_was_dropped(
@@ -1195,3 +1239,134 @@ def test_unreachable_people_are_logged_with_what_was_dropped(
         "Show 9 ended notice: channel unavailable, falling back to a DM",
         "Show 9 ended notice dropped: the channel and the DM are both unreachable",
     ]
+
+
+# ----------------------------------------------------------------------------- hardening
+
+
+def test_a_follow_that_loses_the_race_for_the_last_place_gets_the_limit_message() -> None:
+    store, client = FakeStore(), FakeClient()
+    store.add_error = ShowLimitError("more than 25 shows")
+    client.schedules[SHOW.id] = Schedule(SHOW, episode())
+    ctx = StubContext()
+
+    run_watch(make(store, client), ctx, "Severance")
+
+    assert reply_of(ctx) == "You already follow 25 shows. Stop one with `/unwatch`."
+
+
+def test_a_subscription_cancelled_while_tvmaze_was_asked_is_not_announced() -> None:
+    cog, store, client, bot = delivery_setup()
+
+    class Cancelling(FakeClient):
+        async def episode(self, episode_id: int) -> Episode | None:
+            store.subs.clear()  # the user ran /unwatch (or /forgetme) meanwhile
+            return await super().episode(episode_id)
+
+    cancelling = Cancelling()
+    cancelling.episodes = client.episodes
+    cancelling.schedules = client.schedules
+    cog = make(store, cancelling, bot)
+
+    deliver(cog, job())
+
+    assert bot.user.sent == [] and store.advanced == []
+
+
+def test_a_job_superseded_while_tvmaze_was_asked_is_not_announced() -> None:
+    cog, store, client, bot = delivery_setup()
+    original = client.episode
+
+    async def moved_on(episode_id: int) -> Episode | None:
+        store.subs[9] = sub(job_id=71)
+        return await original(episode_id)
+
+    cast("Any", client).episode = moved_on
+
+    deliver(cog, job())
+
+    assert bot.user.sent == []
+
+
+def attempt(attempts: int) -> Job:
+    return Job(70, KIND, NOW, 33, None, job().payload, attempts)
+
+
+def test_early_discord_failures_are_left_to_the_scheduler_to_retry() -> None:
+    bot = FakeBot()
+    bot.user = FakeChannel(error=http_error())
+    cog, store, _, _ = delivery_setup(bot=bot)
+
+    with pytest.raises(discord.HTTPException):
+        deliver(cog, attempt(REQUEUE_AFTER_ATTEMPTS - 1))
+
+    assert store.advanced == []
+
+
+def test_a_reminder_discord_keeps_refusing_is_moved_an_hour_later_not_buried(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    bot = FakeBot()
+    bot.user = FakeChannel(error=http_error())
+    cog, store, _, _ = delivery_setup(bot=bot)
+
+    with caplog.at_level(logging.WARNING, logger="aha.cogs.shows"):
+        deliver(cog, attempt(REQUEUE_AFTER_ATTEMPTS))
+
+    assert store.advanced == [
+        (9, 70, NOW + RECHECK_SOON, episode_payload(episode(airs_in=timedelta(0))))
+    ]
+    assert caplog.messages == [
+        "Show reminder 70: Discord answered 500 on attempt 3; trying again later"
+    ]
+    assert REQUEUE_AFTER_ATTEMPTS == 3  # the scheduler buries a job after five
+
+
+def test_packing_keeps_lines_whole_and_pages_within_the_limit() -> None:
+    assert pack([], 10) == []
+    assert pack(["aaaa", "bbbb"], 9) == ["aaaa\nbbbb"]  # 4 + 1 + 4 = 9 fits exactly
+    assert pack(["aaaa", "bbbb"], 8) == ["aaaa", "bbbb"]
+    assert pack(["a", "b", "c", "d", "e"], 3) == ["a\nb", "c\nd", "e"]
+    assert pack(["x" * 20, "y"], 5) == ["x" * 20, "y"]  # an over-long line still gets its own page
+
+
+def test_a_long_list_is_split_into_pages_with_the_credit_last() -> None:
+    store = FakeStore()
+    wordy = episode_payload(episode(title="t" * 200))
+    store.followed = [
+        followed(Subscription(n, 33, 11, 22, n, "n" * 100, 7200, "en-US", None), NOW, wordy)
+        for n in range(1, 26)
+    ]
+    ctx = StubContext()
+    cog = make(store)
+
+    asyncio.run(cast("Any", cog.watching.callback)(cog, as_context(ctx)))
+
+    pages = pages_of(ctx)
+    assert len(pages) > 1
+    assert all(len(page) <= PAGE_LIMIT for page in pages)
+    assert sum(len(page) for page in pages) < 6000  # a message's embeds share this limit
+    assert pages[-1].endswith("Schedules from TVmaze.")
+    rows = [line for page in pages for line in page.split("\n") if line.startswith("`")]
+    assert [row.split("`")[1] for row in rows] == [str(n) for n in range(1, 26)]
+    assert all("n" * 60 not in row and "n" * 59 + "…" in row for row in rows)  # clipped to 60
+
+
+def test_an_episode_title_is_clipped_in_labels() -> None:
+    label = Shows._label(episode(title="t" * 200), "en-US")
+
+    assert label == f"S2E04 “{'t' * 49}…”"
+
+
+def test_the_option_texts_are_translated_into_german() -> None:
+    from aha.i18n import default_catalogue
+
+    catalogue = default_catalogue()
+    texts: list[str] = []
+    for command in (Shows.watch, Shows.unwatch):
+        for parameter in cast("Any", command.app_command).parameters:
+            texts.append(str(parameter.description))
+            texts.extend(choice.name for choice in parameter.choices)
+
+    assert len(texts) == 6
+    assert [text for text in texts if catalogue.command_text(text, "de") is None] == []

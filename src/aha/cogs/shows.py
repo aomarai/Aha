@@ -32,7 +32,7 @@ from aha.durations import DurationError, parse_duration
 from aha.i18n import locale_of, t
 from aha.jobstore import Job
 from aha.replies import reply
-from aha.showstore import KIND, Followed, ShowStore, Subscription
+from aha.showstore import KIND, Followed, ShowLimitError, ShowStore, Subscription
 from aha.textutil import clip, plain
 from aha.tvmaze import Episode, Show, TvmazeClient, TvmazeError
 
@@ -41,6 +41,7 @@ __all__ = [
     "MAX_LEAD",
     "RECHECK_EMPTY",
     "RECHECK_SOON",
+    "REQUEUE_AFTER_ATTEMPTS",
     "SLACK",
     "Shows",
     "setup",
@@ -59,6 +60,18 @@ RECHECK_EMPTY = timedelta(hours=24)
 
 #: After a failed lookup, or one that gave nothing new, ask again after this long.
 RECHECK_SOON = timedelta(hours=1)
+
+#: A reminder that Discord still would not take after this many scheduler attempts is moved an hour
+#: later instead of failing again: the scheduler buries a job after five, which would end the
+#: subscription silently during a long Discord outage.
+REQUEUE_AFTER_ATTEMPTS = 3
+
+#: Longest ``/watching`` page (an embed description holds 4096; a message's embeds 6000 in all).
+PAGE_LIMIT = 3800
+
+#: Longest show name and episode title in a list row, so 25 rows fit in two pages.
+_ROW_NAME = 60
+_ROW_TITLE = 50
 
 #: A rescheduled air time within this much of the planned one is not worth moving the reminder for.
 SLACK = timedelta(minutes=5)
@@ -110,6 +123,17 @@ def episode_from_payload(payload: dict[str, Any]) -> Episode | None:
         )
     except KeyError, TypeError, ValueError:
         return None
+
+
+def pack(lines: list[str], limit: int) -> list[str]:
+    """Join ``lines`` into pages of at most ``limit`` characters (a longer line gets its own)."""
+    pages: list[str] = []
+    for line in lines:
+        if pages and len(pages[-1]) + 1 + len(line) <= limit:
+            pages[-1] += "\n" + line
+        else:
+            pages.append(line)
+    return pages
 
 
 def format_lead(seconds: int) -> str:
@@ -221,17 +245,23 @@ class Shows(commands.Cog):
         else:
             run_at, payload = max(now, episode.airs_at - lead_time), episode_payload(episode)
         in_channel = where == CHANNEL and ctx.guild is not None
-        added = await store.add(
-            user_id=ctx.author.id,
-            guild_id=ctx.guild.id if in_channel and ctx.guild else None,
-            channel_id=ctx.channel.id if in_channel else None,
-            show_id=schedule.show.id,
-            show_name=schedule.show.name,
-            lead_seconds=int(lead_time.total_seconds()),
-            locale=locale,
-            run_at=run_at,
-            payload=payload,
-        )
+        try:
+            added = await store.add(
+                user_id=ctx.author.id,
+                guild_id=ctx.guild.id if in_channel and ctx.guild else None,
+                channel_id=ctx.channel.id if in_channel else None,
+                show_id=schedule.show.id,
+                show_name=schedule.show.name,
+                lead_seconds=int(lead_time.total_seconds()),
+                locale=locale,
+                run_at=run_at,
+                payload=payload,
+                limit=MAX_ACTIVE,
+            )
+        except ShowLimitError:  # another /watch took the last place between the check and here
+            message = t("shows.too_many", locale, limit=MAX_ACTIVE)
+            await reply(ctx, embed=embeds.error(message), ephemeral=True)
+            return
         if added is None:
             message = t("shows.already", locale, show=title)
             await reply(ctx, embed=embeds.error(message), ephemeral=True)
@@ -283,9 +313,9 @@ class Shows(commands.Cog):
         if not followed:
             await reply(ctx, embed=embeds.info(t("shows.none", locale)), ephemeral=True)
             return
-        lines = "\n".join(self._line(item, locale) for item in followed)
-        text = f"{lines}\n\n{t('shows.credit', locale)}"
-        await reply(ctx, embed=embeds.info(text), ephemeral=True)
+        rows = [self._line(item, locale) for item in followed]
+        pages = pack([*rows, f"\n{t('shows.credit', locale)}"], PAGE_LIMIT)
+        await reply(ctx, embeds=[embeds.info(page.strip()) for page in pages], ephemeral=True)
 
     @hybrid_command(
         name="unwatch",
@@ -337,7 +367,7 @@ class Shows(commands.Cog):
         """``S2E04 “Title”``, or what is known of it."""
         if episode is None:
             return t("shows.an_episode", locale)
-        title = f"“{plain(episode.title)}”" if episode.title else ""
+        title = f"“{clip(plain(episode.title), _ROW_TITLE)}”" if episode.title else ""
         return " ".join(part for part in (episode.code, title) if part) or t(
             "shows.an_episode", locale
         )
@@ -365,7 +395,7 @@ class Shows(commands.Cog):
             if episode
             else t("shows.waiting", locale)
         )
-        return f"`{sub.id}` **{plain(sub.show_name)}** · {nxt} · {where}{lead}"
+        return f"`{sub.id}` **{clip(plain(sub.show_name), _ROW_NAME)}** · {nxt} · {where}{lead}"
 
     # -- delivery ----------------------------------------------------------------------------
 
@@ -394,7 +424,22 @@ class Shows(commands.Cog):
         if fire_at > utcnow() + SLACK:  # postponed: wait for the new time instead
             await store.advance(sub.id, job.id, fire_at, episode_payload(current))
             return
-        await self._announce(sub, current, job.id)
+        fresh = await store.get(sub.id)
+        if fresh is None or fresh.job_id != job.id:
+            return  # cancelled or purged while TVmaze was being asked
+        try:
+            await self._announce(sub, current, job.id)
+        except discord.HTTPException as error:
+            if job.attempts < REQUEUE_AFTER_ATTEMPTS:
+                raise  # let the scheduler retry with its back-off
+            log.warning(
+                "Show reminder %s: Discord answered %s on attempt %d; trying again later",
+                job.id,
+                error.status,
+                job.attempts,
+            )
+            await store.advance(sub.id, job.id, utcnow() + RECHECK_SOON, episode_payload(current))
+            return
         await self._plan_next(store, sub, job.id, after=current.id)
 
     async def _announce(self, sub: Subscription, episode: Episode, job_id: int) -> None:
@@ -437,8 +482,9 @@ class Shows(commands.Cog):
             run_at = max(utcnow(), upcoming.airs_at - lead)
             await store.advance(sub.id, job_id, run_at, episode_payload(upcoming))
         elif upcoming is None and schedule.show.ended:
-            if await store.drop(sub.id, job_id):
-                await self._announce_end(sub)
+            # Tell them first: if the notice fails the retry still finds the subscription.
+            await self._announce_end(sub)
+            await store.drop(sub.id, job_id)
         else:
             wait = RECHECK_SOON if upcoming is not None else RECHECK_EMPTY
             await store.advance(sub.id, job_id, utcnow() + wait, {})
@@ -450,7 +496,7 @@ class Shows(commands.Cog):
             user_id=sub.user_id,
             text=text,
             channel_id=sub.channel_id,
-            nonce=sub.id,
+            nonce=f"end{sub.id}",  # not a job id: a plain number could collide with one
             label=f"Show {sub.id} ended notice",
         )
 

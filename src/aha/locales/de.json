@@ -154,6 +154,12 @@
     "Summarize a piece of text (off until a server admin enables it).": "Fasst einen Text zusammen (aus, bis ein Server-Admin es aktiviert).",
     "Get a reminder when a show's next episode comes out.": "Erinnert dich, wenn die nächste Folge einer Serie erscheint.",
     "List the shows you get reminders for.": "Listet die Serien auf, für die du Erinnerungen bekommst.",
-    "Stop getting reminders for a show.": "Beendet die Erinnerungen für eine Serie."
+    "Stop getting reminders for a show.": "Beendet die Erinnerungen für eine Serie.",
+    "The show to follow (pick one from the list).": "Die Serie, der du folgen willst (wähle eine aus der Liste).",
+    "Where to remind you. Direct messages are private.": "Wo ich dich erinnern soll. Direktnachrichten sind privat.",
+    "Remind you this long before, like 30m or 1d. Default: when it airs.": "So lange vorher erinnern, z. B. 30m oder 1d. Standard: zur Sendezeit.",
+    "Direct message": "Direktnachricht",
+    "Ping me in this channel": "In diesem Kanal erwähnen",
+    "The show to stop following.": "Die Serie, der du nicht mehr folgen willst."
   }
 }

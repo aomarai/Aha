@@ -148,10 +148,17 @@ class JobStore:
         return int(result.rsplit(" ", 1)[-1])
 
     async def purge_user(self, user_id: int) -> int:
-        """Delete every job belonging to a user (privacy deletion)."""
+        """Delete every job belonging to a user (privacy deletion).
+
+        A job that a ``/watch`` subscription points at is left for
+        :meth:`aha.showstore.ShowStore.purge_user`, which deletes it together with the
+        subscription: deleting it here first would leave the subscription behind.
+        """
         async with self._db.acquire() as conn:
             result: str = await conn.execute(
-                "DELETE FROM scheduled_jobs WHERE user_id = $1", user_id
+                "DELETE FROM scheduled_jobs WHERE user_id = $1 AND id NOT IN "
+                "(SELECT job_id FROM show_subscriptions WHERE job_id IS NOT NULL)",
+                user_id,
             )
         return int(result.rsplit(" ", 1)[-1])
 

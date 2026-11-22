@@ -181,9 +181,11 @@ class Config(commands.Cog):
         settings = self._settings()
         if settings is not None:
             await settings.delete(guild_id)
-        await self._jobs.purge_guild(guild_id)
+        # Subscriptions first: purging the jobs deletes this very job, which could then not be
+        # retried if the subscription purge failed.
         if self._shows is not None:
             await self._shows.purge_guild(guild_id)
+        await self._jobs.purge_guild(guild_id)
         log.info("Deleted the data of departed guild %s", guild_id)
 
 

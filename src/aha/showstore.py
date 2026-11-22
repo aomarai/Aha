@@ -17,10 +17,14 @@ from typing import Any
 
 from aha.db import Database
 
-__all__ = ["KIND", "Followed", "ShowStore", "Subscription"]
+__all__ = ["KIND", "Followed", "ShowLimitError", "ShowStore", "Subscription"]
 
 #: ``scheduled_jobs.kind`` of a subscription's next notification.
 KIND = "show"
+
+
+class ShowLimitError(Exception):
+    """The user already follows as many shows as they may."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +54,9 @@ class Followed:
     #: The scheduled job's payload (the next episode, if one is known).
     payload: dict[str, Any]
 
+
+_PURGE_USER = "DELETE FROM show_subscriptions WHERE user_id = $1 RETURNING job_id"
+_PURGE_GUILD = "DELETE FROM show_subscriptions WHERE guild_id = $1 RETURNING job_id"
 
 _COLUMNS = (
     "s.id, s.user_id, s.guild_id, s.channel_id, s.show_id, s.show_name, s.lead_seconds, "
@@ -111,9 +118,18 @@ class ShowStore:
         locale: str,
         run_at: datetime,
         payload: dict[str, Any],
+        limit: int,
     ) -> int | None:
-        """Subscribe and schedule the first notification; ``None`` if already subscribed."""
+        """Subscribe and schedule the first notification.
+
+        ``None`` means the user already follows this show. Raises :class:`ShowLimitError` when
+        this would be more than ``limit`` shows: the check runs under a per-user lock inside the
+        transaction, so concurrent ``/watch`` calls cannot all slip under the limit.
+        """
         async with self._db.acquire() as conn, conn.transaction():
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", f"show-follow:{user_id}"
+            )
             sub_id = await conn.fetchval(
                 "INSERT INTO show_subscriptions "
                 "(user_id, guild_id, channel_id, show_id, show_name, lead_seconds, locale) "
@@ -129,6 +145,11 @@ class ShowStore:
             )
             if sub_id is None:
                 return None
+            followed = await conn.fetchval(
+                "SELECT count(*) FROM show_subscriptions WHERE user_id = $1", user_id
+            )
+            if followed > limit:
+                raise ShowLimitError(f"more than {limit} shows")  # rolls the insert back
             job_id = await _enqueue(conn, sub_id, user_id, guild_id, run_at, payload)
             await conn.execute(
                 "UPDATE show_subscriptions SET job_id = $2 WHERE id = $1", sub_id, job_id
@@ -218,21 +239,23 @@ class ShowStore:
 
     async def purge_user(self, user_id: int) -> int:
         """Delete every subscription of a user and their jobs (privacy deletion)."""
-        return await self._purge("user_id", user_id)
+        return await self._purge(_PURGE_USER, user_id)
 
     async def purge_guild(self, guild_id: int) -> int:
         """Delete every subscription delivered in a guild and their jobs (privacy deletion)."""
-        return await self._purge("guild_id", guild_id)
+        return await self._purge(_PURGE_GUILD, guild_id)
 
-    async def _purge(self, column: str, value: int) -> int:
-        # ``column`` is one of two literals above, never user input.
+    async def _purge(self, delete_sql: str, value: int) -> int:
+        """Delete subscriptions first, then the jobs they pointed at *when they were deleted*.
+
+        Deleting the subscription row waits for a concurrent :meth:`advance` holding it and then
+        returns the replacement ``job_id``, so no job is orphaned by a race with a delivery.
+        """
         async with self._db.acquire() as conn, conn.transaction():
-            await conn.execute(
-                "DELETE FROM scheduled_jobs WHERE id IN "
-                f"(SELECT job_id FROM show_subscriptions WHERE {column} = $1)",
-                value,
-            )
-            result: str = await conn.execute(
-                f"DELETE FROM show_subscriptions WHERE {column} = $1", value
-            )
-        return int(result.rsplit(" ", 1)[-1])
+            rows = await conn.fetch(delete_sql, value)
+            job_ids = [row["job_id"] for row in rows if row["job_id"] is not None]
+            if job_ids:
+                await conn.execute(
+                    "DELETE FROM scheduled_jobs WHERE id = ANY($1::bigint[])", job_ids
+                )
+        return len(rows)

@@ -13,6 +13,7 @@ import pytest
 
 from aha.net import TTLCache
 from aha.tvmaze import (
+    BACKOFF,
     BASE_URL,
     MAX_RESULTS,
     USER_AGENT,
@@ -444,3 +445,31 @@ def test_the_caches_are_bounded_time_limited_caches() -> None:
     assert client._searches.ttl == 300.0
     assert client._schedules.ttl == 60.0
     assert client._episodes.ttl == 60.0
+
+
+def test_after_a_429_tvmaze_is_left_alone_for_ten_seconds() -> None:
+    clock = Clock()
+    client, calls = make(FakeResponse(429, None), ok(EPISODE), clock=clock)
+
+    with pytest.raises(TvmazeError) as first:
+        asyncio.run(client.episode(1))
+    assert str(first.value) == "TVmaze answered HTTP 429"
+    clock.now = BACKOFF - 0.1
+    with pytest.raises(TvmazeError) as second:
+        asyncio.run(client.episode(1))
+    assert str(second.value) == "TVmaze asked us to slow down"
+    assert len(calls) == 1  # no request was made while backing off
+    clock.now = BACKOFF
+    assert asyncio.run(client.episode(1)) == parse_episode(EPISODE)
+    assert len(calls) == 2
+    assert BACKOFF == 10.0
+
+
+def test_other_failures_do_not_start_a_backoff() -> None:
+    client, calls = make(FakeResponse(500, None), ok(EPISODE))
+
+    with pytest.raises(TvmazeError):
+        asyncio.run(client.episode(1))
+
+    assert asyncio.run(client.episode(1)) == parse_episode(EPISODE)
+    assert len(calls) == 2

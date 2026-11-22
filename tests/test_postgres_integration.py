@@ -33,7 +33,7 @@ from aha.dbmigrate import (
 from aha.guildsettings_store import GuildSettings, GuildSettingsStore
 from aha.identify import IdentifyCoordinator
 from aha.jobstore import JobStore
-from aha.showstore import ShowStore
+from aha.showstore import ShowLimitError, ShowStore
 from aha.summarize_store import UsageStore
 
 URL = os.environ.get("AHA_TEST_DATABASE_URL")
@@ -518,6 +518,7 @@ async def _follow(
     channel_id: int | None = None,
     name: str = "Severance",
     run_at: datetime | None = None,
+    limit: int = 25,
 ) -> int | None:
     return await shows.add(
         user_id=user_id,
@@ -529,6 +530,7 @@ async def _follow(
         locale="de",
         run_at=run_at or datetime.now(UTC) + timedelta(days=1),
         payload={"ep": {"id": 1}},
+        limit=limit,
     )
 
 
@@ -703,6 +705,7 @@ async def test_a_lead_beyond_a_week_is_rejected_by_the_database(store: JobStore)
             locale="en-US",
             run_at=datetime.now(UTC),
             payload={},
+            limit=25,
         )
 
 
@@ -732,3 +735,72 @@ async def test_a_departed_server_takes_its_channel_subscriptions_with_it(
 
     assert await shows.count(7) == 2
     assert await store.count("show", 7) == 2
+
+
+async def test_the_follow_limit_holds_even_when_requests_race(store: JobStore) -> None:
+    shows = _shows(store)
+    results = await asyncio.gather(
+        *(_follow(shows, show_id=n, limit=3) for n in range(10)), return_exceptions=True
+    )
+
+    assert sum(isinstance(r, int) for r in results) == 3
+    assert sum(isinstance(r, ShowLimitError) for r in results) == 7
+    assert await shows.count(7) == 3
+    assert await store.count("show", 7) == 3  # the rejected ones left no job behind
+
+
+async def test_following_the_same_show_at_the_limit_says_already_following(store: JobStore) -> None:
+    shows = _shows(store)
+    await _follow(shows, show_id=1, limit=1)
+
+    assert await _follow(shows, show_id=1, limit=1) is None
+    with pytest.raises(ShowLimitError):
+        await _follow(shows, show_id=2, limit=1)
+
+
+async def test_the_job_purge_leaves_subscription_jobs_but_deletes_orphans(
+    store: JobStore,
+) -> None:
+    shows = _shows(store)
+    sub_id = await _follow(shows)
+    sub = await shows.get(sub_id or 0)
+    assert sub is not None
+    await store.enqueue("reminder", datetime.now(UTC), user_id=7)
+    orphan = await store.enqueue("show", datetime.now(UTC), user_id=7)  # no subscription owns it
+
+    assert await store.purge_user(7) == 2  # the reminder and the orphan, not the owned job
+
+    assert [job.id for job in await store.list_for_user("show", 7, 10)] == [sub.job_id]
+    assert orphan != sub.job_id
+
+
+async def test_a_purge_does_not_leave_the_replacement_job_of_a_racing_delivery(
+    store: JobStore,
+) -> None:
+    shows = _shows(store)
+    sub_id = await _follow(shows)
+    sub = await shows.get(sub_id or 0)
+    assert sub is not None and sub.job_id is not None
+    when = datetime.now(UTC) + timedelta(days=3)
+
+    async with store._db.acquire() as conn, conn.transaction():
+        # A delivery is half-way through advancing: it holds the subscription row.
+        await conn.fetchrow("SELECT id FROM show_subscriptions WHERE id = $1 FOR UPDATE", sub_id)
+        purge = asyncio.create_task(shows.purge_user(7))
+        await asyncio.sleep(0.3)  # the purge is now waiting for the row
+        new_job = await conn.fetchval(
+            "INSERT INTO scheduled_jobs (kind, run_at, user_id, payload) "
+            "VALUES ('show', $1, 7, '{}') RETURNING id",
+            when,
+        )
+        await conn.execute(
+            "UPDATE show_subscriptions SET job_id = $2 WHERE id = $1", sub_id, new_job
+        )
+    assert await purge == 1
+
+    # The replacement job is gone. The old one is deleted by the scheduler when the handler
+    # returns, so it is still here until then.
+    assert [job.id for job in await store.list_for_user("show", 7, 10)] == [sub.job_id]
+    await store.complete(sub.job_id)
+    assert await store.count("show", 7) == 0
+    assert await shows.count(7) == 0

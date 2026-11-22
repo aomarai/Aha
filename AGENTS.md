@@ -162,8 +162,8 @@ every change must keep:
   refuses disabled commands on both the slash and message surfaces and fails open. `config`,
   `configure` and `help` can never be disabled. A guild that removes the bot is purged after 30 days
   by a `guild_purge` scheduled job (`cogs/config.py`).
-- `/summarize` (`cogs/summarize.py`, `aha.summarizer`) is the only feature that sends free-form user text to a
-  third party, so it is **off per server** (`guild_settings.summaries_enabled`) and **off without a
+- `/summarize` (`cogs/summarize.py`, `aha.summarizer`) is the only feature that sends *message text* to
+  a third party (`/watch` sends only a typed show title to TVmaze, disclosed in docs/privacy.md), so it is **off per server** (`guild_settings.summaries_enabled`) and **off without a
   key**. Keep every control (quota with refund, input cap, bounded output, 20 s timeout after
   `defer`, text as data, no mentions) when touching it; the API client is always faked in tests, never
   called over the network. `summarize_store.py` is pure SQL and excluded from mutation.

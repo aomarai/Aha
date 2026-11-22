@@ -85,7 +85,7 @@ def test_purge_user_clears_every_store_and_reports_the_counts() -> None:
     assert (jobs.users, settings.users, usage.users, shows.users) == ([33], [33], [33], [33])
 
 
-def test_subscriptions_are_purged_before_jobs_so_the_job_count_is_not_doubled() -> None:
+def test_subscriptions_are_purged_last_so_a_racing_watch_is_still_removed() -> None:
     calls: list[str] = []
 
     class Ordered:
@@ -104,7 +104,8 @@ def test_subscriptions_are_purged_before_jobs_so_the_job_count_is_not_doubled() 
         purge_user(Ordered("jobs"), Ordered("settings"), Ordered("usage"), Ordered("shows"), 1)
     )
 
-    assert calls.index("shows") < calls.index("jobs")
+    assert calls[-1] == "shows"
+    assert calls.index("jobs") < calls.index("shows")
 
 
 def test_the_purge_covers_the_tables_the_inventory_declares() -> None:

@@ -51,6 +51,10 @@ CACHE_SIZE = 256
 #: Most search results kept (Discord shows at most 25 autocomplete choices).
 MAX_RESULTS = 10
 
+#: After TVmaze answers ``429`` (its limit is 20 calls per 10 seconds per address), stop asking for
+#: this long instead of making it worse.
+BACKOFF = 10.0
+
 #: Longest show or episode name kept.
 NAME_LIMIT = 100
 
@@ -176,6 +180,8 @@ class TvmazeClient:
         self._session_factory = session_factory
         self._base_url = base_url
         self._timeout = timeout
+        self._clock = clock
+        self._blocked_until = 0.0
         self._searches: TTLCache[list[Show]] = TTLCache(SEARCH_TTL, CACHE_SIZE, clock)
         self._schedules: TTLCache[Schedule] = TTLCache(LOOKUP_TTL, CACHE_SIZE, clock)
         self._episodes: TTLCache[Episode] = TTLCache(LOOKUP_TTL, CACHE_SIZE, clock)
@@ -235,6 +241,8 @@ class TvmazeClient:
 
     async def _get(self, path: str, params: dict[str, str] | None) -> Any:
         """GET ``path`` and return its JSON, or ``None`` for a 404."""
+        if self._clock() < self._blocked_until:
+            raise TvmazeError("TVmaze asked us to slow down")
         try:
             async with (
                 asyncio.timeout(self._timeout),
@@ -243,6 +251,8 @@ class TvmazeClient:
             ):
                 if response.status == 404:
                     return None
+                if response.status == 429:
+                    self._blocked_until = self._clock() + BACKOFF
                 if response.status != 200:
                     raise TvmazeError(f"TVmaze answered HTTP {response.status}")
                 return await response.json()

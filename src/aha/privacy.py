@@ -23,7 +23,7 @@ GUILD_TABLES = frozenset({"scheduled_jobs", "guild_settings", "show_subscription
 
 class _Jobs(Protocol):
     async def purge_user(self, user_id: int) -> int:
-        """Delete a user's scheduled jobs."""
+        """Delete a user's scheduled jobs, except those a show subscription owns."""
 
 
 class _Settings(Protocol):
@@ -60,12 +60,12 @@ async def purge_user(
 ) -> UserPurge:
     """Delete everything stored about ``user_id`` and report how much there was.
 
-    Subscriptions go first: they delete the jobs they own, so ``jobs`` then counts only the rest.
+    Subscriptions go last: the job purge leaves the jobs they own, and a ``/watch`` that commits
+    while this runs is still removed because its subscription is deleted after it.
     """
-    followed = await shows.purge_user(user_id)
     return UserPurge(
         jobs=await jobs.purge_user(user_id),
         settings=await settings.anonymise_user(user_id),
         usage=await usage.purge_user(user_id),
-        shows=followed,
+        shows=await shows.purge_user(user_id),
     )

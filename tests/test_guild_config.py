@@ -353,6 +353,29 @@ def test_the_purge_also_deletes_the_shows_followed_in_that_guild() -> None:
     assert shows.purged == [11]
 
 
+def test_show_subscriptions_are_purged_before_the_job_that_triggered_the_purge() -> None:
+    calls: list[str] = []
+
+    class Jobs(FakeJobs):
+        async def purge_guild(self, guild_id: int) -> int:
+            calls.append("jobs")
+            return 0
+
+    class Shows(FakeShows):
+        async def purge_guild(self, guild_id: int) -> int:
+            calls.append("shows")
+            return 0
+
+    cog = Config(cast("Any", FakeBot(FakeSettings())), cast("Any", Jobs()), cast("Any", Shows()))
+
+    asyncio.run(cog.purge_guild(purge_job()))
+
+    assert calls == [
+        "shows",
+        "jobs",
+    ]  # this very job is deleted by the second: it cannot be retried
+
+
 def test_a_rejoined_guild_keeps_its_show_subscriptions() -> None:
     shows = FakeShows()
     bot = FakeBot(FakeSettings())
