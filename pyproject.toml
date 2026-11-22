@@ -29,13 +29,16 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "asyncpg-stubs>=0.32.0",
+    "jsonschema>=4.26.0",
     "mutmut>=3.8.1",
     "mypy>=2.4.1",
+    "openapi-spec-validator>=0.9.0",
     "pre-commit>=4.0",
     "pytest>=9.2.0",
     "pytest-asyncio>=1.5.0",
     "pytest-cov>=6.0",
     "ruff>=0.17.3",
+    "types-jsonschema>=4.26.0.20261006",
 ]
 
 [tool.ruff]
@@ -64,10 +67,11 @@ addopts = "-ra --cov=aha --cov-report=term-missing --cov-fail-under=95"
 # campaign is scoped to the hand-written package; tests are selected from tests/.
 # `also_copy` must include scripts/ so the copy of the repo that mutmut runs the
 # tests in contains the gate module that tests/test_mutation_score.py imports
-# (mutmut copies tests/, pyproject.toml and the lockfiles by default).
+# (mutmut copies tests/, pyproject.toml and the lockfiles by default). docs/ is copied for the tests
+# that compare the API documents (docs/openapi.yaml, docs/commands.md) with the running code.
 [tool.mutmut]
 source_paths = ["src/aha"]
-also_copy = ["scripts/", "pyproject.toml"]
+also_copy = ["scripts/", "pyproject.toml", "docs/"]
 # Pure SQL, verified against a real PostgreSQL by tests/test_postgres_integration.py; mutating SQL
 # strings tells us nothing without a database in the mutation job.
 do_not_mutate = [

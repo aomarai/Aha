@@ -1,0 +1,238 @@
+openapi: 3.1.0
+info:
+  title: Aha operational API
+  version: 1.0.0
+  summary: Liveness, readiness and metrics endpoints of one Aha process.
+  description: |
+    Aha is a Discord bot. Everything users do goes through Discord (slash commands, see
+    [commands.md](commands.md)), so the only HTTP surface is this small, read-only server that
+    each process runs for Kubernetes probes and Prometheus scrapes.
+
+    **There is no authentication.** Access control is the bind address (`HEALTH_BIND`, loopback by
+    default) and, in a cluster, the NetworkPolicy that only lets the kubelet and Prometheus in.
+    Never expose it to the internet. `HEALTH_PORT=0` turns the server off.
+
+    `HEAD` is also accepted on each path (the web framework adds it to every `GET` route): same
+    status and headers, no body. Use `GET`; probes and Prometheus do.
+
+    Each process reports on itself only: with several shard groups (see
+    [sharding.md](sharding.md)), probe and scrape every pod.
+
+    This file is checked against the running server by `tests/test_openapi.py`, so it cannot
+    drift: a route, status code, response shape or metric that is not described here fails CI.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://{host}:{port}
+    description: One Aha process.
+    variables:
+      host:
+        default: 127.0.0.1
+        description: The `HEALTH_BIND` address (loopback by default; the manifests widen it).
+      port:
+        default: "8080"
+        description: The `HEALTH_PORT` (8080 by default).
+tags:
+  - name: Probes
+    description: Kubernetes liveness and readiness.
+  - name: Metrics
+    description: Prometheus scraping.
+paths:
+  /livez:
+    get:
+      tags: [Probes]
+      operationId: getLiveness
+      summary: Is the process alive?
+      description: |
+        Succeeds while the event loop answers and no critical background task has died for good.
+        A failure means the process is wedged, so a **liveness probe** should restart the pod.
+      responses:
+        "200":
+          description: Alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Alive"
+              example:
+                status: ok
+        "503":
+          description: A critical background task has died and will not come back.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Unhealthy"
+              example:
+                status: unhealthy
+                failed_tasks: [gateway-watchdog]
+  /readyz:
+    get:
+      tags: [Probes]
+      operationId: getReadiness
+      summary: Is the process ready to serve?
+      description: |
+        Succeeds when every shard this process owns is connected and ready, and no critical task
+        has died or is still recovering from a crash. It is `503` until the first `READY` after a
+        start. A failure means "do not route to, or roll past, this pod yet", which gates a
+        StatefulSet rollout, so use it as the **readiness probe**.
+      responses:
+        "200":
+          description: Ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ready"
+              example:
+                status: ready
+                shards:
+                  - id: 0
+                    ready: true
+                failed_tasks: []
+                degraded_tasks: []
+        "503":
+          description: Not ready, with the reason in the body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotReady"
+              example:
+                status: not ready
+                shards:
+                  - id: 0
+                    ready: false
+                failed_tasks: []
+                degraded_tasks: [scheduler]
+  /metrics:
+    get:
+      tags: [Metrics]
+      operationId: getMetrics
+      summary: Prometheus metrics
+      description: |
+        Prometheus text exposition format (`version=1.0.0`, as the client library sends it) of this process's registry. Series
+        for events carry the usual suffixes (`_total` for counters; `_bucket`, `_sum` and
+        `_count` for histograms).
+
+        | Metric | Type | Labels | Meaning |
+        |--------|------|--------|---------|
+        | `aha_commands_total` | counter | `command`, `outcome` | Command invocations by outcome (`ok`, `error`, `denied`, `cooldown`). |
+        | `aha_command_duration_seconds` | histogram | `command` | Seconds from a command's entry point to its completion or failure. |
+        | `aha_gateway_reconnects_total` | counter | `shard` | Gateway disconnects (each is followed by a reconnect attempt). |
+        | `aha_scheduler_lag_seconds` | gauge | | Seconds the oldest due scheduled job has been waiting to be claimed. |
+        | `aha_rest_rate_limited_total` | counter | `kind` | REST requests Discord answered with 429, by kind (`global` or `route`). |
+        | `aha_summarize_requests_total` | counter | `outcome` | `/summarize` requests by outcome (`ok`, `disabled`, `quota`, `failed`, `empty`). |
+        | `aha_summarize_tokens_total` | counter | `kind` | Model tokens spent on summaries (`input` or `output`). |
+        | `aha_session_start_remaining` | gauge | | Gateway sessions Discord still allows this token to start before the daily reset. |
+        | `aha_session_start_total` | gauge | | Gateway sessions Discord allows this token to start per day. |
+        | `aha_session_start_reset_after_seconds` | gauge | | Seconds until the gateway session-start budget resets. |
+        | `aha_shard_ready` | gauge | `shard` | `1` when the shard is connected and ready. |
+        | `aha_gateway_latency_seconds` | gauge | `shard` | Gateway heartbeat latency. |
+        | `aha_guilds` | gauge | `shard` | Guilds served by the shard. |
+
+        Python runtime and process metrics are not exposed: the registry is the bot's own.
+      responses:
+        "200":
+          description: The metrics.
+          content:
+            text/plain; version=1.0.0; charset=utf-8:
+              schema:
+                type: string
+              example: |
+                # HELP aha_shard_ready 1 when the shard is connected and ready.
+                # TYPE aha_shard_ready gauge
+                aha_shard_ready{shard="0"} 1.0
+components:
+  schemas:
+    Alive:
+      type: object
+      description: The process is alive.
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          const: ok
+    Unhealthy:
+      type: object
+      description: The process is wedged and should be restarted.
+      required: [status, failed_tasks]
+      additionalProperties: false
+      properties:
+        status:
+          const: unhealthy
+        failed_tasks:
+          type: array
+          description: Names of the critical background tasks that died for good, sorted.
+          minItems: 1
+          items:
+            type: string
+    Ready:
+      type: object
+      description: |
+        Every owned shard is ready and no critical task has died or is restarting. Returned with
+        HTTP 200.
+      required: [status, shards, failed_tasks, degraded_tasks]
+      additionalProperties: false
+      properties:
+        status:
+          const: ready
+        shards:
+          type: array
+          description: The shards this process owns; there is at least one and all are ready.
+          minItems: 1
+          items:
+            type: object
+            required: [id, ready]
+            additionalProperties: false
+            properties:
+              id:
+                type: integer
+                minimum: 0
+              ready:
+                const: true
+        failed_tasks:
+          type: array
+          maxItems: 0
+          items:
+            type: string
+        degraded_tasks:
+          type: array
+          maxItems: 0
+          items:
+            type: string
+    NotReady:
+      type: object
+      description: |
+        At least one reason holds: no shard is known yet, a shard is not ready, or a critical task
+        has died (`failed_tasks`) or crashed and is being restarted (`degraded_tasks`). Returned
+        with HTTP 503.
+      required: [status, shards, failed_tasks, degraded_tasks]
+      additionalProperties: false
+      properties:
+        status:
+          const: not ready
+        shards:
+          type: array
+          description: The shards this process owns (empty before the gateway has started).
+          items:
+            $ref: "#/components/schemas/Shard"
+        failed_tasks:
+          type: array
+          description: Critical tasks that died for good, sorted.
+          items:
+            type: string
+        degraded_tasks:
+          type: array
+          description: Critical tasks that crashed and are being restarted, sorted.
+          items:
+            type: string
+    Shard:
+      type: object
+      required: [id, ready]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          minimum: 0
+          description: The Discord shard id.
+        ready:
+          type: boolean
+          description: Connected and past `READY`.

@@ -79,6 +79,17 @@
 A Discord bot written in Python with [discord.py](https://discordpy.readthedocs.io/)
 and managed with [uv](https://docs.astral.sh/uv/).
 
+## Documentation
+
+- [Command reference](docs/commands.md): every slash command and context menu, with options,
+  cooldowns and permissions. Generated from the bot itself.
+- [HTTP API (OpenAPI 3.1)](docs/openapi.yaml): the probe and metrics endpoints each process serves.
+  View it with any OpenAPI tool, for example `docker run --rm -p 8081:8080
+  -e SWAGGER_JSON=/spec/openapi.yaml -v "$PWD/docs:/spec" swaggerapi/swagger-ui`.
+- [Architecture decisions](docs/adr/), [sharding](docs/sharding.md),
+  [scheduler](docs/scheduler.md), [migrations](docs/migrations.md), [privacy](docs/privacy.md) and
+  the [runbooks](docs/runbooks/).
+
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) (installs Python for you)
@@ -240,7 +251,7 @@ Aha/
 │   ├── cmdsync.py       # compare local vs remote command trees (sync only if changed)
 │   ├── components.py    # shared button/menu helpers (see docs/components.md)
 │   ├── config.py        # Settings loaded & validated from the environment
-│   ├── health.py        # /livez, /readyz, /metrics HTTP server
+│   ├── health.py        # /livez, /readyz, /metrics HTTP server (documented in docs/openapi.yaml)
 │   ├── net.py           # SSRF-safe URL fetching (address policy, resolver, limits)
 │   ├── logging_setup.py # text/JSON formatters, token masking
 │   ├── logctx.py        # per-invocation log context (ContextVar)
@@ -261,6 +272,7 @@ Aha/
 │       ├── shows.py     # /watch, /watching, /unwatch (episode reminders, needs DATABASE_URL)
 │       ├── polls.py     # /poll (native Discord polls), Count reactions menu
 │       └── ops.py       # /sync (owner only; dev guild / SYNC_ON_STARTUP only)
+├── scripts/             # CI gates and generators (mutation score, command reference)
 ├── tests/               # pytest suite
 ├── .devcontainer/       # VS Code dev container (Python 3.14 + uv)
 ├── .github/workflows/   # CI (lint, format, tests)
