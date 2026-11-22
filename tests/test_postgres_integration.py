@@ -33,6 +33,7 @@ from aha.dbmigrate import (
 from aha.guildsettings_store import GuildSettings, GuildSettingsStore
 from aha.identify import IdentifyCoordinator
 from aha.jobstore import JobStore
+from aha.showstore import ShowStore
 from aha.summarize_store import UsageStore
 
 URL = os.environ.get("AHA_TEST_DATABASE_URL")
@@ -436,9 +437,10 @@ async def test_forgetme_removes_every_row_belonging_to_the_user(
     await usage.consume(7, 10)
     await usage.consume(8, 10)
 
-    result = await purge_user(store, settings_store, usage, 7)
+    shows = ShowStore(store._db)
+    result = await purge_user(store, settings_store, usage, shows, 7)
 
-    assert result == UserPurge(jobs=2, settings=2, usage=1)
+    assert result == UserPurge(jobs=2, settings=2, usage=1, shows=0)
     assert await usage.consume(8, 1) is None  # the other user's counter survived
     assert await store.count("reminder", 7) == 0
     assert [job.id for job in await store.list_for_user("reminder", 8, 10)] == [keep]
@@ -498,3 +500,235 @@ async def test_the_summaries_switch_defaults_off_and_is_stored_per_guild(
     await settings_store.set_summaries(5, False, by=1)
     assert (await settings_store.get(5)) == GuildSettings(5)
     assert await settings_store.get(6) is None
+
+
+# ----------------------------------------------------------------------------- show reminders
+
+
+def _shows(store: JobStore) -> ShowStore:
+    return ShowStore(store._db)
+
+
+async def _follow(
+    shows: ShowStore,
+    *,
+    user_id: int = 7,
+    show_id: int = 100,
+    guild_id: int | None = None,
+    channel_id: int | None = None,
+    name: str = "Severance",
+    run_at: datetime | None = None,
+) -> int | None:
+    return await shows.add(
+        user_id=user_id,
+        guild_id=guild_id,
+        channel_id=channel_id,
+        show_id=show_id,
+        show_name=name,
+        lead_seconds=3600,
+        locale="de",
+        run_at=run_at or datetime.now(UTC) + timedelta(days=1),
+        payload={"ep": {"id": 1}},
+    )
+
+
+async def test_following_a_show_creates_the_subscription_and_its_job_together(
+    store: JobStore,
+) -> None:
+    shows = _shows(store)
+    when = datetime.now(UTC) + timedelta(days=1)
+
+    sub_id = await _follow(shows, run_at=when)
+
+    assert sub_id is not None
+    sub = await shows.get(sub_id)
+    assert sub is not None
+    assert (sub.user_id, sub.show_id, sub.show_name, sub.lead_seconds, sub.locale) == (
+        7,
+        100,
+        "Severance",
+        3600,
+        "de",
+    )
+    assert (sub.guild_id, sub.channel_id) == (None, None)
+    (item,) = await shows.list_for_user(7, 10)
+    assert item.subscription == sub
+    assert item.run_at == when
+    assert item.payload == {"ep": {"id": 1}, "sub": sub_id}
+    (job,) = await store.list_for_user("show", 7, 10)
+    assert job.id == sub.job_id
+
+
+async def test_following_the_same_show_twice_changes_nothing(store: JobStore) -> None:
+    shows = _shows(store)
+    await _follow(shows)
+
+    assert await _follow(shows) is None
+
+    assert await shows.count(7) == 1
+    assert await store.count("show", 7) == 1  # no orphaned second job
+
+
+async def test_a_different_user_may_follow_the_same_show(store: JobStore) -> None:
+    shows = _shows(store)
+
+    assert await _follow(shows, user_id=7) is not None
+    assert await _follow(shows, user_id=8) is not None
+    assert (await shows.count(7), await shows.count(8)) == (1, 1)
+
+
+async def test_the_list_is_sorted_by_name_ignoring_case_and_limited(store: JobStore) -> None:
+    shows = _shows(store)
+    await _follow(shows, show_id=1, name="zeta")
+    await _follow(shows, show_id=2, name="Alpha")
+    await _follow(shows, show_id=3, name="beta")
+
+    names = [item.subscription.show_name for item in await shows.list_for_user(7, 10)]
+    assert names == ["Alpha", "beta", "zeta"]
+    assert len(await shows.list_for_user(7, 2)) == 2
+    assert await shows.list_for_user(99, 10) == []
+
+
+async def test_a_subscription_without_a_live_job_lists_with_nothing_scheduled(
+    store: JobStore,
+) -> None:
+    shows = _shows(store)
+    sub_id = await _follow(shows)
+    sub = await shows.get(sub_id or 0)
+    assert sub is not None and sub.job_id is not None
+    await store.complete(sub.job_id)  # the job is gone (for instance purged after dying)
+
+    (item,) = await shows.list_for_user(7, 10)
+
+    assert (item.run_at, item.payload) == (None, {})
+
+
+async def test_a_cancelled_or_unknown_subscription_is_none(store: JobStore) -> None:
+    assert await _shows(store).get(123456) is None
+
+
+async def test_unfollowing_deletes_the_subscription_and_its_job(store: JobStore) -> None:
+    shows = _shows(store)
+    sub_id = await _follow(shows)
+
+    assert await shows.remove(7, sub_id or 0) is True
+
+    assert await shows.get(sub_id or 0) is None
+    assert await store.count("show", 7) == 0
+    assert await shows.remove(7, sub_id or 0) is False
+
+
+async def test_unfollowing_works_when_the_job_is_already_gone(store: JobStore) -> None:
+    shows = _shows(store)
+    sub_id = await _follow(shows)
+    sub = await shows.get(sub_id or 0)
+    assert sub is not None and sub.job_id is not None
+    async with store._db.acquire() as conn:
+        await conn.execute("UPDATE show_subscriptions SET job_id = NULL WHERE id = $1", sub_id)
+
+    assert await shows.remove(7, sub_id or 0) is True
+    assert await shows.get(sub_id or 0) is None
+
+
+async def test_nobody_can_unfollow_for_someone_else(store: JobStore) -> None:
+    shows = _shows(store)
+    sub_id = await _follow(shows, user_id=7)
+
+    assert await shows.remove(8, sub_id or 0) is False
+
+    assert await shows.count(7) == 1
+    assert await store.count("show", 7) == 1
+
+
+async def test_advancing_swaps_the_job_exactly_once(store: JobStore) -> None:
+    shows = _shows(store)
+    sub_id = await _follow(shows, guild_id=1, channel_id=2)
+    first = await shows.get(sub_id or 0)
+    assert first is not None and first.job_id is not None
+    later = datetime.now(UTC) + timedelta(days=8)
+
+    assert await shows.advance(sub_id or 0, first.job_id, later, {"ep": {"id": 2}}) is True
+    # A redelivery of the old job must not start a second chain.
+    assert await shows.advance(sub_id or 0, first.job_id, later, {"ep": {"id": 3}}) is False
+
+    moved = await shows.get(sub_id or 0)
+    assert moved is not None and moved.job_id not in (None, first.job_id)
+    (item,) = await shows.list_for_user(7, 10)
+    assert item.run_at == later
+    assert item.payload == {"ep": {"id": 2}, "sub": sub_id}
+    new_job = [job for job in await store.list_for_user("show", 7, 10) if job.id == moved.job_id]
+    assert [(job.user_id, job.guild_id) for job in new_job] == [
+        (7, 1)
+    ]  # still erasable by user and guild
+
+
+async def test_advancing_a_cancelled_subscription_does_nothing(store: JobStore) -> None:
+    shows = _shows(store)
+    sub_id = await _follow(shows)
+    sub = await shows.get(sub_id or 0)
+    assert sub is not None and sub.job_id is not None
+    await shows.remove(7, sub_id or 0)
+
+    assert await shows.advance(sub_id or 0, sub.job_id, datetime.now(UTC), {}) is False
+
+    assert await store.count("show", 7) == 0
+
+
+async def test_dropping_needs_the_live_job_id(store: JobStore) -> None:
+    shows = _shows(store)
+    sub_id = await _follow(shows)
+    sub = await shows.get(sub_id or 0)
+    assert sub is not None and sub.job_id is not None
+
+    assert await shows.drop(sub_id or 0, sub.job_id + 999) is False
+    assert await shows.count(7) == 1
+    assert await shows.drop(sub_id or 0, sub.job_id) is True
+    assert await shows.count(7) == 0
+
+
+async def test_a_channel_delivery_needs_its_server(store: JobStore) -> None:
+    with pytest.raises(asyncpg.CheckViolationError):
+        await _follow(_shows(store), channel_id=5)  # a channel with no guild
+
+
+async def test_a_lead_beyond_a_week_is_rejected_by_the_database(store: JobStore) -> None:
+    with pytest.raises(asyncpg.CheckViolationError):
+        await _shows(store).add(
+            user_id=7,
+            guild_id=None,
+            channel_id=None,
+            show_id=1,
+            show_name="x",
+            lead_seconds=604801,
+            locale="en-US",
+            run_at=datetime.now(UTC),
+            payload={},
+        )
+
+
+async def test_forgetting_a_user_removes_their_subscriptions_and_jobs_only(
+    store: JobStore,
+) -> None:
+    shows = _shows(store)
+    await _follow(shows, user_id=7, show_id=1)
+    await _follow(shows, user_id=7, show_id=2)
+    await _follow(shows, user_id=8, show_id=1)
+
+    assert await shows.purge_user(7) == 2
+
+    assert (await shows.count(7), await shows.count(8)) == (0, 1)
+    assert (await store.count("show", 7), await store.count("show", 8)) == (0, 1)
+
+
+async def test_a_departed_server_takes_its_channel_subscriptions_with_it(
+    store: JobStore,
+) -> None:
+    shows = _shows(store)
+    await _follow(shows, user_id=7, show_id=1, guild_id=1, channel_id=2)
+    await _follow(shows, user_id=7, show_id=2, guild_id=3, channel_id=4)
+    await _follow(shows, user_id=7, show_id=3)  # a DM subscription belongs to no server
+
+    assert await shows.purge_guild(1) == 1
+
+    assert await shows.count(7) == 2
+    assert await store.count("show", 7) == 2

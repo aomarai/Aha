@@ -338,7 +338,7 @@ def test_a_forbidden_or_missing_channel_falls_back_to_a_dm(
         discord.NotFound(cast("Any", Named(status=404, reason="gone")), "gone"),
     ):
         bot = FakeBot(channel=FakeChannel(error))
-        with caplog.at_level(logging.INFO, logger="aha.cogs.remind"):
+        with caplog.at_level(logging.INFO, logger="aha.delivery"):
             asyncio.run(make(FakeStore(), bot).deliver(job(12)))
         assert bot.asked_users == [33]
         ((text, kwargs),) = bot.user.sent
@@ -377,7 +377,7 @@ def test_closed_dms_drop_the_reminder_and_log_it(caplog: pytest.LogCaptureFixtur
     closed = discord.Forbidden(cast("Any", Named(status=403, reason="no")), "no")
     bot = FakeBot(channel=None, user=FakeChannel(closed))
 
-    with caplog.at_level(logging.WARNING, logger="aha.cogs.remind"):
+    with caplog.at_level(logging.WARNING, logger="aha.delivery"):
         asyncio.run(make(FakeStore(), bot).deliver(job(12)))
 
     assert caplog.messages == ["Reminder 12 dropped: the channel and the DM are both unreachable"]

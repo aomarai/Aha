@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 import discord
 from discord import app_commands
@@ -18,6 +17,7 @@ from discord.ext import commands
 from aha import embeds
 from aha.bot import AhaBot
 from aha.commands import hybrid_command
+from aha.delivery import send_to_user
 from aha.durations import DurationError, parse_duration
 from aha.i18n import locale_of, t
 from aha.jobstore import Job, JobStore
@@ -169,33 +169,18 @@ class Reminders(commands.Cog):
         ][:_AUTOCOMPLETE_LIMIT]
 
     async def deliver(self, job: Job) -> None:
-        """Send a due reminder: in its channel, else by DM, else drop it.
-
-        Only the invoker can be pinged. A missing channel or permission falls back to a DM; closed
-        DMs drop the reminder (logged). Any other Discord error propagates so the scheduler
-        retries. The nonce makes a redelivery after a crash a no-op where Discord can tell.
-        """
+        """Send a due reminder: in its channel, else by DM, else drop it (:mod:`aha.delivery`)."""
         user_id = job.user_id
         if user_id is None:
             return
-        text = f"<@{user_id}> ⏰ {plain(str(job.payload.get('text', '')))}"
-        mentions = discord.AllowedMentions(
-            everyone=False, roles=False, users=[discord.Object(id=user_id)]
+        await send_to_user(
+            self.bot,
+            user_id=user_id,
+            text=f"<@{user_id}> ⏰ {plain(str(job.payload.get('text', '')))}",
+            channel_id=job.payload.get("channel_id"),
+            nonce=job.id,
+            label=f"Reminder {job.id}",
         )
-        send: dict[str, Any] = {"allowed_mentions": mentions, "nonce": job.id}
-        channel_id = job.payload.get("channel_id")
-        channel = self.bot.get_channel(channel_id) if isinstance(channel_id, int) else None
-        if isinstance(channel, discord.abc.Messageable):
-            try:
-                await channel.send(text, **send)
-                return
-            except discord.Forbidden, discord.NotFound:
-                log.info("Reminder %s: channel unavailable, falling back to a DM", job.id)
-        try:
-            user = await self.bot.fetch_user(user_id)
-            await user.send(text, **send)
-        except discord.Forbidden, discord.NotFound:
-            log.warning("Reminder %s dropped: the channel and the DM are both unreachable", job.id)
 
 
 async def setup(bot: AhaBot) -> None:

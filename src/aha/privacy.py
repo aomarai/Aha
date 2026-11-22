@@ -13,10 +13,12 @@ from typing import Protocol
 __all__ = ["GUILD_TABLES", "USER_TABLES", "UserPurge", "purge_user"]
 
 #: Tables :func:`purge_user` clears (those with a user column in the data inventory).
-USER_TABLES = frozenset({"scheduled_jobs", "guild_settings", "summarize_usage"})
+USER_TABLES = frozenset(
+    {"scheduled_jobs", "guild_settings", "summarize_usage", "show_subscriptions"}
+)
 
 #: Tables the departed-guild purge clears (those with a guild column in the data inventory).
-GUILD_TABLES = frozenset({"scheduled_jobs", "guild_settings"})
+GUILD_TABLES = frozenset({"scheduled_jobs", "guild_settings", "show_subscriptions"})
 
 
 class _Jobs(Protocol):
@@ -34,6 +36,11 @@ class _Usage(Protocol):
         """Delete a user's summary counters."""
 
 
+class _Shows(Protocol):
+    async def purge_user(self, user_id: int) -> int:
+        """Delete a user's show subscriptions (and the jobs they own)."""
+
+
 @dataclass(frozen=True, slots=True)
 class UserPurge:
     """What a deletion removed."""
@@ -44,12 +51,21 @@ class UserPurge:
     settings: int
     #: Daily ``/summarize`` counters deleted.
     usage: int
+    #: Show subscriptions (``/watch``) deleted.
+    shows: int
 
 
-async def purge_user(jobs: _Jobs, settings: _Settings, usage: _Usage, user_id: int) -> UserPurge:
-    """Delete everything stored about ``user_id`` and report how much there was."""
+async def purge_user(
+    jobs: _Jobs, settings: _Settings, usage: _Usage, shows: _Shows, user_id: int
+) -> UserPurge:
+    """Delete everything stored about ``user_id`` and report how much there was.
+
+    Subscriptions go first: they delete the jobs they own, so ``jobs`` then counts only the rest.
+    """
+    followed = await shows.purge_user(user_id)
     return UserPurge(
         jobs=await jobs.purge_user(user_id),
         settings=await settings.anonymise_user(user_id),
         usage=await usage.purge_user(user_id),
+        shows=followed,
     )

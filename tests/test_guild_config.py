@@ -62,6 +62,15 @@ class FakeJobs:
         return 0
 
 
+class FakeShows:
+    def __init__(self) -> None:
+        self.purged: list[int] = []
+
+    async def purge_guild(self, guild_id: int) -> int:
+        self.purged.append(guild_id)
+        return 0
+
+
 class FakeChannel(discord.abc.Messageable):
     def __init__(self, channel_id: int) -> None:
         self.id = channel_id
@@ -311,6 +320,48 @@ def test_the_purge_deletes_settings_and_jobs_of_a_guild_that_stayed_gone(
     assert settings.calls == [("delete", 11)]
     assert jobs.purged == [11]
     assert "Deleted the data of departed guild 11" in caplog.messages
+
+
+def test_the_cog_builds_its_stores_on_the_bots_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    built: list[tuple[str, Any]] = []
+
+    def jobs(db: Any) -> str:
+        built.append(("jobs", db))
+        return "j"
+
+    def shows(db: Any) -> str:
+        built.append(("shows", db))
+        return "s"
+
+    monkeypatch.setattr(config_module, "JobStore", jobs)
+    monkeypatch.setattr(config_module, "ShowStore", shows)
+    database = Named()
+
+    cog = Config(cast("Any", FakeBot(FakeSettings(), db=database)))
+
+    assert built == [("jobs", database), ("shows", database)]
+    assert (cast("Any", cog)._jobs, cast("Any", cog)._shows) == ("j", "s")
+    assert cast("Any", Config(cast("Any", FakeBot(FakeSettings()))))._shows is None
+
+
+def test_the_purge_also_deletes_the_shows_followed_in_that_guild() -> None:
+    settings, jobs, shows = FakeSettings(), FakeJobs(), FakeShows()
+    cog = Config(cast("Any", FakeBot(settings)), cast("Any", jobs), cast("Any", shows))
+
+    asyncio.run(cog.purge_guild(purge_job()))
+
+    assert shows.purged == [11]
+
+
+def test_a_rejoined_guild_keeps_its_show_subscriptions() -> None:
+    shows = FakeShows()
+    bot = FakeBot(FakeSettings())
+    bot.guilds[11] = Named(id=11)
+    cog = Config(cast("Any", bot), cast("Any", FakeJobs()), cast("Any", shows))
+
+    asyncio.run(cog.purge_guild(purge_job()))
+
+    assert shows.purged == []
 
 
 def test_the_purge_does_nothing_if_the_bot_rejoined() -> None:

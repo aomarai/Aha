@@ -234,6 +234,9 @@ Aha/
 │   ├── migrations/      # NNNN_description.sql
 │   ├── scheduler.py     # durable job scheduler (any pod runs due jobs)
 │   ├── jobstore.py      # SQL behind the scheduler (scheduled_jobs)
+│   ├── delivery.py      # send a scheduled message: channel, else DM (reminders, shows)
+│   ├── tvmaze.py        # TVmaze client behind /watch (search, next episode)
+│   ├── showstore.py     # SQL behind /watch (show_subscriptions)
 │   ├── cmdsync.py       # compare local vs remote command trees (sync only if changed)
 │   ├── components.py    # shared button/menu helpers (see docs/components.md)
 │   ├── config.py        # Settings loaded & validated from the environment
@@ -255,6 +258,7 @@ Aha/
 │       ├── summarize.py # /summarize and the Summarize menu (Claude API, opt-in per server)
 │       ├── forget.py    # /forgetme (delete your data, with a confirm button)
 │       ├── remind.py    # /remind, /reminders, /unremind (durable, needs DATABASE_URL)
+│       ├── shows.py     # /watch, /watching, /unwatch (episode reminders, needs DATABASE_URL)
 │       ├── polls.py     # /poll (native Discord polls), Count reactions menu
 │       └── ops.py       # /sync (owner only; dev guild / SYNC_ON_STARTUP only)
 ├── tests/               # pytest suite

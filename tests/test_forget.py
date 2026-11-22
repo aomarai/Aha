@@ -56,6 +56,16 @@ class FakeUsage:
         return self.count
 
 
+class FakeShows:
+    def __init__(self, count: int = 4) -> None:
+        self.count = count
+        self.users: list[int] = []
+
+    async def purge_user(self, user_id: int) -> int:
+        self.users.append(user_id)
+        return self.count
+
+
 class FakeSettings:
     def __init__(self, count: int = 2) -> None:
         self.count = count
@@ -67,17 +77,44 @@ class FakeSettings:
 
 
 def test_purge_user_clears_every_store_and_reports_the_counts() -> None:
-    jobs, settings, usage = FakeJobs(3), FakeSettings(2), FakeUsage(5)
+    jobs, settings, usage, shows = FakeJobs(3), FakeSettings(2), FakeUsage(5), FakeShows(4)
 
-    result = asyncio.run(purge_user(jobs, settings, usage, 33))
+    result = asyncio.run(purge_user(jobs, settings, usage, shows, 33))
 
-    assert result == UserPurge(jobs=3, settings=2, usage=5)
-    assert (jobs.users, settings.users, usage.users) == ([33], [33], [33])
+    assert result == UserPurge(jobs=3, settings=2, usage=5, shows=4)
+    assert (jobs.users, settings.users, usage.users, shows.users) == ([33], [33], [33], [33])
+
+
+def test_subscriptions_are_purged_before_jobs_so_the_job_count_is_not_doubled() -> None:
+    calls: list[str] = []
+
+    class Ordered:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def purge_user(self, user_id: int) -> int:
+            calls.append(self.name)
+            return 0
+
+        async def anonymise_user(self, user_id: int) -> int:
+            calls.append(self.name)
+            return 0
+
+    asyncio.run(
+        purge_user(Ordered("jobs"), Ordered("settings"), Ordered("usage"), Ordered("shows"), 1)
+    )
+
+    assert calls.index("shows") < calls.index("jobs")
 
 
 def test_the_purge_covers_the_tables_the_inventory_declares() -> None:
-    assert {"scheduled_jobs", "guild_settings", "summarize_usage"} == USER_TABLES
-    assert {"scheduled_jobs", "guild_settings"} == GUILD_TABLES
+    assert {
+        "scheduled_jobs",
+        "guild_settings",
+        "summarize_usage",
+        "show_subscriptions",
+    } == USER_TABLES
+    assert {"scheduled_jobs", "guild_settings", "show_subscriptions"} == GUILD_TABLES
 
 
 # ----------------------------------------------------------------------------- command
@@ -164,7 +201,7 @@ def test_a_button_is_rebuilt_from_its_custom_id_alone() -> None:
 
 
 def test_a_confirmed_click_deletes_the_invokers_data(monkeypatch: pytest.MonkeyPatch) -> None:
-    jobs, settings = FakeJobs(4), FakeSettings(1)
+    jobs, settings, shows = FakeJobs(4), FakeSettings(1), FakeShows(6)
     database = Named()
     seen: list[Any] = []
 
@@ -182,18 +219,24 @@ def test_a_confirmed_click_deletes_the_invokers_data(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(forget_module, "JobStore", make_jobs)
     monkeypatch.setattr(forget_module, "GuildSettingsStore", make_settings)
+
+    def make_shows(db: Any) -> FakeShows:
+        seen.append(db)
+        return shows
+
     monkeypatch.setattr(forget_module, "UsageStore", make_usage)
+    monkeypatch.setattr(forget_module, "ShowStore", make_shows)
     interaction = interaction_with(FakeBot(db=database))
 
     click(ForgetButton(33, int(NOW) + 10), interaction)
 
-    assert seen == [database, database, database]  # all three stores sit on the bot's own pool
-    assert (jobs.users, settings.users) == ([33], [33])
+    assert seen == [database] * 4  # all four stores sit on the bot's own pool
+    assert (jobs.users, settings.users, shows.users) == ([33], [33], [33])
     (edited,) = interaction.edited
     assert edited["view"] is None  # the button is gone, so it cannot be pressed twice
     assert edited["embed"].description == (
-        "Done. Deleted 4 reminder(s) and scheduled job(s) and removed your id from 1 server "
-        "setting(s)."
+        "Done. Deleted 4 reminder(s) and scheduled job(s), stopped 6 show subscription(s) and "
+        "removed your id from 1 server setting(s)."
     )
 
 
@@ -202,6 +245,7 @@ def test_a_click_at_exactly_the_expiry_still_works(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(forget_module, "JobStore", lambda db: jobs)
     monkeypatch.setattr(forget_module, "GuildSettingsStore", lambda db: settings)
     monkeypatch.setattr(forget_module, "UsageStore", lambda db: FakeUsage())
+    monkeypatch.setattr(forget_module, "ShowStore", lambda db: FakeShows())
     interaction = interaction_with(FakeBot(db=Named()))
 
     click(ForgetButton(33, int(NOW)), interaction)
@@ -214,6 +258,7 @@ def test_an_expired_confirmation_deletes_nothing(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(forget_module, "JobStore", lambda db: jobs)
     monkeypatch.setattr(forget_module, "GuildSettingsStore", lambda db: settings)
     monkeypatch.setattr(forget_module, "UsageStore", lambda db: FakeUsage())
+    monkeypatch.setattr(forget_module, "ShowStore", lambda db: FakeShows())
     interaction = interaction_with(FakeBot(db=Named()))
 
     click(ForgetButton(33, int(NOW) - 1), interaction)
@@ -288,13 +333,14 @@ def test_the_confirm_click_answers_in_german(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(forget_module, "JobStore", lambda db: jobs)
     monkeypatch.setattr(forget_module, "GuildSettingsStore", lambda db: settings)
     monkeypatch.setattr(forget_module, "UsageStore", lambda db: FakeUsage())
+    monkeypatch.setattr(forget_module, "ShowStore", lambda db: FakeShows())
     interaction = interaction_with(FakeBot(db=Named()))
     interaction.locale = discord.Locale.german
 
     click(ForgetButton(33, int(NOW) + 10), interaction)
     assert interaction.edited[0]["embed"].description == (
-        "Fertig. 2 Erinnerung(en) und geplante Aufgabe(n) gelöscht und deine ID aus 1 "
-        "Servereinstellung(en) entfernt."
+        "Fertig. 2 Erinnerung(en) und geplante Aufgabe(n) gelöscht, 4 Serien-Abo(s) beendet "
+        "und deine ID aus 1 Servereinstellung(en) entfernt."
     )
 
     expired = interaction_with(FakeBot(db=Named()))
