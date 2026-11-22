@@ -7,6 +7,10 @@ for how a release is cut.
 ## [Unreleased]
 
 ### Added
+- `/watch`, `/watching` and `/unwatch`: follow a show and get a reminder (by DM, or a ping in the
+  channel) when each new episode comes out, optionally with a lead time. Schedules come from TVmaze;
+  a postponed episode is rescheduled, and the subscription ends when the show does. `/forgetme` and
+  the departed-server purge delete subscriptions (new table `show_subscriptions`, migration 0005).
 - Token rotation runbook now documents the Sealed Secrets procedure, rehearsed on staging (#106).
 - `aha sync [--guild ID] [--dry-run]`: syncs slash commands over REST, only when they differ.
   Production no longer syncs at startup; `SYNC_ON_STARTUP` opts a single process in.

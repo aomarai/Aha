@@ -216,7 +216,13 @@ def test_every_command_translation_fits_discord_and_names_a_real_command() -> No
     async def collect() -> set[str]:
         for module in COG_MODULES:
             await bot.load_extension(module)
-        return {c.description for c in bot.tree.walk_commands()}
+        texts: set[str] = set()
+        for command in bot.tree.walk_commands():
+            texts.add(command.description)
+            for parameter in getattr(command, "parameters", []):
+                texts.add(str(parameter.description))
+                texts.update(choice.name for choice in parameter.choices)
+        return texts
 
     descriptions = asyncio.run(collect())
     c = default_catalogue()

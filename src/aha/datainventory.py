@@ -51,6 +51,16 @@ INVENTORY: dict[str, TableData] = {
             "once by /forgetme"
         ),
     ),
+    "show_subscriptions": TableData(
+        user_column="user_id",
+        guild_column="guild_id",
+        retention=(
+            "until you unfollow the show (/unwatch) or the show ends; deleted at once by "
+            "/forgetme, and a channel subscription is deleted when the bot has been out of that "
+            "server for 30 days; only the show id and name, where to remind you and the lead "
+            "time are kept"
+        ),
+    ),
     "scheduled_jobs": TableData(
         user_column="user_id",
         guild_column="guild_id",

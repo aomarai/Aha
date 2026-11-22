@@ -162,8 +162,8 @@ every change must keep:
   refuses disabled commands on both the slash and message surfaces and fails open. `config`,
   `configure` and `help` can never be disabled. A guild that removes the bot is purged after 30 days
   by a `guild_purge` scheduled job (`cogs/config.py`).
-- `/summarize` (`cogs/summarize.py`, `aha.summarizer`) is the only feature that sends user text to a
-  third party, so it is **off per server** (`guild_settings.summaries_enabled`) and **off without a
+- `/summarize` (`cogs/summarize.py`, `aha.summarizer`) is the only feature that sends *message text* to
+  a third party (`/watch` sends only a typed show title to TVmaze, disclosed in docs/privacy.md), so it is **off per server** (`guild_settings.summaries_enabled`) and **off without a
   key**. Keep every control (quota with refund, input cap, bounded output, 20 s timeout after
   `defer`, text as data, no mentions) when touching it; the API client is always faked in tests, never
   called over the network. `summarize_store.py` is pure SQL and excluded from mutation.
@@ -176,7 +176,14 @@ every change must keep:
   as touched). discord.py marks command text translatable, and `_sync_target` compares the
   translated payload, so keep that when touching sync. See `docs/i18n.md`.
 - Reminders (`cogs/remind.py`, `aha.durations`) are `scheduled_jobs` of kind `reminder`; delivery
-  pings only the invoker and falls back to a DM.
+  pings only the invoker and falls back to a DM (`aha.delivery.send_to_user`, shared with `/watch`).
+- Show reminders (`cogs/shows.py`, `aha.tvmaze`, `aha.showstore`): a `show_subscriptions` row owns one
+  live `scheduled_jobs` row (kind `show`, `job_id`); the handler announces the episode and moves the
+  chain on with `ShowStore.advance`, a compare-and-swap on `job_id` that stops a redelivered job from
+  starting a second chain. TVmaze errors must never end a subscription (retry in an hour). Only the
+  typed show title goes to TVmaze, which is why `/watch` needs no per-server opt-in; keep it that way
+  (never send ids), and the client is always faked in tests. `showstore.py` is pure SQL, excluded from
+  mutation, covered by the real-PostgreSQL tests.
 - Scheduled work: due jobs live in `scheduled_jobs` and any pod runs them (`aha.scheduler`,
   `aha.jobstore`, see `docs/scheduler.md`). Handlers are at-least-once: make them idempotent, never
   rely on in-memory timers for anything that must fire. `jobstore.py` is pure SQL, excluded from

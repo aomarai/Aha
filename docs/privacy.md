@@ -18,6 +18,7 @@ your own copy, **you** are the operator of that copy, and this describes what th
 | Server settings (`/configure`) | to apply a server's choices (log channel, disabled commands) | The server id, the settings and the **id of the admin who last changed them**, until an admin resets them or Aha has been out of the server for **30 days**, then deleted. |
 | Summaries (`/summarize`, "Summarize" menu) | to summarize text you ask about | **Off in every server until a server admin turns it on** (`/configure summaries on`), and unavailable unless the operator configured an API key. When used, **the text you ask to summarize is sent to Anthropic's Claude API** and the summary is shown only to you; Aha does not store the text or the summary. It keeps a **daily counter per user** (no text) for 7 days to enforce a limit. Anthropic's own terms and retention apply to what it receives. |
 | Reminders (`/remind`) | to deliver your reminder later | Your user id, server id, channel id and the reminder text are stored **until it is delivered or you cancel it** (`/unremind`); failed deliveries are kept at most 7 days. |
+| Show reminders (`/watch`) | to remind you when a show's next episode comes out | Your user id, the show's TVmaze id and name, where to remind you (a direct message, or the channel and server id), how long before, your language, **until you stop following the show (`/unwatch`) or it ends**; plus one scheduled job for the next episode. Only the show title you typed is sent to TVmaze (never your id). |
 | Polls and reactions | `/poll` creates a native Discord poll; "Count reactions" reads a message's reaction counts | **Discord** stores polls and votes, not Aha. |
 
 Aha does **not** store the text of your commands, your messages, or any profile. It sends nothing to
@@ -42,11 +43,14 @@ Every table in the database must declare how to delete a user's or a server's ro
 - **Discord** processes everything you do in Discord, under its own policy.
 - **The hosting provider** of the operator (for the official instance, a home server).
 - **Anthropic**, only if `/summarize` is enabled for a server and you use it.
+- **TVmaze** (<https://www.tvmaze.com>), when you use `/watch`: it receives the show title you type
+  (and the id of the show you pick) from the bot's address, never your Discord identity. Schedule data
+  is provided by TVmaze under CC BY-SA 4.0.
 
 ## Your choices
 
 - **Delete your data**: run `/forgetme` and press the confirm button (it expires after 5 minutes).
-  It deletes your pending reminders and any other scheduled jobs, and removes your id from server
+  It deletes your pending reminders, the shows you follow and any other scheduled jobs, and removes your id from server
   settings you changed (the settings stay with the server). Log lines are not in the database; ask
   the operator about those.
 - **Stop**: remove the bot from your server, or stop using its commands. Its server data is deleted
