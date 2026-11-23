@@ -7,3 +7,4 @@ mark the old one "Superseded by NNNN".
 | ADR | Title | Status |
 |---|---|---|
 | [0001](0001-runtime-architecture.md) | Runtime architecture for horizontal scale | Accepted |
+| [0002](0002-voice-playback.md) | Voice playback of YouTube links through Lavalink | Accepted |
