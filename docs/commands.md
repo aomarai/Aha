@@ -167,6 +167,18 @@ Leave the voice channel.
 
 *cooldown: 1 per 5 s per user; servers only.*
 
+### `/nowplaying`
+
+Show the track that is playing.
+
+*cooldown: 1 per 5 s per user; servers only.*
+
+### `/pause`
+
+Pause the music.
+
+*cooldown: 1 per 3 s per user; servers only.*
+
 ### `/play`
 
 Play a YouTube link in your voice channel.
@@ -194,6 +206,30 @@ Usage: `/poll <question> <options> [duration] [multi]`
 
 *cooldown: 1 per 30 s per user.*
 
+### `/queue`
+
+Show what is playing and what is queued.
+
+*cooldown: 1 per 5 s per user; servers only.*
+
+### `/remove`
+
+Remove a track from the queue.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `position` | yes | Its number in /queue (the first is playing: use /skip). |
+
+Usage: `/remove <position>`
+
+*cooldown: 1 per 3 s per user; servers only.*
+
+### `/resume`
+
+Resume the music, or start the saved queue again.
+
+*cooldown: 1 per 3 s per user; servers only.*
+
 ### `/roll`
 
 Roll a die.
@@ -205,6 +241,18 @@ Roll a die.
 Usage: `/roll [sides]`
 
 *cooldown: 1 per 5 s per user.*
+
+### `/skip`
+
+Skip the track that is playing.
+
+*cooldown: 1 per 3 s per user; servers only.*
+
+### `/stop`
+
+Stop the music, clear the queue and leave.
+
+*cooldown: 1 per 3 s per user; servers only.*
 
 ### `/summarize`
 

@@ -1281,3 +1281,46 @@ def test_the_audio_backend_is_not_built_twice_and_not_for_rest_only_jobs(
     asyncio.run(scenario())
 
     assert rest_only.audio is None and _FakeAudio.instances == []
+
+
+def test_the_playback_queue_is_built_only_with_both_the_audio_node_and_a_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    built: list[tuple[Any, ...]] = []
+
+    class FakeQueue:
+        def __init__(self, audio: Any, store: Any, *, max_queue: int) -> None:
+            built.append((audio, store, max_queue))
+
+    class FakeStore:
+        def __init__(self, db: Any) -> None:
+            self.db = db
+
+    settings: dict[str, Any] = {
+        "lavalink_url": "http://x:2333",
+        "lavalink_password": "pw",
+        "voice_max_queue": 7,
+    }
+    without_db = _setup_hook_bot(monkeypatch, **settings)
+    monkeypatch.setattr("aha.bot.PlaybackQueue", FakeQueue)
+    monkeypatch.setattr("aha.bot.QueueStore", FakeStore)
+
+    async def scenario(bot: AhaBot) -> None:
+        await bot.setup_hook()
+        await bot.close()
+
+    asyncio.run(scenario(without_db))
+    assert without_db.playback is None and built == []
+
+    class FakeDatabase:
+        async def close(self) -> None:
+            return None
+
+    with_db = _setup_hook_bot(monkeypatch, **settings)
+    with_db.db = cast("Any", FakeDatabase())
+    asyncio.run(scenario(with_db))
+
+    (audio, store, max_queue) = built[0]
+    assert audio is with_db.audio and max_queue == 7
+    assert store.db is with_db.db
+    assert isinstance(with_db.playback, FakeQueue)

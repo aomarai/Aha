@@ -23,11 +23,11 @@ from aha.cogs.shows import (
     episode_from_payload,
     episode_payload,
     format_lead,
-    pack,
 )
 from aha.cogs.shows import setup as shows_setup
 from aha.jobstore import Job
 from aha.showstore import KIND, Followed, ShowLimitError, Subscription
+from aha.textutil import pack
 from aha.tvmaze import Episode, Schedule, Show, TvmazeClient, TvmazeError
 from tests.helpers import Named, StubContext, as_context, http_error
 

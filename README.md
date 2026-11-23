@@ -248,6 +248,10 @@ Aha/
 │   ├── scheduler.py     # durable job scheduler (any pod runs due jobs)
 │   ├── jobstore.py      # SQL behind the scheduler (scheduled_jobs)
 │   ├── voice.py         # audio backend interface and its Lavalink (Wavelink) adapter
+│   ├── playback.py      # the voice queue's logic (what plays next, advancing on track end)
+│   ├── queuestore.py    # SQL behind the voice queue (voice_queue)
+│   ├── youtube.py       # the YouTube link allowlist for /play
+│   ├── voicechecks.py   # checks the voice commands share
 │   ├── delivery.py      # send a scheduled message: channel, else DM (reminders, shows)
 │   ├── tvmaze.py        # TVmaze client behind /watch (search, next episode)
 │   ├── showstore.py     # SQL behind /watch (show_subscriptions)
@@ -272,7 +276,8 @@ Aha/
 │       ├── summarize.py # /summarize and the Summarize menu (Claude API, opt-in per server)
 │       ├── forget.py    # /forgetme (delete your data, with a confirm button)
 │       ├── remind.py    # /remind, /reminders, /unremind (durable, needs DATABASE_URL)
-│       ├── voice.py     # /join, /leave and the idle janitor (needs LAVALINK_URL)
+│       ├── voice.py     # /join, /leave, /play and the idle janitor (needs LAVALINK_URL)
+│       ├── playback.py  # /queue, /nowplaying, /skip, /pause, /resume, /stop, /remove and buttons
 │       ├── shows.py     # /watch, /watching, /unwatch (episode reminders, needs DATABASE_URL)
 │       ├── polls.py     # /poll (native Discord polls), Count reactions menu
 │       └── ops.py       # /sync (owner only; dev guild / SYNC_ON_STARTUP only)
@@ -311,7 +316,7 @@ Real environment variables take precedence over `.env`.
 | `ANTHROPIC_API_KEY` | no | – | Enables `/summarize` (or `ANTHROPIC_API_KEY_FILE`; set at most one). Off per server until an admin runs `/configure summaries on` |
 | `ANTHROPIC_MODEL` | no | `claude-haiku-5-5` | Model used for summaries |
 | `LAVALINK_URL`, `LAVALINK_PASSWORD` | no | – | Voice playback: the [Lavalink](https://github.com/lavalink-devs/Lavalink) audio node (`http://host:2333`) and its password (or `LAVALINK_PASSWORD_FILE`; set at most one). Set both or neither; without them `/join` says playback is off. See [ADR 0002](docs/adr/0002-voice-playback.md) |
-| `VOICE_MAX_PLAYERS`, `VOICE_IDLE_MINUTES`, `VOICE_MAX_TRACK_MINUTES` | no | `10`, `5`, `30` | Voice sessions one process holds at once (1-200); minutes alone or silent before the bot leaves (1-120); longest track `/play` accepts (1-600) |
+| `VOICE_MAX_PLAYERS`, `VOICE_IDLE_MINUTES`, `VOICE_MAX_TRACK_MINUTES`, `VOICE_MAX_QUEUE` | no | `10`, `5`, `30`, `50` | Voice sessions one process holds at once (1-200); minutes alone or silent before the bot leaves (1-120); longest track `/play` accepts (1-600); tracks one server may queue (1-500). Voice also needs `DATABASE_URL` for the queue |
 | `SUMMARIZE_DAILY_QUOTA`, `SUMMARIZE_MAX_CHARS` | no | `10`, `4000` | Summaries per user per UTC day (1-1000); characters sent to the model (100-20000) |
 | `SESSION_START_FLOOR` | no     | `0.1`   | Wait for Discord's reset instead of identifying when fewer than this fraction of the daily gateway sessions remain (`0` disables); see [the runbook](docs/runbooks/session-budget.md) |
 | `SHARDS_PER_POD`, `POD_INDEX` | no | – | Derive `SHARD_IDS` from a StatefulSet ordinal instead (needs `SHARD_COUNT`) |

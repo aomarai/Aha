@@ -23,6 +23,7 @@ from aha.guildsettings_store import GuildSettingsStore
 from aha.i18n import DEFAULT_LOCALE, locale_of, t
 from aha.jobstore import JobStore
 from aha.privacy import purge_user
+from aha.queuestore import QueueStore
 from aha.replies import edit_message, reply
 from aha.showstore import ShowStore
 from aha.summarize_store import UsageStore
@@ -90,10 +91,16 @@ class ForgetButton(
             GuildSettingsStore(bot.db),
             UsageStore(bot.db),
             ShowStore(bot.db),
+            QueueStore(bot.db),
             self.owner_id,
         )
         text = t(
-            "forget.done", locale, jobs=result.jobs, shows=result.shows, settings=result.settings
+            "forget.done",
+            locale,
+            jobs=result.jobs,
+            shows=result.shows,
+            tracks=result.tracks,
+            settings=result.settings,
         )
         await edit_message(interaction, embed=embeds.success(text), view=None)
 

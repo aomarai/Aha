@@ -213,3 +213,67 @@ def as_tree_interaction(stub: StubInteraction) -> discord.Interaction[AhaBot]:
 def http_error() -> discord.HTTPException:
     """Build a real ``HTTPException`` without a live response object."""
     return discord.HTTPException(cast("Any", Named(status=500, reason="boom")), "boom")
+
+
+class FakeQueueStore:
+    """An in-memory stand-in for :class:`aha.queuestore.QueueStore` with the same semantics.
+
+    Ids grow, the lowest id of a guild is the head, finishing and removing are by id, and ``add``
+    raises ``QueueFullError`` at the limit.
+    """
+
+    def __init__(self) -> None:
+        from aha.queuestore import QueueEntry
+
+        self._entry = QueueEntry
+        self.rows: list[Any] = []
+        self.next_id = 1
+        self.calls: list[tuple[Any, ...]] = []
+
+    async def add(
+        self,
+        guild_id: int,
+        *,
+        video_id: str,
+        title: str,
+        length_ms: int,
+        requester_id: int,
+        limit: int,
+    ) -> Any:
+        from aha.queuestore import QueueFullError
+
+        self.calls.append(("add", guild_id, video_id, title, length_ms, requester_id, limit))
+        if sum(1 for row in self.rows if row.guild_id == guild_id) >= limit:
+            raise QueueFullError(f"{limit} tracks")
+        row = self._entry(self.next_id, guild_id, video_id, title, length_ms, requester_id)
+        self.next_id += 1
+        self.rows.append(row)
+        return row
+
+    async def entries(self, guild_id: int, limit: int) -> list[Any]:
+        self.calls.append(("entries", guild_id, limit))
+        return [row for row in self.rows if row.guild_id == guild_id][:limit]
+
+    async def head(self, guild_id: int) -> Any:
+        found = await self.entries(guild_id, 1)
+        return found[0] if found else None
+
+    async def count(self, guild_id: int) -> int:
+        return sum(1 for row in self.rows if row.guild_id == guild_id)
+
+    async def finish(self, guild_id: int, entry_id: int) -> bool:
+        self.calls.append(("finish", guild_id, entry_id))
+        return (await self.remove(guild_id, entry_id)) is not None
+
+    async def remove(self, guild_id: int, entry_id: int) -> Any:
+        for row in self.rows:
+            if row.guild_id == guild_id and row.id == entry_id:
+                self.rows.remove(row)
+                return row
+        return None
+
+    async def clear(self, guild_id: int) -> int:
+        self.calls.append(("clear", guild_id))
+        before = len(self.rows)
+        self.rows = [row for row in self.rows if row.guild_id != guild_id]
+        return before - len(self.rows)

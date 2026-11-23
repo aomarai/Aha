@@ -845,3 +845,14 @@ def test_the_track_length_limit_defaults_to_thirty_minutes_and_has_bounds() -> N
         with pytest.raises(ConfigError) as excinfo:
             Settings.from_env({"DISCORD_BOT_TOKEN": "s", "VOICE_MAX_TRACK_MINUTES": value})
         assert str(excinfo.value) == f"VOICE_MAX_TRACK_MINUTES must be 1..600, got {value}"
+
+
+def test_the_queue_limit_defaults_to_fifty_and_has_bounds() -> None:
+    assert Settings.from_env({"DISCORD_BOT_TOKEN": "s"}).voice_max_queue == 50
+    for value in ("1", "500"):
+        env = {"DISCORD_BOT_TOKEN": "s", "VOICE_MAX_QUEUE": value}
+        assert Settings.from_env(env).voice_max_queue == int(value)
+    for value in ("0", "501"):
+        with pytest.raises(ConfigError) as excinfo:
+            Settings.from_env({"DISCORD_BOT_TOKEN": "s", "VOICE_MAX_QUEUE": value})
+        assert str(excinfo.value) == f"VOICE_MAX_QUEUE must be 1..500, got {value}"

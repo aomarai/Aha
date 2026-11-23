@@ -33,6 +33,7 @@ from aha.dbmigrate import (
 from aha.guildsettings_store import GuildSettings, GuildSettingsStore
 from aha.identify import IdentifyCoordinator
 from aha.jobstore import JobStore
+from aha.queuestore import QueueFullError, QueueStore
 from aha.showstore import ShowLimitError, ShowStore
 from aha.summarize_store import UsageStore
 
@@ -438,9 +439,12 @@ async def test_forgetme_removes_every_row_belonging_to_the_user(
     await usage.consume(8, 10)
 
     shows = ShowStore(store._db)
-    result = await purge_user(store, settings_store, usage, shows, 7)
+    queue = QueueStore(store._db)
+    await queue.add(1, video_id="dQw4w9WgXcQ", title="t", length_ms=1, requester_id=7, limit=5)
+    await queue.add(1, video_id="dQw4w9WgXcQ", title="t", length_ms=1, requester_id=8, limit=5)
+    result = await purge_user(store, settings_store, usage, shows, queue, 7)
 
-    assert result == UserPurge(jobs=2, settings=2, usage=1, shows=0)
+    assert result == UserPurge(jobs=2, settings=2, usage=1, shows=0, tracks=1)
     assert await usage.consume(8, 1) is None  # the other user's counter survived
     assert await store.count("reminder", 7) == 0
     assert [job.id for job in await store.list_for_user("reminder", 8, 10)] == [keep]
@@ -804,3 +808,137 @@ async def test_a_purge_does_not_leave_the_replacement_job_of_a_racing_delivery(
     await store.complete(sub.job_id)
     assert await store.count("show", 7) == 0
     assert await shows.count(7) == 0
+
+
+# ----------------------------------------------------------------------------- voice queue
+
+
+def _queue(store: JobStore) -> QueueStore:
+    return QueueStore(store._db)
+
+
+async def _enqueue(
+    queue: QueueStore,
+    guild_id: int = 1,
+    *,
+    video: str = "dQw4w9WgXcQ",
+    title: str = "A song",
+    requester: int = 7,
+    limit: int = 50,
+) -> Any:
+    return await queue.add(
+        guild_id, video_id=video, title=title, length_ms=213000, requester_id=requester, limit=limit
+    )
+
+
+async def test_tracks_are_queued_in_order_and_the_first_is_the_head(store: JobStore) -> None:
+    queue = _queue(store)
+    first = await _enqueue(queue, title="one")
+    second = await _enqueue(queue, title="two", requester=8)
+
+    entries = await queue.entries(1, 10)
+
+    assert [e.title for e in entries] == ["one", "two"]
+    assert entries[0] == first and entries[1] == second
+    assert (first.guild_id, first.video_id, first.length_ms, first.requester_id) == (
+        1,
+        "dQw4w9WgXcQ",
+        213000,
+        7,
+    )
+    assert await queue.head(1) == first
+    assert await queue.count(1) == 2
+    assert await queue.head(2) is None and await queue.entries(2, 10) == []
+
+
+async def test_the_entries_listing_is_limited(store: JobStore) -> None:
+    queue = _queue(store)
+    for n in range(5):
+        await _enqueue(queue, title=str(n))
+
+    assert [e.title for e in await queue.entries(1, 3)] == ["0", "1", "2"]
+
+
+async def test_the_queue_limit_holds_even_when_requests_race(store: JobStore) -> None:
+    queue = _queue(store)
+
+    results = await asyncio.gather(
+        *(_enqueue(queue, title=str(n), limit=3) for n in range(10)), return_exceptions=True
+    )
+
+    assert sum(isinstance(r, QueueFullError) for r in results) == 7
+    assert await queue.count(1) == 3
+
+
+async def test_each_guild_has_its_own_limit(store: JobStore) -> None:
+    queue = _queue(store)
+    await _enqueue(queue, 1, limit=1)
+
+    await _enqueue(queue, 2, limit=1)  # another guild: fine
+    with pytest.raises(QueueFullError):
+        await _enqueue(queue, 1, limit=1)
+
+
+async def test_finishing_a_track_deletes_it_and_a_repeat_is_harmless(store: JobStore) -> None:
+    queue = _queue(store)
+    first = await _enqueue(queue, title="one")
+    second = await _enqueue(queue, title="two")
+
+    assert await queue.finish(1, first.id) is True
+    assert await queue.finish(1, first.id) is False  # a duplicate end event
+    assert await queue.head(1) == second
+    assert await queue.finish(2, second.id) is False  # not that guild's track
+    assert await queue.count(1) == 1
+
+
+async def test_removing_by_id_returns_the_track_and_closes_the_gap(store: JobStore) -> None:
+    queue = _queue(store)
+    one = await _enqueue(queue, title="one")
+    two = await _enqueue(queue, title="two")
+    three = await _enqueue(queue, title="three")
+
+    assert await queue.remove(1, two.id) == two
+
+    assert await queue.entries(1, 10) == [one, three]
+    assert await queue.remove(1, two.id) is None  # already gone
+    assert await queue.remove(2, one.id) is None  # not that guild's track
+    assert await queue.count(1) == 2
+
+
+async def test_clearing_removes_only_that_guilds_tracks(store: JobStore) -> None:
+    queue = _queue(store)
+    await _enqueue(queue, 1)
+    await _enqueue(queue, 1)
+    await _enqueue(queue, 2)
+
+    assert await queue.clear(1) == 2
+
+    assert (await queue.count(1), await queue.count(2)) == (0, 1)
+
+
+async def test_forgetting_a_user_removes_the_tracks_they_queued_only(store: JobStore) -> None:
+    queue = _queue(store)
+    await _enqueue(queue, requester=7)
+    await _enqueue(queue, requester=8)
+    await _enqueue(queue, 2, requester=7)
+
+    assert await queue.purge_user(7) == 2
+
+    assert [e.requester_id for e in await queue.entries(1, 10)] == [8]
+
+
+async def test_a_departed_servers_queue_is_deleted(store: JobStore) -> None:
+    queue = _queue(store)
+    await _enqueue(queue, 1)
+    await _enqueue(queue, 2)
+
+    assert await queue.purge_guild(1) == 1
+
+    assert (await queue.count(1), await queue.count(2)) == (0, 1)
+
+
+async def test_the_database_rejects_anything_that_is_not_a_video_id(store: JobStore) -> None:
+    for bad in ("not a video", "dQw4w9WgXcQx", "dQw4w9WgXc", "https://evil.example/"):
+        with pytest.raises(asyncpg.CheckViolationError):
+            await _enqueue(_queue(store), video=bad)
+    await _enqueue(_queue(store), video="a-b_C-d_E-f")  # hyphens and underscores are fine

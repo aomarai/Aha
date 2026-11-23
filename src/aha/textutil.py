@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import discord
 
-__all__ = ["clip", "code", "plain"]
+__all__ = ["clip", "code", "pack", "plain"]
 
 
 def plain(text: str) -> str:
@@ -21,3 +21,14 @@ def code(text: str) -> str:
 def clip(text: str, limit: int) -> str:
     """Shorten ``text`` to at most ``limit`` characters, ending in an ellipsis if it was cut."""
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def pack(lines: list[str], limit: int) -> list[str]:
+    """Join ``lines`` into pages of at most ``limit`` characters (a longer line gets its own)."""
+    pages: list[str] = []
+    for line in lines:
+        if pages and len(pages[-1]) + 1 + len(line) <= limit:
+            pages[-1] += "\n" + line
+        else:
+            pages.append(line)
+    return pages

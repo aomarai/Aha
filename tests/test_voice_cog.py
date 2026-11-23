@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 from typing import Any, cast
 
@@ -13,8 +14,9 @@ from aha.cogs.voice import JANITOR_TASK, SWEEP_INTERVAL, Voice
 from aha.cogs.voice import setup as voice_setup
 from aha.config import Settings
 from aha.metrics import Metrics
+from aha.playback import PlaybackQueue
 from aha.voice import AudioEvent, Track, VoiceError
-from tests.helpers import Named, StubContext, as_context
+from tests.helpers import FakeQueueStore, Named, StubContext, as_context
 
 
 class FakeAudio:
@@ -24,6 +26,8 @@ class FakeAudio:
         self.up = True
         self.players: dict[int, int | None] = {}
         self.playing: set[int] = set()
+        self.paused: set[int] = set()
+        self.stops: list[int] = []
         self.joined: list[Any] = []
         self.left: list[int] = []
         self.join_error: VoiceError | None = None
@@ -49,12 +53,25 @@ class FakeAudio:
     def is_playing(self, guild_id: int) -> bool:
         return guild_id in self.playing
 
+    def is_paused(self, guild_id: int) -> bool:
+        return guild_id in self.paused
+
+    def position_ms(self, guild_id: int) -> int:
+        return 62_000
+
+    async def set_paused(self, guild_id: int, paused: bool) -> None:
+        (self.paused.add if paused else self.paused.discard)(guild_id)
+
+    async def stop_track(self, guild_id: int) -> None:
+        self.stops.append(guild_id)
+        self.playing.discard(guild_id)
+
     async def load(self, video: str) -> Track:
         self.loads.append(video)
         self.order.append("load")
         if self.load_error is not None:
             raise self.load_error
-        return self.load_result
+        return dataclasses.replace(self.load_result, video_id=video)
 
     async def play(self, guild_id: int, track: Track) -> None:
         self.order.append("play")
@@ -126,6 +143,14 @@ class FakeBot:
         self.looked_up: list[int] = []
         self.cogs: list[Any] = []
         self.metrics = Metrics(lambda: [], lambda: {})
+        self.store = FakeQueueStore()
+        self.playback = (
+            PlaybackQueue(
+                cast("Any", audio), cast("Any", self.store), max_queue=self.settings.voice_max_queue
+            )
+            if audio is not None
+            else None
+        )
 
     def get_channel(self, channel_id: int) -> Any:
         self.looked_up.append(channel_id)
@@ -698,8 +723,9 @@ def test_play_loads_joins_then_plays_and_announces_the_track() -> None:
 
     run_play(cog, ctx)
 
-    assert audio.loads == ["dQw4w9WgXcQ"]
-    assert audio.order == ["load", "join", "play"]  # nothing is joined for a video that cannot play
+    assert audio.loads == ["dQw4w9WgXcQ", "dQw4w9WgXcQ"]  # to check it, then to start it
+    # Loaded to check it, then joined, then the queue loads it again to start it (a fresh stream).
+    assert audio.order == ["load", "join", "load", "play"]
     assert audio.joined == [channel]
     assert [(g, t.video_id) for g, t in audio.plays] == [(11, "dQw4w9WgXcQ")]
     assert ctx.deferred == [False]
@@ -720,7 +746,7 @@ def test_play_does_not_rejoin_a_channel_it_is_already_in() -> None:
 
     run_play(make(audio), ctx)
 
-    assert audio.order == ["load", "play"]
+    assert audio.order == ["load", "load", "play"]  # no join: it is already in the channel
 
 
 def test_a_bad_link_is_refused_before_anything_else_happens() -> None:
@@ -788,18 +814,26 @@ def test_play_uses_the_same_permission_busy_and_in_use_checks_as_join() -> None:
     assert audio.loads == []
 
 
-def test_play_while_something_plays_is_refused_until_the_queue_exists() -> None:
+def test_play_while_something_plays_queues_the_track_and_says_where() -> None:
     audio = FakeAudio()
     audio.players[11] = 10
     audio.playing.add(11)
     ctx = ctx_in(FakeVoiceChannel(channel_id=10))
     cog = make(audio)
+    store = cast("Any", cog.bot).store
+    asyncio.run(
+        store.add(11, video_id="aaaaaaaaaaa", title="x", length_ms=1, requester_id=1, limit=50)
+    )
 
     run_play(cog, ctx)
 
-    assert text(ctx) == "I'm already playing something. Wait for it to finish; queuing is coming."
-    assert ephemeral(ctx) is True and audio.loads == []
-    assert counts(cog)["refused"] == 1.0
+    assert text(ctx) == (
+        "🎶 Queued [Never Gonna Give You Up](https://www.youtube.com/watch?v=dQw4w9WgXcQ) "
+        "(3:33) at position 2, requested by Sam."
+    )
+    assert audio.plays == [] and audio.joined == []  # something else is already playing
+    assert ephemeral(ctx) is False
+    assert counts(cog)["ok"] == 1.0
 
 
 def test_a_live_stream_is_refused_and_nothing_is_joined() -> None:
@@ -813,6 +847,7 @@ def test_a_live_stream_is_refused_and_nothing_is_joined() -> None:
     assert text(ctx) == "Live streams aren't supported. Paste a regular video."
     assert ephemeral(ctx) is True
     assert audio.order == ["load"]
+    assert cast("Any", cog.bot).store.rows == []  # nothing was queued
     assert counts(cog)["refused"] == 1.0
 
 
@@ -829,7 +864,7 @@ def test_a_track_over_the_limit_is_refused_and_one_at_the_limit_is_not() -> None
     audio.load_result = Track("dQw4w9WgXcQ", "Just right", "x", 30 * 60_000, False, "h")
     ctx = ctx_in(FakeVoiceChannel())
     run_play(make(audio), ctx)
-    assert audio.order == ["load", "join", "play"]
+    assert audio.order == ["load", "join", "load", "play"]
 
 
 def test_the_length_limit_comes_from_the_setting() -> None:
@@ -842,8 +877,17 @@ def test_the_length_limit_comes_from_the_setting() -> None:
     assert text(ctx) == "That video is longer than 5 minutes, which is the limit."
 
 
-@pytest.mark.parametrize("stage", ["load", "join", "play"])
-def test_a_failure_at_any_stage_is_reported_privately_and_counted_as_failed(stage: str) -> None:
+@pytest.mark.parametrize(
+    ("stage", "message"),
+    [
+        ("load", "I couldn't load that video."),
+        ("join", "I couldn't load that video."),  # the error's own message is shown
+        ("play", "I couldn't start playback. Try again in a moment."),
+    ],
+)
+def test_a_failure_at_any_stage_is_reported_privately_counted_and_leaves_no_track_queued(
+    stage: str, message: str
+) -> None:
     audio = FakeAudio()
     setattr(audio, f"{stage}_error", VoiceError("voice.load_failed"))
     ctx = ctx_in(FakeVoiceChannel())
@@ -851,10 +895,46 @@ def test_a_failure_at_any_stage_is_reported_privately_and_counted_as_failed(stag
 
     run_play(cog, ctx)
 
-    assert text(ctx).startswith("I couldn't load that video.")
+    assert text(ctx).startswith(message)
     assert ephemeral(ctx) is True
     assert counts(cog) == {"ok": 0.0, "refused": 0.0, "failed": 1.0}
     assert cog._announce == {}
+    assert cast("Any", cog.bot).store.rows == []  # the track was taken back, or dropped
+
+
+def test_play_without_a_database_says_why_before_anything_else() -> None:
+    audio = FakeAudio()
+    cog = make(audio)
+    cast("Any", cog.bot).playback = None
+    ctx = ctx_in(FakeVoiceChannel())
+
+    run_play(cog, ctx)
+
+    assert (
+        text(ctx) == "Voice playback needs a database for the queue, and this deployment has none."
+    )
+    assert ephemeral(ctx) is True and audio.order == []
+
+
+def test_a_full_queue_is_refused_with_its_limit() -> None:
+    audio = FakeAudio()
+    audio.players[11] = 10
+    audio.playing.add(11)
+    cog = make(audio, voice_max_queue=1)
+    store = cast("Any", cog.bot).store
+    asyncio.run(
+        store.add(11, video_id="aaaaaaaaaaa", title="x", length_ms=1, requester_id=1, limit=50)
+    )
+    ctx = ctx_in(FakeVoiceChannel(channel_id=10))
+
+    run_play(cog, ctx)
+
+    assert (
+        text(ctx) == "The queue is full (1 tracks). Wait for something to play, or remove a track."
+    )
+    assert ephemeral(ctx) is True
+    assert counts(cog)["refused"] == 1.0
+    assert len(store.rows) == 1
 
 
 def test_a_hostile_title_cannot_turn_into_another_link() -> None:
@@ -885,7 +965,7 @@ def test_play_answers_in_german() -> None:
 
 
 def test_the_length_is_shown_as_minutes_and_seconds_or_with_hours() -> None:
-    from aha.cogs.voice import format_length
+    from aha.cogs.playback import format_length
 
     assert [format_length(ms) for ms in (0, 999, 1000, 59_000, 213_000, 3_599_000, 3_723_000)] == [
         "0:00",
@@ -1120,3 +1200,84 @@ def test_a_problem_in_a_guild_with_no_recent_play_looks_up_no_channel() -> None:
     asyncio.run(cog._on_audio_event(event(99)))
 
     assert cast("Any", cog.bot).looked_up == []
+
+
+# ----------------------------------------------------------------------------- the queue moves on
+
+
+def started_cog(videos: int = 2) -> tuple[Voice, FakeAudio]:
+    audio = FakeAudio()
+    audio.players[11] = 10
+    cog = make(audio)
+    store = cast("Any", cog.bot).store
+    for n in range(videos):
+        asyncio.run(
+            store.add(
+                11, video_id=f"{n:011d}", title=f"t{n}", length_ms=1000, requester_id=7, limit=50
+            )
+        )
+    asyncio.run(cast("Any", cog.bot).playback.ensure_playing(11))
+    return cog, audio
+
+
+def test_when_a_track_ends_the_next_one_starts_and_nothing_is_reported() -> None:
+    cog, audio = started_cog()
+    audio.playing.clear()  # the node says the first one ended
+    channel = Reporter()
+    cast("Any", cog.bot).channels[22] = channel
+    cog._announce[11] = 22
+
+    asyncio.run(cog._on_audio_event(AudioEvent(11, "ended", f"{0:011d}", "finished")))
+
+    assert [t.video_id for _, t in audio.plays] == [f"{0:011d}", f"{1:011d}"]
+    assert channel.sent == []
+    assert counts(cog)["failed"] == 0.0
+
+
+def test_an_end_event_for_another_video_does_not_move_the_queue() -> None:
+    cog, audio = started_cog()
+    audio.playing.clear()
+
+    asyncio.run(cog._on_audio_event(AudioEvent(11, "ended", "zzzzzzzzzzz", "finished")))
+
+    assert len(audio.plays) == 1
+
+
+def test_an_end_event_without_a_queue_is_ignored() -> None:
+    cog = make(FakeAudio())
+    cast("Any", cog.bot).playback = None
+
+    asyncio.run(cog._on_audio_event(AudioEvent(11, "ended", "dQw4w9WgXcQ", "finished")))  # no error
+
+
+def test_a_failed_track_is_reported_but_the_queue_waits_for_the_end_event() -> None:
+    cog, audio = started_cog()
+    channel = Reporter()
+    cast("Any", cog.bot).channels[22] = channel
+    cog._announce[11] = 22
+
+    asyncio.run(cog._on_audio_event(AudioEvent(11, "failed", f"{0:011d}", "suspicious: x")))
+
+    assert len(channel.sent) == 1 and counts(cog)["failed"] == 1.0
+    assert len(audio.plays) == 1  # the node follows a failure with an end event, which advances
+
+
+def test_a_stuck_track_is_reported_and_replaced_by_the_next() -> None:
+    cog, audio = started_cog()
+    channel = Reporter()
+    cast("Any", cog.bot).channels[22] = channel
+    cog._announce[11] = 22
+
+    asyncio.run(cog._on_audio_event(AudioEvent(11, "stuck", f"{0:011d}", "no audio")))
+
+    assert len(channel.sent) == 1 and counts(cog)["failed"] == 1.0
+    assert [t.video_id for _, t in audio.plays] == [f"{0:011d}", f"{1:011d}"]
+
+
+def test_a_stuck_event_for_another_video_does_not_skip_what_is_playing() -> None:
+    cog, audio = started_cog()
+
+    asyncio.run(cog._on_audio_event(AudioEvent(11, "stuck", "zzzzzzzzzzz", "no audio")))
+
+    assert len(audio.plays) == 1  # reported and counted, but the current track stays
+    assert counts(cog)["failed"] == 1.0

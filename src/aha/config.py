@@ -72,6 +72,8 @@ DEFAULT_VOICE_IDLE_MINUTES = 5
 MAX_VOICE_IDLE_MINUTES = 120
 DEFAULT_VOICE_MAX_TRACK_MINUTES = 30
 MAX_VOICE_MAX_TRACK_MINUTES = 600
+DEFAULT_VOICE_MAX_QUEUE = 50
+MAX_VOICE_MAX_QUEUE = 500
 
 #: Most shards one deployment may declare (only catches typos; Discord has its own ceiling).
 MAX_SHARD_COUNT = 10_000
@@ -342,6 +344,8 @@ class Settings:
     voice_idle_minutes: int = DEFAULT_VOICE_IDLE_MINUTES
     #: Longest track ``/play`` accepts, in minutes.
     voice_max_track_minutes: int = DEFAULT_VOICE_MAX_TRACK_MINUTES
+    #: Most tracks one server may have queued, the playing one included.
+    voice_max_queue: int = DEFAULT_VOICE_MAX_QUEUE
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -455,6 +459,13 @@ class Settings:
             low=1,
             high=MAX_VOICE_MAX_TRACK_MINUTES,
         )
+        voice_max_queue = _parse_bounded_int(
+            source.get("VOICE_MAX_QUEUE"),
+            name="VOICE_MAX_QUEUE",
+            default=DEFAULT_VOICE_MAX_QUEUE,
+            low=1,
+            high=MAX_VOICE_MAX_QUEUE,
+        )
         session_start_floor = _parse_fraction(
             source.get("SESSION_START_FLOOR"),
             name="SESSION_START_FLOOR",
@@ -487,4 +498,5 @@ class Settings:
             voice_max_players=voice_max_players,
             voice_idle_minutes=voice_idle_minutes,
             voice_max_track_minutes=voice_max_track_minutes,
+            voice_max_queue=voice_max_queue,
         )

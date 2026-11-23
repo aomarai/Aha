@@ -61,6 +61,16 @@ INVENTORY: dict[str, TableData] = {
             "time are kept"
         ),
     ),
+    "voice_queue": TableData(
+        user_column="requester_id",
+        guild_column="guild_id",
+        retention=(
+            "until the track has played, been removed or skipped, or the queue is stopped; deleted "
+            "at once by /forgetme (your queued tracks), and a server's queue is deleted when the "
+            "bot has been out of that server for 30 days; only the video id, title, length and "
+            "who asked are kept"
+        ),
+    ),
     "scheduled_jobs": TableData(
         user_column="user_id",
         guild_column="guild_id",

@@ -14,11 +14,11 @@ __all__ = ["GUILD_TABLES", "USER_TABLES", "UserPurge", "purge_user"]
 
 #: Tables :func:`purge_user` clears (those with a user column in the data inventory).
 USER_TABLES = frozenset(
-    {"scheduled_jobs", "guild_settings", "summarize_usage", "show_subscriptions"}
+    {"scheduled_jobs", "guild_settings", "summarize_usage", "show_subscriptions", "voice_queue"}
 )
 
 #: Tables the departed-guild purge clears (those with a guild column in the data inventory).
-GUILD_TABLES = frozenset({"scheduled_jobs", "guild_settings", "show_subscriptions"})
+GUILD_TABLES = frozenset({"scheduled_jobs", "guild_settings", "show_subscriptions", "voice_queue"})
 
 
 class _Jobs(Protocol):
@@ -41,6 +41,11 @@ class _Shows(Protocol):
         """Delete a user's show subscriptions (and the jobs they own)."""
 
 
+class _Queue(Protocol):
+    async def purge_user(self, user_id: int) -> int:
+        """Delete the tracks a user queued."""
+
+
 @dataclass(frozen=True, slots=True)
 class UserPurge:
     """What a deletion removed."""
@@ -53,10 +58,12 @@ class UserPurge:
     usage: int
     #: Show subscriptions (``/watch``) deleted.
     shows: int
+    #: Voice queue tracks (``/play``) deleted.
+    tracks: int
 
 
 async def purge_user(
-    jobs: _Jobs, settings: _Settings, usage: _Usage, shows: _Shows, user_id: int
+    jobs: _Jobs, settings: _Settings, usage: _Usage, shows: _Shows, queue: _Queue, user_id: int
 ) -> UserPurge:
     """Delete everything stored about ``user_id`` and report how much there was.
 
@@ -68,4 +75,5 @@ async def purge_user(
         settings=await settings.anonymise_user(user_id),
         usage=await usage.purge_user(user_id),
         shows=await shows.purge_user(user_id),
+        tracks=await queue.purge_user(user_id),
     )

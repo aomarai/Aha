@@ -191,6 +191,13 @@ every change must keep:
   `channel.voice_states` because there is no member cache. The node connection is a supervised,
   non-critical task (`AUDIO_TASK`): the bot stays ready when Lavalink is down. Fakes for Discord
   objects must be real subclasses (`discord.VoiceChannel`, `wavelink.Player`) so `isinstance` holds.
+- The voice queue (`aha.playback`, `aha.queuestore`, `cogs/playback.py`): tracks wait in PostgreSQL
+  (`voice_queue`); a guild's lowest id is the track playing now and finishing it deletes its row.
+  `PlaybackQueue` decides what plays next under a per-guild lock, ignores end events for any video it
+  did not start, and drops a queued track that no longer loads rather than stalling. The controls
+  (commands and buttons) share one rule set: anyone in the bot's channel may pause; only a track's
+  requester or Manage Channels may skip, remove or stop. `queuestore.py` is pure SQL, excluded from
+  mutation, covered by the real-PostgreSQL tests.
 - Show reminders (`cogs/shows.py`, `aha.tvmaze`, `aha.showstore`): a `show_subscriptions` row owns one
   live `scheduled_jobs` row (kind `show`, `job_id`); the handler announces the episode and moves the
   chain on with `ShowStore.advance`, a compare-and-swap on `job_id` that stops a redelivered job from
