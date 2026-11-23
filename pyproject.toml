@@ -1,6 +1,6 @@
 [project]
 name = "aha"
-version = "0.1.0"
+version = "0.2.0"
 description = "Aha - a Discord bot (Python, discord.py, uv)."
 readme = "README.md"
 authors = [

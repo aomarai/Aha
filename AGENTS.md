@@ -148,6 +148,17 @@ every change must keep:
   and bounds time, redirects and bytes. Untrusted text (user input, remote page titles) goes through
   `aha.textutil.plain`/`code` before it is shown. A production deployment should also restrict
   egress at the network layer (#109); this is the application layer, not a substitute.
+- **Versioning** (SemVer, `docs/releasing.md`): while below 1.0, `0.MINOR.PATCH`. A new command, option,
+  config variable, metric or migration is a **minor** bump; a bug fix with no new surface is a
+  **patch**; breaking a command, config variable or deployed behaviour needs a minor bump with a
+  `### Changed`/`### Removed` entry (after 1.0 it is a major). Docs, CI and test-only changes do not
+  bump. Every user-visible change adds its line under `## [Unreleased]` in `CHANGELOG.md` in the same
+  PR. The version itself is bumped in a separate release PR (never in a feature PR, so concurrent PRs
+  do not conflict): change `pyproject.toml`, `aha.__version__` and the `aha` entry in `uv.lock`
+  together, move the `Unreleased` entries under `## [X.Y.Z] - date`, merge, then tag `vX.Y.Z`.
+  Cut a release when a user-visible change has been verified on staging and before it goes to
+  production: **production runs the digest of a tagged release; staging runs `sha-*` builds**.
+  Never move or reuse a tag; ship a new patch instead.
 - Database: `DATABASE_URL`(`_FILE`) is optional; when set, `setup_hook` opens `bot.db` (a pooled,
   statement-timeout-bounded `aha.db.Database`) and refuses to start if the schema is behind. The
   schema changes only through `src/aha/migrations/NNNN_*.sql`, applied by `aha migrate` as a deploy
