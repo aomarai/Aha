@@ -32,6 +32,7 @@ from aha.metrics import Metrics, ShardState
 from aha.ratelimit import LocalBackend, RateLimitBackend, RateLimiter
 from aha.scheduler import Scheduler
 from aha.tasks import TaskRegistry
+from aha.voice import AudioBackend, WavelinkBackend
 
 __all__ = [
     "COG_MODULES",
@@ -60,6 +61,7 @@ COG_MODULES: tuple[str, ...] = (
     "aha.cogs.web",
     "aha.cogs.remind",
     "aha.cogs.shows",
+    "aha.cogs.voice",
     "aha.cogs.config",
     "aha.cogs.forget",
     "aha.cogs.summarize",
@@ -78,6 +80,9 @@ GATEWAY_DISCONNECT_TIMEOUT = 300.0
 
 #: Name of the durable-job scheduler task in the registry.
 SCHEDULER_TASK = "scheduler"
+
+#: Name of the Lavalink connection task in the registry.
+AUDIO_TASK = "lavalink"
 
 #: Name of the health/metrics server task in the registry.
 HEALTH_TASK = "health-server"
@@ -100,12 +105,15 @@ def gateway_intents() -> discord.Intents:
     memory on every shard, which is what limits how many shards one pod can hold (ADR 0001).
 
     * ``guilds``: the guild, channel and role cache, and ``on_guild_remove``. Required.
+    * ``voice_states`` (not privileged): who is in which voice channel, and the voice server updates
+      the bot forwards to Lavalink. Without it Discord sends no voice events, so the player could
+      never join a channel (ADR 0002 section 4). It also lets the bot see when it is alone.
     Nothing else: no message events at all. Commands are slash commands and menus only (the
-    ``@Aha command`` surface was removed, #101), so the one event stream left is guild lifecycle.
+    ``@Aha command`` surface was removed, #101).
 
-    Add an intent here only together with the feature that needs it (``voice_states`` for #68).
+    Add an intent here only together with the feature that needs it.
     """
-    return discord.Intents(guilds=True)
+    return discord.Intents(guilds=True, voice_states=True)
 
 
 _ACTIVITY_TYPES = {
@@ -206,6 +214,8 @@ class AhaBot(commands.AutoShardedBot):
         #: Runs durable jobs from the database; ``None`` without one. Cogs register handlers on it.
         self.scheduler: Scheduler | None = None
         self.guild_settings: GuildSettingsCache | None = None
+        #: The voice audio backend (a Lavalink node); ``None`` when ``LAVALINK_URL`` is unset.
+        self.audio: AudioBackend | None = None
         #: False for REST-only jobs (``aha sync``): no gateway session, so nothing to guard.
         self.gateway_enabled = gateway
         #: Serialises IDENTIFY across pods (needs a database and an explicit shard assignment).
@@ -311,6 +321,18 @@ class AhaBot(commands.AutoShardedBot):
             await self.sync_commands()
         else:
             log.info("Command sync skipped at startup (run 'aha sync')")
+        if (
+            self.gateway_enabled
+            and self.settings.lavalink_url is not None
+            and self.settings.lavalink_password is not None
+            and AUDIO_TASK not in self.tasks
+        ):
+            self.audio = WavelinkBackend(
+                self, self.settings.lavalink_url, self.settings.lavalink_password
+            )
+            self.metrics.bind_audio(self.audio)
+            # Not critical: without the node the bot still serves everything but voice.
+            self.tasks.spawn(self.audio.run, name=AUDIO_TASK, restart=True)
         if self.scheduler is not None and SCHEDULER_TASK not in self.tasks:
             self.tasks.spawn(self.scheduler.run, name=SCHEDULER_TASK, restart=True, critical=True)
         if WATCHDOG_TASK not in self.tasks:

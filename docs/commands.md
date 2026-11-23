@@ -155,6 +155,18 @@ Usage: `/countdown <when> [label]`
 
 *cooldown: 1 per 5 s per user.*
 
+### `/join`
+
+Join your voice channel.
+
+*cooldown: 1 per 5 s per user; servers only.*
+
+### `/leave`
+
+Leave the voice channel.
+
+*cooldown: 1 per 5 s per user; servers only.*
+
 ### `/poll`
 
 Start a poll people can vote in.

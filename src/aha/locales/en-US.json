@@ -134,7 +134,19 @@
     "shows.lead": "{lead} before",
     "shows.waiting": "waiting for a date",
     "shows.notify": "{user} 📺 **{show}**: {episode} {when}",
-    "shows.finished": "{user} 📺 **{show}** has ended, so I've stopped following it."
+    "shows.finished": "{user} 📺 **{show}** has ended, so I've stopped following it.",
+    "voice.off": "Voice playback is not available in this deployment.",
+    "voice.node_down": "The audio server isn't reachable right now. Try again in a minute.",
+    "voice.join_first": "Join a voice channel first, then run this again.",
+    "voice.missing_permissions": "I need Connect and Speak in **{channel}** to join it.",
+    "voice.already_here": "I'm already in **{channel}**.",
+    "voice.busy": "I'm busy with other voice sessions right now. Try again later.",
+    "voice.in_use": "I'm playing in another channel. Ask someone with Manage Channels, or wait until it's done.",
+    "voice.join_failed": "I couldn't join that channel. Check my permissions and try again.",
+    "voice.joined": "Joined **{channel}**.",
+    "voice.not_connected": "I'm not in a voice channel.",
+    "voice.not_with_me": "Join my voice channel first, or ask someone with Manage Channels.",
+    "voice.left": "Left the voice channel."
   },
   "commands": {}
 }

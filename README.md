@@ -138,8 +138,10 @@ it. There is no text trigger at all: the `@Aha command` mention surface was remo
 subscribes to no message events.
 
 The bot also requests only the **non-privileged intents it uses**, not `Intents.default()`:
-`guilds` (the guild and channel cache, `on_guild_remove`) and nothing else. Messages, typing, voice,
-invites, emoji, reactions, scheduled events and the rest are not subscribed, and no message cache is kept (`max_messages=None`),
+`guilds` (the guild and channel cache, `on_guild_remove`) and `voice_states` (who is in which voice
+channel, and the voice updates forwarded to the Lavalink audio node; not privileged, kept in memory
+only, ADR 0002). Messages, typing, invites, emoji, reactions, scheduled events and the rest are not
+subscribed, and no message cache is kept (`max_messages=None`),
 no member cache (`MemberCacheFlags.none()`) and no guild chunking at startup.
 Each unused event stream costs bandwidth, CPU and memory on every shard. Add an intent in
 `aha.bot.gateway_intents` only together with the feature that needs it. If a future feature genuinely needs message
@@ -245,6 +247,7 @@ Aha/
 │   ├── migrations/      # NNNN_description.sql
 │   ├── scheduler.py     # durable job scheduler (any pod runs due jobs)
 │   ├── jobstore.py      # SQL behind the scheduler (scheduled_jobs)
+│   ├── voice.py         # audio backend interface and its Lavalink (Wavelink) adapter
 │   ├── delivery.py      # send a scheduled message: channel, else DM (reminders, shows)
 │   ├── tvmaze.py        # TVmaze client behind /watch (search, next episode)
 │   ├── showstore.py     # SQL behind /watch (show_subscriptions)
@@ -269,6 +272,7 @@ Aha/
 │       ├── summarize.py # /summarize and the Summarize menu (Claude API, opt-in per server)
 │       ├── forget.py    # /forgetme (delete your data, with a confirm button)
 │       ├── remind.py    # /remind, /reminders, /unremind (durable, needs DATABASE_URL)
+│       ├── voice.py     # /join, /leave and the idle janitor (needs LAVALINK_URL)
 │       ├── shows.py     # /watch, /watching, /unwatch (episode reminders, needs DATABASE_URL)
 │       ├── polls.py     # /poll (native Discord polls), Count reactions menu
 │       └── ops.py       # /sync (owner only; dev guild / SYNC_ON_STARTUP only)
@@ -306,6 +310,8 @@ Real environment variables take precedence over `.env`.
 | `SHARD_IDS`         | no       | all     | Shards this process owns, e.g. `0,1` (needs `SHARD_COUNT`) |
 | `ANTHROPIC_API_KEY` | no | – | Enables `/summarize` (or `ANTHROPIC_API_KEY_FILE`; set at most one). Off per server until an admin runs `/configure summaries on` |
 | `ANTHROPIC_MODEL` | no | `claude-haiku-5-5` | Model used for summaries |
+| `LAVALINK_URL`, `LAVALINK_PASSWORD` | no | – | Voice playback: the [Lavalink](https://github.com/lavalink-devs/Lavalink) audio node (`http://host:2333`) and its password (or `LAVALINK_PASSWORD_FILE`; set at most one). Set both or neither; without them `/join` says playback is off. See [ADR 0002](docs/adr/0002-voice-playback.md) |
+| `VOICE_MAX_PLAYERS`, `VOICE_IDLE_MINUTES` | no | `10`, `5` | Voice sessions one process holds at once (1-200); minutes alone or silent before the bot leaves (1-120) |
 | `SUMMARIZE_DAILY_QUOTA`, `SUMMARIZE_MAX_CHARS` | no | `10`, `4000` | Summaries per user per UTC day (1-1000); characters sent to the model (100-20000) |
 | `SESSION_START_FLOOR` | no     | `0.1`   | Wait for Discord's reset instead of identifying when fewer than this fraction of the daily gateway sessions remain (`0` disables); see [the runbook](docs/runbooks/session-budget.md) |
 | `SHARDS_PER_POD`, `POD_INDEX` | no | – | Derive `SHARD_IDS` from a StatefulSet ordinal instead (needs `SHARD_COUNT`) |

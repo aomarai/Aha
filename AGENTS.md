@@ -183,6 +183,14 @@ every change must keep:
   translated payload, so keep that when touching sync. See `docs/i18n.md`.
 - Reminders (`cogs/remind.py`, `aha.durations`) are `scheduled_jobs` of kind `reminder`; delivery
   pings only the invoker and falls back to a DM (`aha.delivery.send_to_user`, shared with `/watch`).
+- Voice (`voice.py`, `cogs/voice.py`, ADR 0002): audio runs in a Lavalink node, never in this process.
+  Cogs use the `aha.voice.AudioBackend` protocol, never Wavelink directly (the adapter is the only
+  place that imports it). A voice session lives on the pod that owns the guild's shard, so scheduled
+  jobs must never touch it. Commands exist even without `LAVALINK_URL` (the command tree must match
+  on every process) and say playback is off. The bot joins deafened; listeners are read from
+  `channel.voice_states` because there is no member cache. The node connection is a supervised,
+  non-critical task (`AUDIO_TASK`): the bot stays ready when Lavalink is down. Fakes for Discord
+  objects must be real subclasses (`discord.VoiceChannel`, `wavelink.Player`) so `isinstance` holds.
 - Show reminders (`cogs/shows.py`, `aha.tvmaze`, `aha.showstore`): a `show_subscriptions` row owns one
   live `scheduled_jobs` row (kind `show`, `job_id`); the handler announces the episode and moves the
   chain on with `ShowStore.advance`, a compare-and-swap on `job_id` that stops a redelivered job from
@@ -208,6 +216,11 @@ every change must keep:
   serializes with an `asyncio.Lock` and restores the local tree in a `finally`. In-process
   `AutoShardedClient` shards share that state; separate processes are the shard-group model in
   `docs/sharding.md`.
+- Test doubles must not hide bad calls: a fake that takes `**kwargs` accepts any argument, which is how
+  an invalid `send(enforce_nonce=...)` reached production and stopped every reminder. Where a call
+  goes into discord.py (or another library), bind the keywords to the real signature
+  (`inspect.signature(...).bind`, see `tests/test_delivery.py`). And check a reviewer's claim about a
+  library against its source before changing code to match it.
 - Tests are plain pytest functions (`tests/test_config.py` tests `Settings`; the `/config` cog is in
   `tests/test_guild_config.py`); async code is driven with `asyncio.run(...)`. The one exception
   is `tests/test_postgres_integration.py`, which uses pytest-asyncio (strict mode, opt-in per module)

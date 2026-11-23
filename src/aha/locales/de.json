@@ -134,7 +134,19 @@
     "shows.lead": "{lead} vorher",
     "shows.waiting": "wartet auf ein Datum",
     "shows.notify": "{user} 📺 Neue Folge von **{show}**: {episode} {when}",
-    "shows.finished": "{user} 📺 **{show}** ist beendet, ich folge der Serie nicht mehr."
+    "shows.finished": "{user} 📺 **{show}** ist beendet, ich folge der Serie nicht mehr.",
+    "voice.off": "Sprachwiedergabe ist in dieser Installation nicht verfügbar.",
+    "voice.node_down": "Der Audioserver ist gerade nicht erreichbar. Versuche es in einer Minute noch einmal.",
+    "voice.join_first": "Tritt zuerst einem Sprachkanal bei und führe den Befehl dann erneut aus.",
+    "voice.missing_permissions": "Ich brauche „Verbinden“ und „Sprechen“ in **{channel}**, um beizutreten.",
+    "voice.already_here": "Ich bin schon in **{channel}**.",
+    "voice.busy": "Ich bin gerade mit anderen Sprachsitzungen beschäftigt. Versuche es später noch einmal.",
+    "voice.in_use": "Ich spiele gerade in einem anderen Kanal. Frage jemanden mit „Kanäle verwalten“ oder warte, bis es zu Ende ist.",
+    "voice.join_failed": "Ich konnte diesem Kanal nicht beitreten. Prüfe meine Berechtigungen und versuche es erneut.",
+    "voice.joined": "**{channel}** beigetreten.",
+    "voice.not_connected": "Ich bin in keinem Sprachkanal.",
+    "voice.not_with_me": "Tritt zuerst meinem Sprachkanal bei oder frage jemanden mit „Kanäle verwalten“.",
+    "voice.left": "Sprachkanal verlassen."
   },
   "commands": {
     "Check the bot's WebSocket latency.": "Prüft die WebSocket-Latenz des Bots.",
@@ -160,6 +172,8 @@
     "Remind you this long before, like 30m or 1d. Default: when it airs.": "So lange vorher erinnern, z. B. 30m oder 1d. Standard: zur Sendezeit.",
     "Direct message": "Direktnachricht",
     "Ping me in this channel": "In diesem Kanal erwähnen",
-    "The show to stop following.": "Die Serie, der du nicht mehr folgen willst."
+    "The show to stop following.": "Die Serie, der du nicht mehr folgen willst.",
+    "Join your voice channel.": "Tritt deinem Sprachkanal bei.",
+    "Leave the voice channel.": "Verlässt den Sprachkanal."
   }
 }

@@ -718,3 +718,119 @@ def test_a_non_numeric_limit_names_the_variable() -> None:
         _env(SUMMARIZE_DAILY_QUOTA="lots")
 
     assert str(caught.value) == "SUMMARIZE_DAILY_QUOTA must be an integer, got 'lots'"
+
+
+# ----------------------------------------------------------------------------- voice (Lavalink)
+
+
+def test_voice_is_off_by_default_with_sensible_limits() -> None:
+    settings = Settings.from_env({"DISCORD_BOT_TOKEN": "s"})
+
+    assert (settings.lavalink_url, settings.lavalink_password) == (None, None)
+    assert (settings.voice_max_players, settings.voice_idle_minutes) == (10, 5)
+
+
+def test_lavalink_is_read_from_the_environment_and_the_url_is_tidied() -> None:
+    settings = Settings.from_env(
+        {
+            "DISCORD_BOT_TOKEN": "s",
+            "LAVALINK_URL": " http://aha-lavalink:2333/ ",
+            "LAVALINK_PASSWORD": " pw ",
+            "VOICE_MAX_PLAYERS": "3",
+            "VOICE_IDLE_MINUTES": "20",
+        }
+    )
+
+    assert settings.lavalink_url == "http://aha-lavalink:2333"
+    assert settings.lavalink_password == "pw"
+    assert (settings.voice_max_players, settings.voice_idle_minutes) == (3, 20)
+
+
+def test_the_lavalink_password_can_come_from_a_mounted_file(tmp_path: Path) -> None:
+    path = tmp_path / "password"
+    path.write_text("from-file\n")
+
+    settings = Settings.from_env(
+        {
+            "DISCORD_BOT_TOKEN": "s",
+            "LAVALINK_URL": "https://lavalink.example",
+            "LAVALINK_PASSWORD_FILE": str(path),
+        }
+    )
+
+    assert settings.lavalink_password == "from-file"
+
+
+def test_the_lavalink_password_is_never_shown_in_the_settings_repr() -> None:
+    settings = Settings.from_env(
+        {"DISCORD_BOT_TOKEN": "s", "LAVALINK_URL": "http://x:1", "LAVALINK_PASSWORD": "hunter2"}
+    )
+
+    assert "hunter2" not in repr(settings)
+
+
+@pytest.mark.parametrize(
+    ("env", "message"),
+    [
+        (
+            {"LAVALINK_URL": "http://x:1"},
+            "LAVALINK_URL is set but LAVALINK_PASSWORD (or _FILE) is not.",
+        ),
+        ({"LAVALINK_PASSWORD": "pw"}, "LAVALINK_PASSWORD is set but LAVALINK_URL is not."),
+        (
+            {"LAVALINK_URL": "ftp://x", "LAVALINK_PASSWORD": "pw"},
+            "LAVALINK_URL must start with http:// or https://, got 'ftp://x'",
+        ),
+        ({"VOICE_MAX_PLAYERS": "0"}, "VOICE_MAX_PLAYERS must be 1..200, got 0"),
+        ({"VOICE_MAX_PLAYERS": "201"}, "VOICE_MAX_PLAYERS must be 1..200, got 201"),
+        ({"VOICE_IDLE_MINUTES": "0"}, "VOICE_IDLE_MINUTES must be 1..120, got 0"),
+        ({"VOICE_IDLE_MINUTES": "121"}, "VOICE_IDLE_MINUTES must be 1..120, got 121"),
+    ],
+)
+def test_bad_voice_settings_are_rejected_with_a_clear_message(
+    env: dict[str, str], message: str
+) -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env({"DISCORD_BOT_TOKEN": "s", **env})
+
+    assert str(excinfo.value) == message
+
+
+def test_the_voice_limits_accept_their_bounds() -> None:
+    low = Settings.from_env(
+        {"DISCORD_BOT_TOKEN": "s", "VOICE_MAX_PLAYERS": "1", "VOICE_IDLE_MINUTES": "1"}
+    )
+    high = Settings.from_env(
+        {"DISCORD_BOT_TOKEN": "s", "VOICE_MAX_PLAYERS": "200", "VOICE_IDLE_MINUTES": "120"}
+    )
+
+    assert (low.voice_max_players, low.voice_idle_minutes) == (1, 1)
+    assert (high.voice_max_players, high.voice_idle_minutes) == (200, 120)
+
+
+def test_setting_the_lavalink_password_both_ways_is_an_error(tmp_path: Path) -> None:
+    path = tmp_path / "password"
+    path.write_text("x")
+
+    with pytest.raises(ConfigError) as excinfo:
+        Settings.from_env(
+            {
+                "DISCORD_BOT_TOKEN": "s",
+                "LAVALINK_URL": "http://x:1",
+                "LAVALINK_PASSWORD": "pw",
+                "LAVALINK_PASSWORD_FILE": str(path),
+            }
+        )
+
+    assert (
+        str(excinfo.value)
+        == "Set only one of LAVALINK_PASSWORD and LAVALINK_PASSWORD_FILE, not both."
+    )
+
+
+def test_only_slashes_are_trimmed_from_the_end_of_the_lavalink_url() -> None:
+    settings = Settings.from_env(
+        {"DISCORD_BOT_TOKEN": "s", "LAVALINK_URL": "http://nodeXX//", "LAVALINK_PASSWORD": "pw"}
+    )
+
+    assert settings.lavalink_url == "http://nodeXX"

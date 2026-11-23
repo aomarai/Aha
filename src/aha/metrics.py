@@ -22,6 +22,7 @@ from prometheus_client.core import GaugeMetricFamily, Metric
 from prometheus_client.registry import Collector
 
 from aha.gatewaybudget import SessionBudget
+from aha.voice import AudioBackend
 
 __all__ = ["Metrics", "ShardState"]
 
@@ -123,6 +124,16 @@ class Metrics:
             ["kind"],
             registry=self.registry,
         )
+        self.voice_players = Gauge(
+            "aha_voice_players",
+            "Guilds this process is in a voice channel for (0 when voice is off).",
+            registry=self.registry,
+        )
+        self.lavalink_up = Gauge(
+            "aha_lavalink_up",
+            "1 when the Lavalink audio node is connected, 0 when it is not or voice is off.",
+            registry=self.registry,
+        )
         self.session_start_remaining = Gauge(
             "aha_session_start_remaining",
             "Gateway sessions Discord still allows this token to start before the daily reset.",
@@ -139,6 +150,11 @@ class Metrics:
             registry=self.registry,
         )
         self.registry.register(_BotCollector(shards, guilds))
+
+    def bind_audio(self, audio: AudioBackend) -> None:
+        """Read the voice gauges from the audio backend at every scrape."""
+        self.voice_players.set_function(lambda: float(audio.player_count()))
+        self.lavalink_up.set_function(lambda: 1.0 if audio.up else 0.0)
 
     def set_session_budget(self, budget: SessionBudget) -> None:
         """Publish Discord's session-start limit as read at startup."""
