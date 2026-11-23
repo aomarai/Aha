@@ -61,10 +61,18 @@ adapter.
 - **Bot pods still own the voice *session*.** ADR 0001 §2 still holds: the pod that owns a guild's
   shard receives that guild's interactions and voice events, and it forwards the voice credentials
   to Lavalink. Scheduled jobs run on any pod (ADR 0001 §5), so they never touch voice.
+- **The bot subscribes to the `voice_states` intent.** It is not privileged, and it's required:
+  without it Discord sends no voice state or voice server updates, so there is nothing to forward
+  and the player never joins a channel. This changes the guilds-only intent set (#101) for this
+  reason alone.
 - **Queues live in Postgres** (`voice_queue`, #171). Wavelink's in-memory queue is not used, because
   the invariant in AGENTS.md applies: nothing that must survive lives only in process memory.
-- **Network:** only the Lavalink pod needs UDP egress to Discord's voice servers, plus HTTPS to
-  YouTube. Bot pods need TCP to the Lavalink Service inside the namespace, and no UDP.
+- **Network:** the Lavalink pod needs two kinds of egress to public addresses:
+  - TCP 443, for YouTube and for Discord's voice gateway, the TLS WebSocket that negotiates each
+    voice session, including DAVE;
+  - UDP, for the voice media itself.
+
+  Bot pods need TCP to the Lavalink Service inside the namespace, and no UDP.
 - **The bot image is unchanged** apart from the Wavelink dependency: no `ffmpeg`, `libopus`,
   `PyNaCl` or `yt-dlp`.
 
