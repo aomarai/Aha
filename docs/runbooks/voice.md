@@ -1,0 +1,87 @@
+# Runbook: voice playback (Lavalink)
+
+Voice playback plays YouTube links in a voice channel (`/play`, `/queue`, `/skip` and the rest).
+The audio is not handled by the bot: a **Lavalink** node in the cluster fetches the audio from
+YouTube, transcodes it, and streams it to Discord. The bot only tells the node what to do. Design:
+[ADR 0002](../adr/0002-voice-playback.md). Deployment: `apps/aha*/lavalink.yaml` in the homelab repo.
+
+## How the parts fit
+
+| Part | Where | What it holds |
+|------|-------|---------------|
+| Bot (`aha-0`) | `aha` / `aha-staging` namespace | Commands, the checks, the queue logic. Joins deafened. |
+| Lavalink node (`aha-lavalink`) | same namespace | The player state of every guild (current track, position, paused), the YouTube plugin. |
+| PostgreSQL (`voice_queue`) | `aha-postgres` | Which tracks are queued in each guild, and who asked. |
+
+Without `LAVALINK_URL` the voice commands exist but say playback is off. Without a database they say
+it needs one (the queue lives there). The bot stays ready (`/readyz`) when Lavalink is down.
+
+## What a restart does
+
+- **A Lavalink restart** stops playback in every guild. The bot reconnects by itself (Wavelink
+  retries forever). The queue is untouched, so `/resume` (or the next `/play`) starts it again.
+- **A bot restart or deploy** drops the bot from its voice channels (Discord ends the session with
+  the gateway connection). The queue is untouched; it does **not** rejoin by itself. The first person
+  to run `/resume` in a voice channel brings it back and plays the saved queue from the first track.
+  Resuming the *same* track mid-way, and rejoining without being asked, are not implemented (ADR
+  0002 section 5 says to measure this on staging before promising it).
+- **A database restart** makes the commands fail until it is back; playing tracks are unaffected.
+
+## Symptoms and what they mean
+
+Look in the bot's logs (`kubectl -n aha logs aha-0`) and the node's (`kubectl -n aha logs
+deploy/aha-lavalink`).
+
+| You see | Meaning | What to do |
+|---------|---------|-----------|
+| Users get "The audio server isn't reachable" | The node is down or the bot cannot connect. `aha_lavalink_up` is `0`. | Check the node pod (`get pods`, `describe`, its logs), its Secret `aha-lavalink`, and the bot's NetworkPolicy rule to port 2333. The bot reconnects on its own once the node answers. |
+| Log: `Loading video X failed: Sign in to confirm you're not a bot (suspicious)` | YouTube is blocking the cluster's address for anonymous requests. | First bump the plugin (below): fixes are released quickly. If it persists the address is flagged: wait, or change egress address. Do **not** add a Google account's cookies or OAuth to the node: the account risks a ban (ADR 0002). |
+| Log: `Loading video X failed: ... (common)` for one video | That video is private, removed, age-restricted or region-locked. | Nothing: the user is told it could not be loaded. |
+| Log: `Playback failed in guild G for video X: ...` and users see "That track stopped because of a playback problem" | The node could not stream the track. Often the same cause as the sign-in block, or a changed YouTube player. | Same as above: bump the plugin. |
+| Many `Playback failed` lines at once | YouTube changed something. `aha_voice_tracks_total{outcome="failed"}` climbs. | Bump the plugin. |
+| Log: `Dropping queued video X: voice.load_failed` | A saved queue entry no longer loads; it was removed so the queue keeps moving. | Nothing. |
+| The bot sits in a channel and never leaves | The janitor leaves after `VOICE_IDLE_MINUTES` of silence or an empty channel; if it does not, check the `voice-janitor` task in the bot's logs. | Restart the bot as a last resort; the queue survives. |
+| Node pod `OOMKilled` | The JVM outgrew its limit (640 MiB; heap capped at 384 MiB). | Check how many guilds were playing; raise the limit only if memory allows (the nodes are tight), or lower `VOICE_MAX_PLAYERS`. |
+
+## Bump the YouTube plugin
+
+YouTube changes break extraction regularly; the fix is a newer `youtube-source` release
+(<https://github.com/lavalink-devs/youtube-source/releases>).
+
+1. In the homelab repo, change `dev.lavalink.youtube:youtube-plugin:<version>` in
+   `apps/aha-staging/lavalink.yaml` (and `apps/aha/lavalink.yaml` once it exists). Open a PR and merge.
+2. Argo restarts the node. The plugin is downloaded from `maven.lavalink.dev` at start, so the node
+   needs egress to it (the NetworkPolicy allows public TCP 443).
+3. **Staging first.** In the test server run `/play` with any video and check it plays, then do the
+   same in production.
+4. Confirm in the node's log: `Loaded 'youtube-plugin-<version>.jar'`.
+
+To move Lavalink itself to a newer 4.x, change the image digest (pinned; the 4.2 line has Discord's
+required voice encryption). Check the release notes first: a client library may need updating too
+(`wavelink` in `pyproject.toml`).
+
+## Turn playback off
+
+- **Without a deploy:** scale the node to zero:
+  `kubectl -n aha scale deploy/aha-lavalink --replicas=0`. The commands then answer "The audio server
+  isn't reachable"; everything else is unaffected, and the queue is kept. Scale back to `1` to
+  restore. (Argo may scale it back at its next sync if self-heal is on: set `replicas: 0` in
+  `lavalink.yaml` for a lasting change.)
+- **Everywhere:** remove `LAVALINK_URL` from the bot's environment; the commands say playback is off.
+
+## Checks after a rollout
+
+1. `aha_lavalink_up` is `1` on the bot (`/metrics`) and the node pod is `Ready`.
+2. `aha sync --check` is clean (the voice commands are registered).
+3. In a voice channel: `/join`, `/play <a short video>`, `/nowplaying`, `/queue`, `/skip`, `/stop`.
+4. Restart the bot pod while a track is queued: after it is back, `/resume` in a voice channel plays
+   the saved queue.
+
+## Alerts (when monitoring exists)
+
+Not deployed yet (the cluster has no Prometheus). When it does, alert on:
+
+- `aha_lavalink_up == 0` for 5 minutes (only meaningful where `LAVALINK_URL` is set);
+- `rate(aha_voice_tracks_total{outcome="failed"}[15m])` above a few per hour, which signals that
+  extraction broke;
+- `aha_voice_players` close to `VOICE_MAX_PLAYERS`.
