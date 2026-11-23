@@ -71,11 +71,11 @@ required voice encryption). Check the release notes first: a client library may 
 
 ## Turn playback off
 
-- **Without a deploy:** scale the node to zero:
-  `kubectl -n aha scale deploy/aha-lavalink --replicas=0`. The commands then answer "The audio server
-  isn't reachable"; everything else is unaffected, and the queue is kept. Scale back to `1` to
-  restore. (Argo may scale it back at its next sync if self-heal is on: set `replicas: 0` in
-  `lavalink.yaml` for a lasting change.)
+- **Lasting:** set `replicas: 0` in `apps/aha/lavalink.yaml` (homelab repo) and merge. The commands
+  then answer "The audio server isn't reachable"; everything else is unaffected, and the queue is
+  kept. Set it back to `1` to restore. **`kubectl scale` alone does not hold:** Argo CD self-heals the
+  Deployment, and on staging it put the node back within 40 seconds (measured 2026-11-23). It is
+  fine for a quick restart, not as an off switch.
 - **Everywhere:** remove **both** `LAVALINK_URL` and `LAVALINK_PASSWORD_FILE` from the bot's
   environment (the settings go together: one without the other stops the bot from starting). The
   commands then say playback is off.
