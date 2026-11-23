@@ -14,7 +14,9 @@ A release is a version bump merged to `main`, then a `vX.Y.Z` tag on that commit
 
 A tag never rebuilds: the workflow looks up the `sha-<short>` image of the tagged commit, checks it
 was built as that version and commit, and adds the release tags to **the same digest**, so
-production runs the exact bytes staging ran. Tag only after the main build of that commit finished.
+production runs the exact bytes staging ran. Tag only after the main build of that commit finished. A release tag is never moved: if the job
+fails half way, re-run it (the same digest is required), and a re-run that would name a different
+digest fails.
 `sha-*` and `X.Y.Z` tags are immutable by convention. `X.Y` and `latest` move to the newest
 release. **Deployments must reference the image by digest** (`ghcr.io/aomarai/aha@sha256:...`),
 which the workflow prints in its run summary; never by `latest`.

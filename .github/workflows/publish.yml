@@ -20,8 +20,11 @@ on:
 permissions:
   contents: read
 
+# A main build is keyed by its commit, so a newer push never replaces a pending build (every commit
+# that may be tagged gets its image). Releases share one group and run one at a time, so an older
+# release cannot move the X.Y and latest aliases after a newer one.
 concurrency:
-  group: publish-${{ github.ref }}
+  group: publish-${{ startsWith(github.ref, 'refs/tags/v') && 'release' || github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -79,6 +82,9 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ${{ steps.image.outputs.name }}
+          # The image reports the version in the code (the release is this same image).
+          labels: |
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
           # No `edge` or branch tags: every published tag is either immutable (sha, X.Y.Z)
           # or a deliberate pointer to the newest release (X.Y, latest).
           tags: |
@@ -104,7 +110,8 @@ jobs:
             echo "no image ${IMAGE}:${short}: the main build of this commit must finish first" >&2
             exit 1
           }
-          env_json="$(docker buildx imagetools inspect "${IMAGE}@${digest}" --format '{{json .Image.Config.Env}}')"
+          # An index with attestations holds one config per platform, so search all of them.
+          env_json="$(docker buildx imagetools inspect "${IMAGE}@${digest}" --format '{{json .Image}}')"
           echo "$env_json" | grep -q "AHA_VERSION=${VERSION}\"" || {
             echo "image ${digest} was not built as version ${VERSION}" >&2
             exit 1
@@ -113,9 +120,21 @@ jobs:
             echo "image ${digest} was not built from commit ${COMMIT}" >&2
             exit 1
           }
+          # A release tag is never moved: a re-run after a partial failure must name the same digest.
+          existing="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" --format '{{.Manifest.Digest}}' 2>/dev/null || true)"
+          if [ -n "$existing" ] && [ "$existing" != "$digest" ]; then
+            echo "${IMAGE}:${VERSION} already names ${existing}, not ${digest}; ship a new patch version" >&2
+            exit 1
+          fi
           args=()
           while read -r tag; do [ -n "$tag" ] && args+=(--tag "$tag"); done <<< "$TAGS"
           docker buildx imagetools create "${args[@]}" "${IMAGE}@${digest}"
+          # imagetools writes tags one by one: check that every one landed (re-run the job if not).
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            got="$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}')"
+            [ "$got" = "$digest" ] || { echo "$tag is ${got}, expected ${digest}" >&2; exit 1; }
+          done <<< "$TAGS"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
       # amd64 only: that is what the homelab runs. Add a platform here when a real need appears.
