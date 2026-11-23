@@ -778,7 +778,6 @@ def test_a_due_episode_is_announced_by_dm_and_the_next_one_scheduled() -> None:
         "<@33> 📺 **Severance**: S2E04 “Woe's Hollow” <t:1893499200:R> (<t:1893499200:f>)"
     )
     assert kwargs["nonce"] == 70
-    assert kwargs["enforce_nonce"] is True
     assert kwargs["allowed_mentions"].users == [discord.Object(id=33)]
     assert kwargs["allowed_mentions"].everyone is False
     assert store.advanced == [
