@@ -167,6 +167,18 @@ Leave the voice channel.
 
 *cooldown: 1 per 5 s per user; servers only.*
 
+### `/play`
+
+Play a YouTube link in your voice channel.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `link` | yes | A YouTube video link. |
+
+Usage: `/play <link>`
+
+*cooldown: 1 per 5 s per user; servers only.*
+
 ### `/poll`
 
 Start a poll people can vote in.

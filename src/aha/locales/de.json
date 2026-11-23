@@ -146,7 +146,16 @@
     "voice.joined": "**{channel}** beigetreten.",
     "voice.not_connected": "Ich bin in keinem Sprachkanal.",
     "voice.not_with_me": "Tritt zuerst meinem Sprachkanal bei oder frage jemanden mit „Kanäle verwalten“.",
-    "voice.left": "Sprachkanal verlassen."
+    "voice.left": "Sprachkanal verlassen.",
+    "voice.bad_link": "Das ist kein YouTube-Videolink. Füge den vollständigen Link ein, z. B. `https://www.youtube.com/watch?v=…` oder `https://youtu.be/…`.",
+    "voice.playlist_unsupported": "Playlists werden noch nicht unterstützt. Füge den Link eines einzelnen Videos ein.",
+    "voice.load_failed": "Ich konnte dieses Video nicht laden. Es ist vielleicht privat, altersbeschränkt, entfernt oder gesperrt.",
+    "voice.live_unsupported": "Livestreams werden nicht unterstützt. Füge ein normales Video ein.",
+    "voice.too_long": "Das Video ist länger als {minutes} Minuten, das ist die Grenze.",
+    "voice.already_playing": "Ich spiele schon etwas. Warte, bis es zu Ende ist; eine Warteschlange kommt noch.",
+    "voice.play_failed": "Ich konnte die Wiedergabe nicht starten. Versuche es gleich noch einmal.",
+    "voice.now_playing": "▶️ Es läuft {title} ({length}), gewünscht von {who}.",
+    "voice.track_failed": "Dieser Titel wurde wegen eines Wiedergabeproblems beendet. Versuche es erneut oder nimm ein anderes Video."
   },
   "commands": {
     "Check the bot's WebSocket latency.": "Prüft die WebSocket-Latenz des Bots.",
@@ -174,6 +183,8 @@
     "Ping me in this channel": "In diesem Kanal erwähnen",
     "The show to stop following.": "Die Serie, der du nicht mehr folgen willst.",
     "Join your voice channel.": "Tritt deinem Sprachkanal bei.",
-    "Leave the voice channel.": "Verlässt den Sprachkanal."
+    "Leave the voice channel.": "Verlässt den Sprachkanal.",
+    "Play a YouTube link in your voice channel.": "Spielt einen YouTube-Link in deinem Sprachkanal ab.",
+    "A YouTube video link.": "Ein YouTube-Videolink."
   }
 }

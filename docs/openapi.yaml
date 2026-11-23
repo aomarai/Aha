@@ -122,6 +122,7 @@ paths:
         | `aha_summarize_requests_total` | counter | `outcome` | `/summarize` requests by outcome (`ok`, `disabled`, `quota`, `failed`, `empty`). |
         | `aha_summarize_tokens_total` | counter | `kind` | Model tokens spent on summaries (`input` or `output`). |
         | `aha_voice_players` | gauge | | Guilds this process is in a voice channel for (0 when voice is off). |
+        | `aha_voice_tracks_total` | counter | `outcome` | Tracks requested with `/play` by outcome (`ok`, `refused`, `failed`). |
         | `aha_lavalink_up` | gauge | | `1` when the Lavalink audio node is connected, `0` when it is not or voice is off. |
         | `aha_session_start_remaining` | gauge | | Gateway sessions Discord still allows this token to start before the daily reset. |
         | `aha_session_start_total` | gauge | | Gateway sessions Discord allows this token to start per day. |

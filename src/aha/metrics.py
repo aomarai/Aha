@@ -129,6 +129,12 @@ class Metrics:
             "Guilds this process is in a voice channel for (0 when voice is off).",
             registry=self.registry,
         )
+        self.voice_tracks = Counter(
+            "aha_voice_tracks_total",
+            "Tracks requested with /play by outcome (ok, refused, failed).",
+            ["outcome"],
+            registry=self.registry,
+        )
         self.lavalink_up = Gauge(
             "aha_lavalink_up",
             "1 when the Lavalink audio node is connected, 0 when it is not or voice is off.",

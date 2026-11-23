@@ -170,6 +170,7 @@ def test_the_exposition_text_parses_and_documents_every_metric() -> None:
         "aha_rest_rate_limited",
         "aha_voice_players",
         "aha_lavalink_up",
+        "aha_voice_tracks",
     } <= set(families)  # counters also expose a ``*_created`` series
     documented = {
         name: family.documentation
@@ -207,6 +208,7 @@ def test_the_exposition_text_parses_and_documents_every_metric() -> None:
             "Seconds until the gateway session-start budget resets."
         ),
         "aha_voice_players": "Guilds this process is in a voice channel for (0 when voice is off).",
+        "aha_voice_tracks": "Tracks requested with /play by outcome (ok, refused, failed).",
         "aha_lavalink_up": (
             "1 when the Lavalink audio node is connected, 0 when it is not or voice is off."
         ),

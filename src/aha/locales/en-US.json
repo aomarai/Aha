@@ -146,7 +146,16 @@
     "voice.joined": "Joined **{channel}**.",
     "voice.not_connected": "I'm not in a voice channel.",
     "voice.not_with_me": "Join my voice channel first, or ask someone with Manage Channels.",
-    "voice.left": "Left the voice channel."
+    "voice.left": "Left the voice channel.",
+    "voice.bad_link": "That isn't a YouTube video link. Paste the full link, like `https://www.youtube.com/watch?v=…` or `https://youtu.be/…`.",
+    "voice.playlist_unsupported": "Playlists aren't supported yet. Paste the link of a single video.",
+    "voice.load_failed": "I couldn't load that video. It may be private, age-restricted, removed or blocked.",
+    "voice.live_unsupported": "Live streams aren't supported. Paste a regular video.",
+    "voice.too_long": "That video is longer than {minutes} minutes, which is the limit.",
+    "voice.already_playing": "I'm already playing something. Wait for it to finish; queuing is coming.",
+    "voice.play_failed": "I couldn't start playback. Try again in a moment.",
+    "voice.now_playing": "▶️ Now playing {title} ({length}), requested by {who}.",
+    "voice.track_failed": "That track stopped because of a playback problem. Try again, or try another video."
   },
   "commands": {}
 }

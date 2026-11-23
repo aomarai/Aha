@@ -19,6 +19,7 @@ your own copy, **you** are the operator of that copy, and this describes what th
 | Summaries (`/summarize`, "Summarize" menu) | to summarize text you ask about | **Off in every server until a server admin turns it on** (`/configure summaries on`), and unavailable unless the operator configured an API key. When used, **the text you ask to summarize is sent to Anthropic's Claude API** and the summary is shown only to you; Aha does not store the text or the summary. It keeps a **daily counter per user** (no text) for 7 days to enforce a limit. Anthropic's own terms and retention apply to what it receives. |
 | Reminders (`/remind`) | to deliver your reminder later | Your user id, server id, channel id and the reminder text are stored **until it is delivered or you cancel it** (`/unremind`); failed deliveries are kept at most 7 days. |
 | Show reminders (`/watch`) | to remind you when a show's next episode comes out | Your user id, the show's TVmaze id and name, where to remind you (a direct message, or the channel and server id), how long before, your language, **until you stop following the show (`/unwatch`) or it ends**; plus one scheduled job for the next episode. Only the show title you typed is sent to TVmaze (never your id). |
+| Music (`/play`) | to play the YouTube video you link | Nothing is stored. The video id is sent to the bot's own audio server, which fetches the audio from YouTube (YouTube sees requests from the bot's address for the videos people play). Logs keep the video id, never your command text. |
 | Voice (`/join`, `/leave`) | to join your voice channel and leave when nobody is listening | Discord tells the bot who is in which voice channel (a non-privileged "voice states" event). It is held **in memory only** while the bot runs, never stored. The bot joins deafened: it never receives or records audio. |
 | Polls and reactions | `/poll` creates a native Discord poll; "Count reactions" reads a message's reaction counts | **Discord** stores polls and votes, not Aha. |
 
@@ -43,6 +44,7 @@ Every table in the database must declare how to delete a user's or a server's ro
 
 - **Discord** processes everything you do in Discord, under its own policy.
 - **The hosting provider** of the operator (for the official instance, a home server).
+- **YouTube**, when you use `/play`: the bot's audio server requests the video you linked from YouTube. It receives no Discord identity from the bot.
 - **Anthropic**, only if `/summarize` is enabled for a server and you use it.
 - **TVmaze** (<https://www.tvmaze.com>), when you use `/watch`: it receives the show title you type
   (and the id of the show you pick) from the bot's address, never your Discord identity. Schedule data

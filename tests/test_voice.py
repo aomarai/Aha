@@ -25,6 +25,8 @@ class FakePlayer(wavelink.Player):
         self._paused = False
         self.moved_to: list[tuple[Any, dict[str, Any]]] = []
         self.disconnected = 0
+        self.played: list[Any] = []
+        self.play_error: Exception | None = None
 
     @property
     def guild(self) -> Any:
@@ -44,6 +46,11 @@ class FakePlayer(wavelink.Player):
     async def disconnect(self, **kwargs: Any) -> None:
         self.disconnected += 1
 
+    async def play(self, track: Any, **kwargs: Any) -> Any:
+        if self.play_error is not None:
+            raise self.play_error
+        self.played.append(track)
+
 
 class FakeNode:
     def __init__(self, **kwargs: Any) -> None:
@@ -55,8 +62,17 @@ class FakeNode:
 class FakePool:
     def __init__(self, reachable: bool = True) -> None:
         self.reachable = reachable
+        self.fetched: list[str] = []
+        self.fetch_result: Any = []
+        self.fetch_error: Exception | None = None
         self.nodes: dict[str, FakeNode] = {}
         self.connects: list[tuple[list[FakeNode], Any]] = []
+
+    async def fetch_tracks(self, query: str) -> Any:
+        self.fetched.append(query)
+        if self.fetch_error is not None:
+            raise self.fetch_error
+        return self.fetch_result
 
     async def connect(self, *, nodes: list[FakeNode], client: Any) -> dict[str, FakeNode]:
         self.connects.append((nodes, client))
@@ -76,6 +92,10 @@ class FakeBot:
     def __init__(self) -> None:
         self.guilds: dict[int, FakeGuild] = {}
         self.ready_waits = 0
+        self.listeners: dict[str, Any] = {}
+
+    def add_listener(self, func: Any, name: str) -> None:
+        self.listeners[name] = func
 
     async def wait_until_ready(self) -> None:
         self.ready_waits += 1
@@ -382,3 +402,245 @@ def test_a_voice_error_carries_its_message_key() -> None:
     assert error.key == "voice.busy"
     assert str(error) == "voice.busy"
     assert error.args == ("voice.busy",)
+
+
+# ----------------------------------------------------------------------------- tracks
+
+
+class FakePlayable:
+    def __init__(self, **kwargs: Any) -> None:
+        self.title = kwargs.get("title", "Never Gonna Give You Up")
+        self.author = kwargs.get("author", "Rick Astley")
+        self.length = kwargs.get("length", 213000)
+        self.is_stream = kwargs.get("is_stream", False)
+        self.identifier = kwargs.get("identifier", "dQw4w9WgXcQ")
+
+
+def test_loading_asks_the_node_for_the_canonical_link_built_from_the_id() -> None:
+    backend, pool = make()
+    playable = FakePlayable()
+    pool.fetch_result = [playable]
+
+    track = asyncio.run(backend.load("dQw4w9WgXcQ"))
+
+    assert pool.fetched == ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+    assert (track.video_id, track.title, track.author) == (
+        "dQw4w9WgXcQ",
+        "Never Gonna Give You Up",
+        "Rick Astley",
+    )
+    assert (track.length_ms, track.is_stream) == (213000, False)
+    assert track.handle is playable
+
+
+def test_a_stream_is_marked_as_one() -> None:
+    backend, pool = make()
+    pool.fetch_result = [FakePlayable(is_stream=True, length=9223372036854775807)]
+
+    track = asyncio.run(backend.load("dQw4w9WgXcQ"))
+
+    assert track.is_stream is True
+
+
+def test_the_first_result_is_used() -> None:
+    backend, pool = make()
+    pool.fetch_result = [FakePlayable(title="first"), FakePlayable(title="second")]
+
+    assert asyncio.run(backend.load("dQw4w9WgXcQ")).title == "first"
+
+
+@pytest.mark.parametrize("found", [[], "a playlist object", None])
+def test_nothing_usable_found_is_a_load_failure(found: Any) -> None:
+    backend, pool = make()
+    pool.fetch_result = found
+
+    with pytest.raises(VoiceError) as error:
+        asyncio.run(backend.load("dQw4w9WgXcQ"))
+
+    assert error.value.key == "voice.load_failed"
+
+
+def test_a_node_refusal_is_a_load_failure_and_is_logged_with_its_severity(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend, pool = make()
+    pool.fetch_error = wavelink.LavalinkLoadException(
+        data={
+            "message": "Sign in to confirm you're not a bot",
+            "severity": "suspicious",
+            "cause": "x",
+        }
+    )
+
+    with caplog.at_level(logging.WARNING, logger="aha.voice"), pytest.raises(VoiceError) as error:
+        asyncio.run(backend.load("dQw4w9WgXcQ"))
+
+    assert error.value.key == "voice.load_failed"
+    assert caplog.messages == [
+        "Loading video dQw4w9WgXcQ failed: Sign in to confirm you're not a bot (suspicious)"
+    ]
+
+
+@pytest.mark.parametrize("error", [wavelink.WavelinkException("x"), TimeoutError()])
+def test_other_load_errors_are_load_failures_logged_by_type_only(
+    error: Exception, caplog: pytest.LogCaptureFixture
+) -> None:
+    backend, pool = make()
+    pool.fetch_error = error
+
+    with caplog.at_level(logging.WARNING, logger="aha.voice"), pytest.raises(VoiceError) as raised:
+        asyncio.run(backend.load("dQw4w9WgXcQ"))
+
+    assert raised.value.key == "voice.load_failed"
+    assert caplog.messages == [f"Loading video dQw4w9WgXcQ failed ({type(error).__name__})"]
+
+
+def a_track() -> Any:
+    from aha.voice import Track
+
+    return Track("dQw4w9WgXcQ", "t", "a", 1000, False, "the-playable")
+
+
+def test_playing_hands_the_nodes_object_to_the_guilds_player() -> None:
+    backend, pool, bot = connected()
+    player = with_player(backend, pool, bot, FakePlayer(1, 10))
+
+    asyncio.run(backend.play(1, a_track()))
+
+    assert player.played == ["the-playable"]
+
+
+def test_playing_without_a_player_says_the_bot_is_not_connected() -> None:
+    backend, _, _ = connected()
+
+    with pytest.raises(VoiceError) as error:
+        asyncio.run(backend.play(1, a_track()))
+
+    assert error.value.key == "voice.not_connected"
+
+
+def test_a_failed_start_is_reported_and_logged_by_type(caplog: pytest.LogCaptureFixture) -> None:
+    backend, pool, bot = connected()
+    player = with_player(backend, pool, bot, FakePlayer(1, 10))
+    player.play_error = wavelink.WavelinkException("boom")
+
+    with caplog.at_level(logging.WARNING, logger="aha.voice"), pytest.raises(VoiceError) as error:
+        asyncio.run(backend.play(1, a_track()))
+
+    assert error.value.key == "voice.play_failed"
+    assert caplog.messages == ["Playing video dQw4w9WgXcQ failed (WavelinkException)"]
+
+
+# ----------------------------------------------------------------------------- playback problems
+
+
+def event_payload(player: Any, **extra: Any) -> Any:
+    return Named(player=player, track=Named(identifier="dQw4w9WgXcQ"), **extra)
+
+
+def test_the_backend_listens_for_the_nodes_track_problems() -> None:
+    bot = FakeBot()
+    make(bot=bot)
+
+    assert sorted(bot.listeners) == ["on_wavelink_track_exception", "on_wavelink_track_stuck"]
+
+
+def test_a_track_exception_is_passed_on_with_its_severity_and_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    bot, pool = FakeBot(), FakePool()
+    backend, _ = make(pool, bot)
+    seen: list[Any] = []
+
+    async def listener(event: Any) -> None:
+        seen.append(event)
+
+    backend.subscribe(listener)
+    player = FakePlayer(1, 10)
+    payload = event_payload(
+        player, exception={"severity": "suspicious", "message": "x" * 300, "cause": "c"}
+    )
+
+    with caplog.at_level(logging.WARNING, logger="aha.voice"):
+        asyncio.run(bot.listeners["on_wavelink_track_exception"](payload))
+
+    (event,) = seen
+    assert (event.guild_id, event.kind, event.video_id) == (1, "failed", "dQw4w9WgXcQ")
+    assert event.detail == "suspicious: " + "x" * 100  # the node's message is cut short
+    assert caplog.messages == [
+        f"Playback failed in guild 1 for video dQw4w9WgXcQ: suspicious: {'x' * 100}"
+    ]
+
+
+def test_a_stuck_track_is_passed_on_with_the_threshold() -> None:
+    bot = FakeBot()
+    backend, _ = make(bot=bot)
+    seen: list[Any] = []
+
+    async def listener(event: Any) -> None:
+        seen.append(event)
+
+    backend.subscribe(listener)
+    payload = event_payload(FakePlayer(2, 20), threshold=10000)
+
+    asyncio.run(bot.listeners["on_wavelink_track_stuck"](payload))
+
+    (event,) = seen
+    assert (event.guild_id, event.kind, event.detail) == (2, "stuck", "no audio for 10000 ms")
+
+
+def test_every_subscriber_hears_it_and_an_event_without_a_guild_is_ignored() -> None:
+    bot = FakeBot()
+    backend, _ = make(bot=bot)
+    calls: list[str] = []
+
+    async def first(event: Any) -> None:
+        calls.append("first")
+
+    async def second(event: Any) -> None:
+        calls.append("second")
+
+    backend.subscribe(first)
+    backend.subscribe(second)
+    lonely = FakePlayer(3, 30)
+    lonely._fake_guild = None
+
+    asyncio.run(bot.listeners["on_wavelink_track_stuck"](event_payload(lonely, threshold=1)))
+    asyncio.run(bot.listeners["on_wavelink_track_stuck"](event_payload(None, threshold=1)))
+    assert calls == []
+    asyncio.run(
+        bot.listeners["on_wavelink_track_stuck"](event_payload(FakePlayer(4, 40), threshold=1))
+    )
+
+    assert calls == ["first", "second"]
+
+
+def test_the_nodes_message_is_cut_at_a_hundred_characters_in_the_load_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    backend, pool = make()
+    pool.fetch_error = wavelink.LavalinkLoadException(
+        data={"message": "m" * 150, "severity": "common", "cause": "x"}
+    )
+
+    with caplog.at_level(logging.WARNING, logger="aha.voice"), pytest.raises(VoiceError):
+        asyncio.run(backend.load("dQw4w9WgXcQ"))
+
+    assert caplog.messages == [f"Loading video dQw4w9WgXcQ failed: {'m' * 100} (common)"]
+
+
+def test_an_exception_without_severity_or_message_still_gives_a_readable_detail() -> None:
+    bot = FakeBot()
+    backend, _ = make(bot=bot)
+    seen: list[Any] = []
+
+    async def listener(event: Any) -> None:
+        seen.append(event)
+
+    backend.subscribe(listener)
+
+    asyncio.run(
+        bot.listeners["on_wavelink_track_exception"](event_payload(FakePlayer(1, 10), exception={}))
+    )
+
+    assert seen[0].detail == "?: "
