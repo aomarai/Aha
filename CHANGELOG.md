@@ -6,6 +6,12 @@ for how a release is cut.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-23
+
+Show reminders, YouTube voice playback, API documentation and the Postgres-backed scheduler.
+Migrations 0005 and 0006 apply on upgrade (`aha migrate` runs first). `LAVALINK_URL` is optional: without
+it the voice commands say playback is off.
+
 ### Added
 - The voice queue and controls (#171): `/play` queues when something is playing; `/queue`,
   `/nowplaying`, `/skip`, `/pause`, `/resume`, `/stop` and `/remove`, plus Pause/Skip/Stop buttons on

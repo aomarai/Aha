@@ -26,10 +26,18 @@ Each image has the build identity baked in: `AHA_VERSION` and `AHA_COMMIT` envir
 `org.opencontainers.image.*` labels. The image is `linux/amd64` only, with a provenance
 attestation and an SBOM.
 
+## Which version
+
+SemVer, `0.MINOR.PATCH` until 1.0: a new command, option, config variable, metric or migration is a
+minor bump, a fix with no new surface is a patch, and a breaking change needs a minor bump with a
+Changelog `Changed`/`Removed` entry (a major after 1.0). Docs, CI and test-only changes do not bump.
+Staging runs `sha-*` builds from `main`; production runs the digest of a tagged release. See also
+the versioning rule in AGENTS.md.
+
 ## Cutting a release
 
 1. In a PR, change `version` in `pyproject.toml` **and** `__version__` in `src/aha/__init__.py`
-   (a test fails if they differ), and move the `Unreleased` entries in `CHANGELOG.md` under the
+   and the `aha` entry in `uv.lock` (a test fails if the first two differ), and move the `Unreleased` entries in `CHANGELOG.md` under the
    new version and date.
 2. Merge it. CI must be green, including the Image workflow (build, smoke test, vulnerability scan).
 3. Tag the merge commit and push the tag:
