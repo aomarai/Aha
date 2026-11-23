@@ -23,8 +23,11 @@ it needs one (the queue lives there). The bot stays ready (`/readyz`) when Laval
 - **A bot restart or deploy** drops the bot from its voice channels (Discord ends the session with
   the gateway connection). The queue is untouched; it does **not** rejoin by itself. The first person
   to run `/resume` in a voice channel brings it back and plays the saved queue from the first track.
-  Resuming the *same* track mid-way, and rejoining without being asked, are not implemented (ADR
-  0002 section 5 says to measure this on staging before promising it).
+  Resuming the *same* track mid-way, and rejoining without being asked, are not implemented.
+  **Measured on staging (2026-11-23):** a player was playing; the bot's connection was then dropped
+  without a leave (what a restart does). The node kept its session but, within a second, no player
+  was left in it: Discord ends the voice connection together with the gateway session, so there is
+  nothing on the node to resume. That is why the saved queue plus `/resume` is the recovery path.
 - **A database restart** makes the queue commands (`/play`, `/queue`, `/skip`, `/remove`, `/resume`,
   `/stop`) fail until it is back; a track that is already playing is unaffected, and `/join`,
   `/leave` and `/pause` do not need the database.
@@ -84,6 +87,16 @@ required voice encryption). Check the release notes first: a client library may 
 3. In a voice channel: `/join`, `/play <a short video>`, `/nowplaying`, `/queue`, `/skip`, `/stop`.
 4. Restart the bot pod while a track is queued: after it is back, `/resume` in a voice channel plays
    the saved queue.
+
+## Testing a voice session by hand
+
+A person in the voice channel running `/join`, `/play <link>` and the controls is the real test.
+Do **not** drive the bot from a second process that logs in with the same token while the real bot is
+running: Discord can deliver the bot's own voice-state events to either session, and a join from the
+wrong one waits for an event that never comes (it timed out on roughly half of the attempts when
+this was tried on staging, and worked from the same code the rest of the time). Scale the bot to
+zero first if a scripted test is really needed. Joins that succeeded in those tests played the video
+with the position advancing in step with the clock, and `aha_lavalink_up` stayed `1`.
 
 ## Alerts (when monitoring exists)
 
