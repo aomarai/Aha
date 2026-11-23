@@ -86,6 +86,7 @@ and managed with [uv](https://docs.astral.sh/uv/).
 - [HTTP API (OpenAPI 3.1)](docs/openapi.yaml): the probe and metrics endpoints each process serves.
   View it with any OpenAPI tool, for example `docker run --rm -p 8081:8080
   -e SWAGGER_JSON=/spec/openapi.yaml -v "$PWD/docs:/spec" swaggerapi/swagger-ui`.
+- [Voice runbook](docs/runbooks/voice.md): how playback works, what breaks, how to fix it.
 - [Architecture decisions](docs/adr/), [sharding](docs/sharding.md),
   [scheduler](docs/scheduler.md), [migrations](docs/migrations.md), [privacy](docs/privacy.md) and
   the [runbooks](docs/runbooks/).
