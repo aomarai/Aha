@@ -23,9 +23,14 @@ it needs one (the queue lives there). The bot stays ready (`/readyz`) when Laval
 - **A bot restart or deploy** drops the bot from its voice channels (Discord ends the session with
   the gateway connection). The queue is untouched; it does **not** rejoin by itself. The first person
   to run `/resume` in a voice channel brings it back and plays the saved queue from the first track.
-  Resuming the *same* track mid-way, and rejoining without being asked, are not implemented (ADR
-  0002 section 5 says to measure this on staging before promising it).
-- **A database restart** makes the commands fail until it is back; playing tracks are unaffected.
+  Resuming the *same* track mid-way, and rejoining without being asked, are not implemented.
+  **Measured on staging (2026-11-23):** a player was playing; the bot's connection was then dropped
+  without a leave (what a restart does). The node kept its session but, within a second, no player
+  was left in it: Discord ends the voice connection together with the gateway session, so there is
+  nothing on the node to resume. That is why the saved queue plus `/resume` is the recovery path.
+- **A database restart** makes the queue commands (`/play`, `/queue`, `/skip`, `/remove`, `/resume`,
+  `/stop`) fail until it is back; a track that is already playing is unaffected, and `/join`,
+  `/leave` and `/pause` do not need the database.
 
 ## Symptoms and what they mean
 
@@ -48,13 +53,17 @@ deploy/aha-lavalink`).
 YouTube changes break extraction regularly; the fix is a newer `youtube-source` release
 (<https://github.com/lavalink-devs/youtube-source/releases>).
 
-1. In the homelab repo, change `dev.lavalink.youtube:youtube-plugin:<version>` in
-   `apps/aha-staging/lavalink.yaml` (and `apps/aha/lavalink.yaml` once it exists). Open a PR and merge.
-2. Argo restarts the node. The plugin is downloaded from `maven.lavalink.dev` at start, so the node
-   needs egress to it (the NetworkPolicy allows public TCP 443).
-3. **Staging first.** In the test server run `/play` with any video and check it plays, then do the
-   same in production.
-4. Confirm in the node's log: `Loaded 'youtube-plugin-<version>.jar'`.
+1. **Staging first, in its own PR.** In the homelab repo change
+   `dev.lavalink.youtube:youtube-plugin:<version>` in `apps/aha/lavalink.yaml`, then run
+   `python3 apps/aha-staging/regenerate.py` and commit **only** the regenerated staging files (leave
+   `apps/aha/lavalink.yaml` out of this PR, or production would take the new plugin at the same
+   time). Merge it.
+2. Argo restarts the staging node. The plugin is downloaded from `maven.lavalink.dev` at start, so
+   the node needs egress to it (the NetworkPolicy allows public TCP 443). Confirm in the node's log:
+   `Loaded 'youtube-plugin-<version>.jar'`.
+3. In the test server run `/play` with any video and check that it plays.
+4. **Then production, in a second PR** that changes `apps/aha/lavalink.yaml`. Check the log line and
+   a `/play` again.
 
 To move Lavalink itself to a newer 4.x, change the image digest (pinned; the 4.2 line has Discord's
 required voice encryption). Check the release notes first: a client library may need updating too
@@ -62,12 +71,14 @@ required voice encryption). Check the release notes first: a client library may 
 
 ## Turn playback off
 
-- **Without a deploy:** scale the node to zero:
-  `kubectl -n aha scale deploy/aha-lavalink --replicas=0`. The commands then answer "The audio server
-  isn't reachable"; everything else is unaffected, and the queue is kept. Scale back to `1` to
-  restore. (Argo may scale it back at its next sync if self-heal is on: set `replicas: 0` in
-  `lavalink.yaml` for a lasting change.)
-- **Everywhere:** remove `LAVALINK_URL` from the bot's environment; the commands say playback is off.
+- **Lasting:** set `replicas: 0` in `apps/aha/lavalink.yaml` (homelab repo) and merge. The commands
+  then answer "The audio server isn't reachable"; everything else is unaffected, and the queue is
+  kept. Set it back to `1` to restore. **`kubectl scale` alone does not hold:** Argo CD self-heals the
+  Deployment, and on staging it put the node back within 40 seconds (measured 2026-11-23). It is
+  fine for a quick restart, not as an off switch.
+- **Everywhere:** remove **both** `LAVALINK_URL` and `LAVALINK_PASSWORD_FILE` from the bot's
+  environment (the settings go together: one without the other stops the bot from starting). The
+  commands then say playback is off.
 
 ## Checks after a rollout
 
@@ -76,6 +87,16 @@ required voice encryption). Check the release notes first: a client library may 
 3. In a voice channel: `/join`, `/play <a short video>`, `/nowplaying`, `/queue`, `/skip`, `/stop`.
 4. Restart the bot pod while a track is queued: after it is back, `/resume` in a voice channel plays
    the saved queue.
+
+## Testing a voice session by hand
+
+A person in the voice channel running `/join`, `/play <link>` and the controls is the real test.
+Do **not** drive the bot from a second process that logs in with the same token while the real bot is
+running: Discord can deliver the bot's own voice-state events to either session, and a join from the
+wrong one waits for an event that never comes (it timed out on roughly half of the attempts when
+this was tried on staging, and worked from the same code the rest of the time). Scale the bot to
+zero first if a scripted test is really needed. Joins that succeeded in those tests played the video
+with the position advancing in step with the clock, and `aha_lavalink_up` stayed `1`.
 
 ## Alerts (when monitoring exists)
 
