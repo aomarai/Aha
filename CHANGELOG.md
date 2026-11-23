@@ -7,6 +7,10 @@ for how a release is cut.
 ## [Unreleased]
 
 ### Added
+- `/play <YouTube link>` (#170): plays one video through the Lavalink node. Only YouTube video links
+  are accepted (an allowlist; the node is asked for a canonical link built from the video id), and
+  playlists, live streams and tracks over `VOICE_MAX_TRACK_MINUTES` are refused. A track the node
+  cannot play is reported once in the channel. `aha_voice_tracks_total{outcome}` counts requests.
 - Voice foundation (#169, ADR 0002): `/join` and `/leave`, an `AudioBackend` interface with a Lavalink
   (Wavelink) adapter, the `voice_states` intent, `LAVALINK_URL` / `LAVALINK_PASSWORD` /
   `VOICE_MAX_PLAYERS` / `VOICE_IDLE_MINUTES`, an idle janitor, and the `aha_voice_players` and

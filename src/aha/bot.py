@@ -308,6 +308,18 @@ class AhaBot(commands.AutoShardedBot):
         if self.use_database and self.settings.database_url is not None:
             await self._connect_database(self.settings.database_url)
 
+        if (
+            self.gateway_enabled
+            and self.settings.lavalink_url is not None
+            and self.settings.lavalink_password is not None
+            and AUDIO_TASK not in self.tasks
+        ):
+            self.audio = WavelinkBackend(
+                self, self.settings.lavalink_url, self.settings.lavalink_password
+            )
+            self.metrics.bind_audio(self.audio)
+            # Not critical: without the node the bot still serves everything but voice.
+            self.tasks.spawn(self.audio.run, name=AUDIO_TASK, restart=True)
         await self.tree.set_translator(AhaTranslator())
         for module in COG_MODULES:
             await self.load_extension(module)
@@ -321,18 +333,6 @@ class AhaBot(commands.AutoShardedBot):
             await self.sync_commands()
         else:
             log.info("Command sync skipped at startup (run 'aha sync')")
-        if (
-            self.gateway_enabled
-            and self.settings.lavalink_url is not None
-            and self.settings.lavalink_password is not None
-            and AUDIO_TASK not in self.tasks
-        ):
-            self.audio = WavelinkBackend(
-                self, self.settings.lavalink_url, self.settings.lavalink_password
-            )
-            self.metrics.bind_audio(self.audio)
-            # Not critical: without the node the bot still serves everything but voice.
-            self.tasks.spawn(self.audio.run, name=AUDIO_TASK, restart=True)
         if self.scheduler is not None and SCHEDULER_TASK not in self.tasks:
             self.tasks.spawn(self.scheduler.run, name=SCHEDULER_TASK, restart=True, critical=True)
         if WATCHDOG_TASK not in self.tasks:

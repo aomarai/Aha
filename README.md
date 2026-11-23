@@ -311,7 +311,7 @@ Real environment variables take precedence over `.env`.
 | `ANTHROPIC_API_KEY` | no | – | Enables `/summarize` (or `ANTHROPIC_API_KEY_FILE`; set at most one). Off per server until an admin runs `/configure summaries on` |
 | `ANTHROPIC_MODEL` | no | `claude-haiku-5-5` | Model used for summaries |
 | `LAVALINK_URL`, `LAVALINK_PASSWORD` | no | – | Voice playback: the [Lavalink](https://github.com/lavalink-devs/Lavalink) audio node (`http://host:2333`) and its password (or `LAVALINK_PASSWORD_FILE`; set at most one). Set both or neither; without them `/join` says playback is off. See [ADR 0002](docs/adr/0002-voice-playback.md) |
-| `VOICE_MAX_PLAYERS`, `VOICE_IDLE_MINUTES` | no | `10`, `5` | Voice sessions one process holds at once (1-200); minutes alone or silent before the bot leaves (1-120) |
+| `VOICE_MAX_PLAYERS`, `VOICE_IDLE_MINUTES`, `VOICE_MAX_TRACK_MINUTES` | no | `10`, `5`, `30` | Voice sessions one process holds at once (1-200); minutes alone or silent before the bot leaves (1-120); longest track `/play` accepts (1-600) |
 | `SUMMARIZE_DAILY_QUOTA`, `SUMMARIZE_MAX_CHARS` | no | `10`, `4000` | Summaries per user per UTC day (1-1000); characters sent to the model (100-20000) |
 | `SESSION_START_FLOOR` | no     | `0.1`   | Wait for Discord's reset instead of identifying when fewer than this fraction of the daily gateway sessions remain (`0` disables); see [the runbook](docs/runbooks/session-budget.md) |
 | `SHARDS_PER_POD`, `POD_INDEX` | no | – | Derive `SHARD_IDS` from a StatefulSet ordinal instead (needs `SHARD_COUNT`) |
