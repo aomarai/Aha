@@ -3,8 +3,10 @@ name: Publish
 # Builds the production image and pushes it to GHCR (ghcr.io/aomarai/aha) with the workflow's
 # own GITHUB_TOKEN, so there is no long-lived registry secret.
 #
-#   push to main      -> sha-<short>                       (immutable; one per commit)
-#   push of tag vX.Y.Z -> X.Y.Z, X.Y, sha-<short>, latest   (latest only for a final release)
+#   push to main      -> builds sha-<short>                (immutable; one per commit)
+#   push of tag vX.Y.Z -> X.Y.Z, X.Y, latest (latest only for a final release) are added to the
+#                        image main already built for that commit: nothing is rebuilt, so the
+#                        release is the exact digest that ran on staging.
 #
 # Pull requests never publish (this workflow does not run for them, so forks cannot either).
 # Verification of the build itself happens on every PR in image.yml. See docs/releasing.md.
@@ -31,7 +33,7 @@ jobs:
       # The only job that can write packages.
       packages: write
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.build.outputs.digest || steps.retag.outputs.digest }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,9 +87,41 @@ jobs:
             type=sha,format=short
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
 
+      # A release adds tags to the image main already built for this commit; it never rebuilds
+      # (a rebuild would be a different digest from the one that was tested, and would move the
+      # immutable sha-<short> tag). It fails if that image is missing or is not this version.
+      - name: Retag the tested image
+        id: retag
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          short="sha-${COMMIT:0:7}"
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${short}" --format '{{.Manifest.Digest}}')" || {
+            echo "no image ${IMAGE}:${short}: the main build of this commit must finish first" >&2
+            exit 1
+          }
+          env_json="$(docker buildx imagetools inspect "${IMAGE}@${digest}" --format '{{json .Image.Config.Env}}')"
+          echo "$env_json" | grep -q "AHA_VERSION=${VERSION}\"" || {
+            echo "image ${digest} was not built as version ${VERSION}" >&2
+            exit 1
+          }
+          echo "$env_json" | grep -q "AHA_COMMIT=${COMMIT}\"" || {
+            echo "image ${digest} was not built from commit ${COMMIT}" >&2
+            exit 1
+          }
+          args=()
+          while read -r tag; do [ -n "$tag" ] && args+=(--tag "$tag"); done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "${IMAGE}@${digest}"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
       # amd64 only: that is what the homelab runs. Add a platform here when a real need appears.
       - name: Build and push
         id: build
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -104,7 +138,7 @@ jobs:
       - name: Summarise the published image
         env:
           IMAGE: ${{ steps.image.outputs.name }}
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.build.outputs.digest || steps.retag.outputs.digest }}
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
           {
