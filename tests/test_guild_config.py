@@ -62,6 +62,15 @@ class FakeJobs:
         return 0
 
 
+class FakeQueue:
+    def __init__(self) -> None:
+        self.purged: list[int] = []
+
+    async def purge_guild(self, guild_id: int) -> int:
+        self.purged.append(guild_id)
+        return 0
+
+
 class FakeShows:
     def __init__(self) -> None:
         self.purged: list[int] = []
@@ -555,3 +564,58 @@ def test_summaries_switch_in_german() -> None:
     ctx = german(ctx_for(cast("Any", cog.bot)))
     configure(cog, ctx, "summaries", "x")
     assert text(ctx) == "Sag `on` oder `off`."
+
+
+def test_the_purge_also_clears_the_voice_queue_of_the_departed_guild() -> None:
+    queue = FakeQueue()
+    cog = Config(
+        cast("Any", FakeBot(FakeSettings())),
+        cast("Any", FakeJobs()),
+        cast("Any", FakeShows()),
+        cast("Any", queue),
+    )
+
+    asyncio.run(cog.purge_guild(purge_job()))
+
+    assert queue.purged == [11]
+
+
+def test_a_rejoined_guild_keeps_its_voice_queue() -> None:
+    queue = FakeQueue()
+    bot = FakeBot(FakeSettings())
+    bot.guilds[11] = Named(id=11)
+    cog = Config(
+        cast("Any", bot), cast("Any", FakeJobs()), cast("Any", FakeShows()), cast("Any", queue)
+    )
+
+    asyncio.run(cog.purge_guild(purge_job()))
+
+    assert queue.purged == []
+
+
+def test_the_cog_builds_the_queue_store_on_the_bots_database(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    built: list[Any] = []
+
+    def make_queue(db: Any) -> str:
+        built.append(db)
+        return "queue"
+
+    monkeypatch.setattr(config_module, "QueueStore", make_queue)
+    database = Named()
+
+    cog = Config(cast("Any", FakeBot(FakeSettings(), db=database)))
+
+    assert built == [database]
+    assert cast("Any", cog)._queue == "queue"
+    assert cast("Any", Config(cast("Any", FakeBot(FakeSettings()))))._queue is None
+
+
+def test_an_explicit_queue_store_is_used_as_given(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(config_module, "QueueStore", lambda db: "built")
+    queue = FakeQueue()
+
+    cog = Config(cast("Any", FakeBot(FakeSettings(), db=Named())), None, None, cast("Any", queue))
+
+    assert cast("Any", cog)._queue is queue

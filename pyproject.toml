@@ -80,6 +80,7 @@ do_not_mutate = [
   "src/aha/guildsettings_store.py",
   "src/aha/summarize_store.py",
   "src/aha/showstore.py",
+  "src/aha/queuestore.py",
 ]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = ["--no-cov", "-q", "-p", "no:cacheprovider"]

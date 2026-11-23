@@ -27,6 +27,10 @@ class FakePlayer(wavelink.Player):
         self.disconnected = 0
         self.played: list[Any] = []
         self.play_error: Exception | None = None
+        self.pauses: list[bool] = []
+        self.stops = 0
+        self.command_error: Exception | None = None
+        self._position = 0
 
     @property
     def guild(self) -> Any:
@@ -45,6 +49,20 @@ class FakePlayer(wavelink.Player):
 
     async def disconnect(self, **kwargs: Any) -> None:
         self.disconnected += 1
+
+    @property
+    def position(self) -> int:
+        return self._position
+
+    async def pause(self, value: bool, /) -> None:
+        if self.command_error is not None:
+            raise self.command_error
+        self.pauses.append(value)
+
+    async def stop(self, *, force: bool = True) -> Any:
+        if self.command_error is not None:
+            raise self.command_error
+        self.stops += 1
 
     async def play(self, track: Any, **kwargs: Any) -> Any:
         if self.play_error is not None:
@@ -542,7 +560,11 @@ def test_the_backend_listens_for_the_nodes_track_problems() -> None:
     bot = FakeBot()
     make(bot=bot)
 
-    assert sorted(bot.listeners) == ["on_wavelink_track_exception", "on_wavelink_track_stuck"]
+    assert sorted(bot.listeners) == [
+        "on_wavelink_track_end",
+        "on_wavelink_track_exception",
+        "on_wavelink_track_stuck",
+    ]
 
 
 def test_a_track_exception_is_passed_on_with_its_severity_and_logged(
@@ -644,3 +666,136 @@ def test_an_exception_without_severity_or_message_still_gives_a_readable_detail(
     )
 
     assert seen[0].detail == "?: "
+
+
+# ----------------------------------------------------------------------------- controls and ends
+
+
+def test_paused_state_and_position_come_from_the_guilds_player() -> None:
+    backend, pool, bot = connected()
+    player = with_player(backend, pool, bot, FakePlayer(1, 10))
+    player._paused = True
+    player._position = 62_000
+
+    assert backend.is_paused(1) is True
+    assert backend.position_ms(1) == 62_000
+    assert backend.is_paused(99) is False  # no player
+    assert backend.position_ms(99) == 0
+
+
+def test_pausing_and_resuming_go_to_the_player() -> None:
+    backend, pool, bot = connected()
+    player = with_player(backend, pool, bot, FakePlayer(1, 10))
+
+    asyncio.run(backend.set_paused(1, True))
+    asyncio.run(backend.set_paused(1, False))
+
+    assert player.pauses == [True, False]
+
+
+def test_stopping_a_track_goes_to_the_player() -> None:
+    backend, pool, bot = connected()
+    player = with_player(backend, pool, bot, FakePlayer(1, 10))
+
+    asyncio.run(backend.stop_track(1))
+
+    assert player.stops == 1
+
+
+@pytest.mark.parametrize("action", ["pause", "stop"])
+def test_a_command_without_a_player_says_the_bot_is_not_connected(action: str) -> None:
+    backend, _, _ = connected()
+    run_action = backend.set_paused(1, True) if action == "pause" else backend.stop_track(1)
+
+    with pytest.raises(VoiceError) as error:
+        asyncio.run(run_action)
+
+    assert error.value.key == "voice.not_connected"
+
+
+@pytest.mark.parametrize("action", ["pause", "stop"])
+def test_a_command_the_node_refuses_is_reported_and_logged_by_type(
+    action: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    backend, pool, bot = connected()
+    player = with_player(backend, pool, bot, FakePlayer(1, 10))
+    player.command_error = wavelink.WavelinkException("boom")
+    run_action = backend.set_paused(1, True) if action == "pause" else backend.stop_track(1)
+
+    with caplog.at_level(logging.WARNING, logger="aha.voice"), pytest.raises(VoiceError) as error:
+        asyncio.run(run_action)
+
+    assert error.value.key == "voice.play_failed"
+    assert caplog.messages == ["A player command failed (WavelinkException)"]
+
+
+@pytest.mark.parametrize("reason", ["finished", "loadFailed"])
+def test_a_track_that_ended_by_itself_or_failed_to_load_advances_the_queue(
+    reason: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    bot = FakeBot()
+    backend, _ = make(bot=bot)
+    seen: list[Any] = []
+
+    async def listener(event: Any) -> None:
+        seen.append(event)
+
+    backend.subscribe(listener)
+
+    with caplog.at_level(logging.WARNING, logger="aha.voice"):
+        asyncio.run(
+            bot.listeners["on_wavelink_track_end"](event_payload(FakePlayer(1, 10), reason=reason))
+        )
+
+    (event,) = seen
+    assert (event.guild_id, event.kind, event.video_id, event.detail) == (
+        1,
+        "ended",
+        "dQw4w9WgXcQ",
+        reason,
+    )
+    assert caplog.messages == []  # an ordinary end is not a warning
+
+
+@pytest.mark.parametrize("reason", ["stopped", "replaced", "cleanup"])
+def test_a_track_we_ended_ourselves_does_not_advance_the_queue(reason: str) -> None:
+    bot = FakeBot()
+    backend, _ = make(bot=bot)
+    seen: list[Any] = []
+
+    async def listener(event: Any) -> None:
+        seen.append(event)
+
+    backend.subscribe(listener)
+
+    asyncio.run(
+        bot.listeners["on_wavelink_track_end"](event_payload(FakePlayer(1, 10), reason=reason))
+    )
+
+    assert seen == []
+
+
+def test_a_stuck_track_is_logged_as_a_warning_and_an_ordinary_end_is_not(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    bot = FakeBot()
+    make(bot=bot)
+
+    with caplog.at_level(logging.INFO, logger="aha.voice"):
+        asyncio.run(
+            bot.listeners["on_wavelink_track_stuck"](
+                event_payload(FakePlayer(2, 20), threshold=10000)
+            )
+        )
+        stuck_messages = list(caplog.messages)
+        caplog.clear()
+        asyncio.run(
+            bot.listeners["on_wavelink_track_end"](
+                event_payload(FakePlayer(2, 20), reason="finished")
+            )
+        )
+
+    assert stuck_messages == [
+        "Playback stuck in guild 2 for video dQw4w9WgXcQ: no audio for 10000 ms"
+    ]
+    assert caplog.messages == []

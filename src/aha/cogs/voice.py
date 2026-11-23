@@ -15,7 +15,6 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable
-from typing import Any
 
 import discord
 from discord import app_commands
@@ -23,14 +22,18 @@ from discord.ext import commands
 
 from aha import embeds
 from aha.bot import AhaBot
+from aha.cogs.playback import controls, format_length
 from aha.commands import hybrid_command
 from aha.i18n import DEFAULT_LOCALE, locale_of, t
+from aha.playback import PlaybackQueue  # noqa: F401
+from aha.queuestore import QueueFullError
 from aha.replies import reply
-from aha.textutil import clip, plain
-from aha.voice import AudioBackend, AudioEvent, Track, VoiceError
-from aha.youtube import LinkError, video_id, watch_url
+from aha.textutil import plain
+from aha.voice import AudioEvent, Track, VoiceError
+from aha.voicechecks import caller_channel, may_manage, precheck, require_audio, title_link
+from aha.youtube import LinkError, video_id
 
-__all__ = ["SWEEP_INTERVAL", "Voice", "format_length", "setup"]
+__all__ = ["SWEEP_INTERVAL", "Voice", "setup"]
 
 log = logging.getLogger(__name__)
 
@@ -39,13 +42,6 @@ SWEEP_INTERVAL = 30.0
 
 #: The task that ends idle sessions.
 JANITOR_TASK = "voice-janitor"
-
-
-def format_length(milliseconds: int) -> str:
-    """``3:33`` or ``1:02:03`` for a track length."""
-    hours, rest = divmod(milliseconds // 1000, 3600)
-    minutes, seconds = divmod(rest, 60)
-    return f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
 
 
 class Voice(commands.Cog):
@@ -69,30 +65,6 @@ class Voice(commands.Cog):
 
     # -- helpers ---------------------------------------------------------------------------------
 
-    async def _require_audio(self, ctx: commands.Context[commands.Bot]) -> AudioBackend | None:
-        """The backend, or tell the user playback is off or the node is down."""
-        audio = self.bot.audio
-        locale = locale_of(ctx)
-        if audio is None:
-            await reply(ctx, embed=embeds.error(t("voice.off", locale)), ephemeral=True)
-            return None
-        if not audio.up:
-            await reply(ctx, embed=embeds.error(t("voice.node_down", locale)), ephemeral=True)
-            return None
-        return audio
-
-    @staticmethod
-    def _caller_channel(
-        ctx: commands.Context[commands.Bot],
-    ) -> discord.VoiceChannel | discord.StageChannel | None:
-        """The voice channel the invoker is in (from the voice-state cache), if any."""
-        member: Any = ctx.author
-        state = getattr(member, "voice", None)
-        channel = None if state is None else state.channel
-        if isinstance(channel, discord.VoiceChannel | discord.StageChannel):
-            return channel
-        return None
-
     def listeners(self, channel_id: int) -> int:
         """How many others share the channel with the bot (0 when it is alone or gone)."""
         channel = self.bot.get_channel(channel_id)
@@ -101,32 +73,6 @@ class Voice(commands.Cog):
         return max(0, len(channel.voice_states) - 1)
 
     # -- commands --------------------------------------------------------------------------------
-
-    async def _precheck(
-        self,
-        ctx: commands.Context[commands.Bot],
-        guild: discord.Guild,
-        audio: AudioBackend,
-        channel: discord.VoiceChannel | discord.StageChannel,
-    ) -> str | None:
-        """May the bot go to ``channel``? ``"same"`` when it is already there, ``"ok"`` when it
-        may move or join, ``None`` after replying with the reason it may not."""
-        locale = locale_of(ctx)
-        permissions = channel.permissions_for(guild.me) if guild.me else None
-        if permissions is not None and not (permissions.connect and permissions.speak):
-            message = t("voice.missing_permissions", locale, channel=plain(channel.name))
-            await reply(ctx, embed=embeds.error(message), ephemeral=True)
-            return None
-        current = audio.channel_id(guild.id)
-        if current == channel.id:
-            return "same"
-        if current is None and audio.player_count() >= self.bot.settings.voice_max_players:
-            await reply(ctx, embed=embeds.error(t("voice.busy", locale)), ephemeral=True)
-            return None
-        if current is not None and audio.is_playing(guild.id) and not self._may_manage(ctx):
-            await reply(ctx, embed=embeds.error(t("voice.in_use", locale)), ephemeral=True)
-            return None
-        return "ok"
 
     @hybrid_command(
         name="join",
@@ -137,15 +83,15 @@ class Voice(commands.Cog):
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def join(self, ctx: commands.Context[commands.Bot]) -> None:
         """Join the invoker's voice channel, or move there."""
-        audio = await self._require_audio(ctx)
+        audio = await require_audio(self.bot, ctx)
         if audio is None or ctx.guild is None:
             return
         locale = locale_of(ctx)
-        channel = self._caller_channel(ctx)
+        channel = caller_channel(ctx.author)
         if channel is None:
             await reply(ctx, embed=embeds.error(t("voice.join_first", locale)), ephemeral=True)
             return
-        state = await self._precheck(ctx, ctx.guild, audio, channel)
+        state = await precheck(self.bot, ctx, ctx.guild, audio, channel)
         if state is None:
             return
         if state == "same":
@@ -171,11 +117,16 @@ class Voice(commands.Cog):
     @commands.guild_only()
     @commands.cooldown(1, 5, commands.BucketType.user)
     async def play(self, ctx: commands.Context[commands.Bot], link: str) -> None:
-        """Play one YouTube video in the invoker's voice channel."""
-        audio = await self._require_audio(ctx)
+        """Queue one YouTube video, and start playing it if nothing else is."""
+        audio = await require_audio(self.bot, ctx)
         if audio is None or ctx.guild is None:
             return
         locale = locale_of(ctx)
+        playback = self.bot.playback
+        if playback is None:
+            message = t("voice.needs_database", locale)
+            await reply(ctx, embed=embeds.error(message), ephemeral=True)
+            return
         outcome = self.bot.metrics.voice_tracks
         try:
             video = video_id(link)
@@ -183,19 +134,15 @@ class Voice(commands.Cog):
             outcome.labels(outcome="refused").inc()
             await reply(ctx, embed=embeds.error(t(error.key, locale)), ephemeral=True)
             return
-        channel = self._caller_channel(ctx)
+        channel = caller_channel(ctx.author)
         if channel is None:
             await reply(ctx, embed=embeds.error(t("voice.join_first", locale)), ephemeral=True)
             return
-        state = await self._precheck(ctx, ctx.guild, audio, channel)
+        state = await precheck(self.bot, ctx, ctx.guild, audio, channel)
         if state is None:
             return
-        if audio.is_playing(ctx.guild.id):
-            outcome.labels(outcome="refused").inc()
-            message = t("voice.already_playing", locale)
-            await reply(ctx, embed=embeds.error(message), ephemeral=True)
-            return
         await ctx.defer()
+        guild_id = ctx.guild.id
         try:
             track = await audio.load(video)
             refusal = self._refusal(track, locale)
@@ -203,24 +150,45 @@ class Voice(commands.Cog):
                 outcome.labels(outcome="refused").inc()
                 await reply(ctx, embed=embeds.error(refusal), ephemeral=True)
                 return
-            if state == "ok":
-                await audio.join(channel)
-            await audio.play(ctx.guild.id, track)
+            entry = await playback.add(guild_id, track, ctx.author.id)
+        except QueueFullError:
+            outcome.labels(outcome="refused").inc()
+            message = t("voice.queue_full", locale, limit=self.bot.settings.voice_max_queue)
+            await reply(ctx, embed=embeds.error(message), ephemeral=True)
+            return
         except VoiceError as error:
             outcome.labels(outcome="failed").inc()
             await reply(ctx, embed=embeds.error(t(error.key, locale)), ephemeral=True)
             return
-        self._idle_since.pop(ctx.guild.id, None)
-        self._announce[ctx.guild.id] = ctx.channel.id
+        try:
+            if state == "ok":
+                await audio.join(channel)
+            started = await playback.ensure_playing(guild_id)
+        except VoiceError as error:
+            await playback.discard(guild_id, entry.id)  # take the track back: it never played
+            outcome.labels(outcome="failed").inc()
+            await reply(ctx, embed=embeds.error(t(error.key, locale)), ephemeral=True)
+            return
+        waiting = [queued.id for queued in await playback.entries(guild_id)]
+        if entry.id not in waiting:  # it could not be started and was dropped from the queue
+            outcome.labels(outcome="failed").inc()
+            message = t("voice.play_failed", locale)
+            await reply(ctx, embed=embeds.error(message), ephemeral=True)
+            return
+        self._idle_since.pop(guild_id, None)
+        self._announce[guild_id] = ctx.channel.id
         outcome.labels(outcome="ok").inc()
-        message = t(
-            "voice.now_playing",
-            locale,
-            title=self._link(track),
-            length=format_length(track.length_ms),
-            who=plain(ctx.author.display_name),
-        )
-        await reply(ctx, embed=embeds.success(message))
+        title = self._link(track)
+        length = format_length(track.length_ms)
+        who = plain(ctx.author.display_name)
+        if started is not None and started.id == entry.id:
+            message = t("voice.now_playing", locale, title=title, length=length, who=who)
+        else:
+            position = waiting.index(entry.id) + 1
+            message = t(
+                "voice.queued", locale, title=title, length=length, who=who, position=position
+            )
+        await reply(ctx, embed=embeds.success(message), view=controls(guild_id, locale))
 
     def _refusal(self, track: Track, locale: str) -> str | None:
         """Why this track may not be played, or ``None``."""
@@ -233,14 +201,24 @@ class Voice(commands.Cog):
 
     @staticmethod
     def _link(track: Track) -> str:
-        """The title as a link to the video. The title is untrusted: no brackets, so it cannot end
-        the link early and point somewhere else."""
-        title = clip(plain(track.title), 100).replace("[", "(").replace("]", ")")
-        return f"[{title}]({watch_url(track.video_id)})"
+        """The title as a link to the video (see :func:`aha.voicechecks.title_link`)."""
+        return title_link(track.title, track.video_id)
 
     async def _on_audio_event(self, event: AudioEvent) -> None:
-        """Tell the channel the last ``/play`` came from that the track did not play."""
+        """A track ended (play the next), or a track had a problem (say so, once)."""
+        playback = self.bot.playback
+        if event.kind == "ended":
+            if playback is not None:
+                await playback.advance(event.guild_id, video=event.video_id)
+            return
         self.bot.metrics.voice_tracks.labels(outcome="failed").inc()
+        await self._report(event)
+        if event.kind == "stuck" and playback is not None:
+            # It never ends by itself.
+            await playback.advance(event.guild_id, stop_first=True, video=event.video_id)
+
+    async def _report(self, event: AudioEvent) -> None:
+        """Tell the channel the last ``/play`` came from that a track did not play."""
         channel_id = self._announce.get(event.guild_id)
         channel = None if channel_id is None else self.bot.get_channel(channel_id)
         if not isinstance(channel, discord.abc.Messageable):
@@ -272,20 +250,14 @@ class Voice(commands.Cog):
         if current is None:
             await reply(ctx, embed=embeds.error(t("voice.not_connected", locale)), ephemeral=True)
             return
-        caller = self._caller_channel(ctx)
-        if (caller is None or caller.id != current) and not self._may_manage(ctx):
+        caller = caller_channel(ctx.author)
+        if (caller is None or caller.id != current) and not may_manage(ctx.author):
             await reply(ctx, embed=embeds.error(t("voice.not_with_me", locale)), ephemeral=True)
             return
         await ctx.defer()
         await audio.leave(ctx.guild.id)
         self._idle_since.pop(ctx.guild.id, None)
         await reply(ctx, embed=embeds.success(t("voice.left", locale)))
-
-    @staticmethod
-    def _may_manage(ctx: commands.Context[commands.Bot]) -> bool:
-        """Whether the invoker holds Manage Channels (and so may move or stop the bot)."""
-        permissions = getattr(ctx.author, "guild_permissions", None)
-        return bool(permissions is not None and permissions.manage_channels)
 
     # -- leaving by itself -----------------------------------------------------------------------
 

@@ -33,7 +33,7 @@ from aha.i18n import locale_of, t
 from aha.jobstore import Job
 from aha.replies import reply
 from aha.showstore import KIND, Followed, ShowLimitError, ShowStore, Subscription
-from aha.textutil import clip, plain
+from aha.textutil import clip, pack, plain
 from aha.tvmaze import Episode, Show, TvmazeClient, TvmazeError
 
 __all__ = [
@@ -123,17 +123,6 @@ def episode_from_payload(payload: dict[str, Any]) -> Episode | None:
         )
     except KeyError, TypeError, ValueError:
         return None
-
-
-def pack(lines: list[str], limit: int) -> list[str]:
-    """Join ``lines`` into pages of at most ``limit`` characters (a longer line gets its own)."""
-    pages: list[str] = []
-    for line in lines:
-        if pages and len(pages[-1]) + 1 + len(line) <= limit:
-            pages[-1] += "\n" + line
-        else:
-            pages.append(line)
-    return pages
 
 
 def format_lead(seconds: int) -> str:

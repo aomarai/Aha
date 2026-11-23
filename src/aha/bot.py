@@ -29,6 +29,8 @@ from aha.i18n import AhaTranslator
 from aha.identify import IdentifyCoordinator
 from aha.jobstore import JobStore
 from aha.metrics import Metrics, ShardState
+from aha.playback import PlaybackQueue
+from aha.queuestore import QueueStore
 from aha.ratelimit import LocalBackend, RateLimitBackend, RateLimiter
 from aha.scheduler import Scheduler
 from aha.tasks import TaskRegistry
@@ -62,6 +64,7 @@ COG_MODULES: tuple[str, ...] = (
     "aha.cogs.remind",
     "aha.cogs.shows",
     "aha.cogs.voice",
+    "aha.cogs.playback",
     "aha.cogs.config",
     "aha.cogs.forget",
     "aha.cogs.summarize",
@@ -216,6 +219,8 @@ class AhaBot(commands.AutoShardedBot):
         self.guild_settings: GuildSettingsCache | None = None
         #: The voice audio backend (a Lavalink node); ``None`` when ``LAVALINK_URL`` is unset.
         self.audio: AudioBackend | None = None
+        #: The voice queue and its decisions; ``None`` without both the audio node and a database.
+        self.playback: PlaybackQueue | None = None
         #: False for REST-only jobs (``aha sync``): no gateway session, so nothing to guard.
         self.gateway_enabled = gateway
         #: Serialises IDENTIFY across pods (needs a database and an explicit shard assignment).
@@ -318,6 +323,10 @@ class AhaBot(commands.AutoShardedBot):
                 self, self.settings.lavalink_url, self.settings.lavalink_password
             )
             self.metrics.bind_audio(self.audio)
+            if self.db is not None:
+                self.playback = PlaybackQueue(
+                    self.audio, QueueStore(self.db), max_queue=self.settings.voice_max_queue
+                )
             # Not critical: without the node the bot still serves everything but voice.
             self.tasks.spawn(self.audio.run, name=AUDIO_TASK, restart=True)
         await self.tree.set_translator(AhaTranslator())

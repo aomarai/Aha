@@ -7,6 +7,12 @@ for how a release is cut.
 ## [Unreleased]
 
 ### Added
+- The voice queue and controls (#171): `/play` queues when something is playing; `/queue`,
+  `/nowplaying`, `/skip`, `/pause`, `/resume`, `/stop` and `/remove`, plus Pause/Skip/Stop buttons on
+  the now-playing message. The queue is stored in PostgreSQL (`voice_queue`, migration 0006), so it
+  survives a restart; `VOICE_MAX_QUEUE` caps it. Only the requester of a track (or someone with Manage
+  Channels) may skip, remove or stop it. `/forgetme` and the departed-server purge delete queued
+  tracks.
 - `/play <YouTube link>` (#170): plays one video through the Lavalink node. Only YouTube video links
   are accepted (an allowlist; the node is asked for a canonical link built from the video id), and
   playlists, live streams and tracks over `VOICE_MAX_TRACK_MINUTES` are refused. A track the node

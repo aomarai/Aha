@@ -24,6 +24,7 @@ from aha.commands import hybrid_command
 from aha.guildsettings import PROTECTED_COMMANDS, GuildSettingsCache
 from aha.i18n import locale_of, t
 from aha.jobstore import Job, JobStore
+from aha.queuestore import QueueStore
 from aha.replies import reply
 from aha.showstore import ShowStore
 from aha.textutil import code
@@ -56,11 +57,16 @@ class Config(commands.Cog):
     """View and change this server's settings, and clean up after a departed server."""
 
     def __init__(
-        self, bot: AhaBot, store: JobStore | None = None, shows: ShowStore | None = None
+        self,
+        bot: AhaBot,
+        store: JobStore | None = None,
+        shows: ShowStore | None = None,
+        queue: QueueStore | None = None,
     ) -> None:
         self.bot = bot
         self._jobs = store if store is not None else (JobStore(bot.db) if bot.db else None)
         self._shows = shows if shows is not None else (ShowStore(bot.db) if bot.db else None)
+        self._queue = queue if queue is not None else (QueueStore(bot.db) if bot.db else None)
 
     def _settings(self) -> GuildSettingsCache | None:
         return self.bot.guild_settings
@@ -185,6 +191,8 @@ class Config(commands.Cog):
         # retried if the subscription purge failed.
         if self._shows is not None:
             await self._shows.purge_guild(guild_id)
+        if self._queue is not None:
+            await self._queue.purge_guild(guild_id)
         await self._jobs.purge_guild(guild_id)
         log.info("Deleted the data of departed guild %s", guild_id)
 

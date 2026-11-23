@@ -40,6 +40,9 @@ CONNECT_TIMEOUT = 15.0
 #: The identifier of the one Lavalink node.
 NODE_ID = "aha"
 
+#: Why a track ended when the queue should move on: it finished, or it could not be loaded.
+_ADVANCING_REASONS = frozenset({"finished", "loadFailed"})
+
 
 class VoiceError(Exception):
     """A voice action failed for a reason the user can be told; ``key`` is its message key."""
@@ -67,7 +70,8 @@ class AudioEvent:
     """Something that went wrong with playback in a guild (the node's words, shortened)."""
 
     guild_id: int
-    #: ``failed`` (the node could not play the track) or ``stuck`` (it stopped producing audio).
+    #: ``failed`` (the node could not play the track), ``stuck`` (it stopped producing audio) or
+    #: ``ended`` (the track is over, by finishing or by failing to load; not by being stopped).
     kind: str
     video_id: str
     #: The node's severity and message, for logs only: never shown to users.
@@ -96,6 +100,12 @@ class AudioBackend(Protocol):
     def is_playing(self, guild_id: int) -> bool:
         """Whether something is playing (or paused, which still holds the channel)."""
 
+    def is_paused(self, guild_id: int) -> bool:
+        """Whether the guild's player is paused."""
+
+    def position_ms(self, guild_id: int) -> int:
+        """How far into the current track the guild's player is."""
+
     async def join(self, channel: discord.VoiceChannel | discord.StageChannel) -> None:
         """Join ``channel``, or move there. Raises :class:`VoiceError`."""
 
@@ -107,6 +117,12 @@ class AudioBackend(Protocol):
 
     async def play(self, guild_id: int, track: Track) -> None:
         """Start ``track`` in the guild's channel. Raises :class:`VoiceError`."""
+
+    async def set_paused(self, guild_id: int, paused: bool) -> None:
+        """Pause or resume the guild's player. Raises :class:`VoiceError`."""
+
+    async def stop_track(self, guild_id: int) -> None:
+        """End the current track without starting another. Raises :class:`VoiceError`."""
 
     def subscribe(self, listener: AudioListener) -> None:
         """Call ``listener`` for every :class:`AudioEvent`."""
@@ -137,6 +153,7 @@ class WavelinkBackend:
         self._listeners: list[AudioListener] = []
         bot.add_listener(self._on_track_exception, "on_wavelink_track_exception")
         bot.add_listener(self._on_track_stuck, "on_wavelink_track_stuck")
+        bot.add_listener(self._on_track_end, "on_wavelink_track_end")
 
     # -- the node --------------------------------------------------------------------------------
 
@@ -197,6 +214,16 @@ class WavelinkBackend:
         player = self._player(guild_id)
         return player is not None and bool(player.playing or player.paused)
 
+    def is_paused(self, guild_id: int) -> bool:
+        """Whether the guild's player is paused."""
+        player = self._player(guild_id)
+        return player is not None and bool(player.paused)
+
+    def position_ms(self, guild_id: int) -> int:
+        """The playing position, in milliseconds (0 without a player)."""
+        player = self._player(guild_id)
+        return 0 if player is None else int(player.position)
+
     async def join(self, channel: discord.VoiceChannel | discord.StageChannel) -> None:
         """Join ``channel`` (deafened: the bot never listens), or move the existing player."""
         if not self.up:
@@ -253,28 +280,64 @@ class WavelinkBackend:
             log.warning("Playing video %s failed (%s)", track.video_id, type(exc).__name__)
             raise VoiceError("voice.play_failed") from exc
 
+    async def set_paused(self, guild_id: int, paused: bool) -> None:
+        """Pause or resume the guild's player."""
+        await self._command(guild_id, lambda player: player.pause(paused))
+
+    async def stop_track(self, guild_id: int) -> None:
+        """End the current track; the node reports it as stopped, not as ``ended``."""
+        await self._command(guild_id, lambda player: player.stop())
+
+    async def _command(self, guild_id: int, action: Callable[[Any], Awaitable[Any]]) -> None:
+        player = self._player(guild_id)
+        if player is None:
+            raise VoiceError("voice.not_connected")
+        try:
+            await action(player)
+        except wavelink.WavelinkException as exc:
+            log.warning("A player command failed (%s)", type(exc).__name__)
+            raise VoiceError("voice.play_failed") from exc
+
     # -- events ----------------------------------------------------------------------------------
 
     def subscribe(self, listener: AudioListener) -> None:
         """Register a listener for playback problems."""
         self._listeners.append(listener)
 
-    async def _notify(self, payload: Any, kind: str, detail: str) -> None:
+    async def _emit(self, payload: Any, kind: str, detail: str) -> AudioEvent | None:
         player = payload.player
         guild = None if player is None else player.guild
         if guild is None:
-            return
+            return None
         event = AudioEvent(int(guild.id), kind, str(payload.track.identifier), detail)
-        log.warning(
-            "Playback %s in guild %s for video %s: %s", kind, guild.id, event.video_id, detail
-        )
         for listener in self._listeners:
             await listener(event)
+        return event
+
+    async def _problem(self, payload: Any, kind: str, detail: str) -> None:
+        """Log a playback problem (for the runbook), then tell the listeners."""
+        player = payload.player
+        guild = None if player is None else player.guild
+        if guild is not None:
+            log.warning(
+                "Playback %s in guild %s for video %s: %s",
+                kind,
+                guild.id,
+                payload.track.identifier,
+                detail,
+            )
+        await self._emit(payload, kind, detail)
 
     async def _on_track_exception(self, payload: Any) -> None:
         problem = payload.exception
         detail = f"{problem.get('severity', '?')}: {str(problem.get('message', ''))[:100]}"
-        await self._notify(payload, "failed", detail)
+        await self._problem(payload, "failed", detail)
 
     async def _on_track_stuck(self, payload: Any) -> None:
-        await self._notify(payload, "stuck", f"no audio for {payload.threshold} ms")
+        await self._problem(payload, "stuck", f"no audio for {payload.threshold} ms")
+
+    async def _on_track_end(self, payload: Any) -> None:
+        """Only a track that ended by itself (or failed to load) advances the queue: the other
+        reasons (stopped, replaced, cleanup) are our own doing."""
+        if payload.reason in _ADVANCING_REASONS:
+            await self._emit(payload, "ended", str(payload.reason))
