@@ -5,15 +5,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 import discord
 import pytest
 from discord import app_commands
 from discord.ext import commands
+from prometheus_client import generate_latest
 
 from aha import logctx
-from aha.bot import COG_MODULES, HEALTH_TASK, WATCHDOG_TASK, AhaBot, gateway_intents
+from aha.bot import AUDIO_TASK, COG_MODULES, HEALTH_TASK, WATCHDOG_TASK, AhaBot, gateway_intents
 from aha.config import Settings
 from aha.guildsettings import CommandDisabled
 from aha.ratelimit import LocalBackend, RateLimiter
@@ -53,9 +54,9 @@ def test_bot_requests_no_privileged_intents_and_has_no_default_help() -> None:
 def test_only_the_intents_the_bot_uses_are_requested() -> None:
     intents = gateway_intents()
 
-    assert intents.value == discord.Intents(guilds=True).value
+    assert intents.value == discord.Intents(guilds=True, voice_states=True).value
     enabled = {name for name, on in intents if on}
-    assert enabled == {"guilds"}
+    assert enabled == {"guilds", "voice_states"}  # voice_states: needed to join voice (ADR 0002)
 
 
 def test_the_noisy_default_intents_are_not_requested() -> None:
@@ -64,7 +65,6 @@ def test_the_noisy_default_intents_are_not_requested() -> None:
     for name in (
         "guild_typing",
         "dm_typing",
-        "voice_states",
         "invites",
         "emojis_and_stickers",
         "guild_reactions",
@@ -1167,3 +1167,117 @@ def test_every_command_and_menu_is_installable_by_servers_only() -> None:
     assert {tuple(payload["integration_types"]) for payload in found} == {(0,)}
     assert bot.tree.allowed_installs.guild is True
     assert bot.tree.allowed_installs.user is False
+
+
+# ----------------------------------------------------------------------------- voice (Lavalink)
+
+
+class _FakeAudio:
+    """Records how the bot builds its audio backend."""
+
+    instances: ClassVar[list[_FakeAudio]] = []
+
+    def __init__(self, bot: Any, url: str, password: str) -> None:
+        self.args = (bot, url, password)
+        self.up = False
+        self.ran = asyncio.Event()
+        _FakeAudio.instances.append(self)
+
+    def player_count(self) -> int:
+        return 0
+
+    async def run(self) -> None:
+        self.ran.set()
+        await asyncio.Event().wait()
+
+
+def _setup_hook_bot(monkeypatch: pytest.MonkeyPatch, **settings: Any) -> AhaBot:
+    bot = AhaBot(Settings(token="test-token", **settings))
+
+    async def fake_load_extension(name: str) -> None:
+        return None
+
+    async def fake_super_close(self: commands.AutoShardedBot) -> None:
+        return None
+
+    monkeypatch.setattr(bot, "load_extension", fake_load_extension)
+    monkeypatch.setattr(commands.AutoShardedBot, "close", fake_super_close)
+    monkeypatch.setattr("aha.bot.WavelinkBackend", _FakeAudio)
+    _FakeAudio.instances = []
+    return bot
+
+
+def test_without_lavalink_the_bot_has_no_audio_and_starts_no_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _setup_hook_bot(monkeypatch)
+
+    async def scenario() -> None:
+        await bot.setup_hook()
+        await bot.close()
+
+    asyncio.run(scenario())
+
+    assert bot.audio is None
+    assert _FakeAudio.instances == []
+
+
+def test_with_lavalink_the_bot_builds_the_backend_binds_its_gauges_and_starts_its_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _setup_hook_bot(
+        monkeypatch, lavalink_url="http://aha-lavalink:2333", lavalink_password="pw"
+    )
+
+    spawned: list[dict[str, Any]] = []
+    original_spawn = bot.tasks.spawn
+
+    def recording_spawn(factory: Any, **kwargs: Any) -> asyncio.Task[None]:
+        spawned.append(kwargs)
+        return original_spawn(factory, **kwargs)
+
+    monkeypatch.setattr(bot.tasks, "spawn", recording_spawn)
+
+    async def scenario() -> asyncio.Task[None] | None:
+        await bot.setup_hook()
+        task = bot.tasks.get(AUDIO_TASK)
+        await asyncio.sleep(0)
+        assert _FakeAudio.instances[0].ran.is_set()
+        await bot.close()
+        return task
+
+    task = asyncio.run(scenario())
+
+    (audio,) = _FakeAudio.instances
+    audio_spawn = next(call for call in spawned if call["name"] == AUDIO_TASK)
+    # Restarted when it crashes, but not critical: the bot stays ready when Lavalink is down.
+    assert audio_spawn == {"name": AUDIO_TASK, "restart": True}
+    assert audio.args == (bot, "http://aha-lavalink:2333", "pw")
+    assert cast("Any", bot.audio) is audio
+    assert task is not None and task.get_name() == AUDIO_TASK == "lavalink"
+    audio.up = True  # the gauges read the backend at scrape time
+    scrape = generate_latest(bot.metrics.registry).decode()
+    assert "aha_lavalink_up 1.0" in scrape
+    assert "aha_voice_players 0.0" in scrape
+
+
+def test_the_audio_backend_is_not_built_twice_and_not_for_rest_only_jobs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings: dict[str, Any] = {"lavalink_url": "http://x:2333", "lavalink_password": "pw"}
+    rest_only = AhaBot(Settings(token="test-token", **settings), gateway=False)
+
+    async def fake_load_extension(name: str) -> None:
+        return None
+
+    monkeypatch.setattr(rest_only, "load_extension", fake_load_extension)
+    monkeypatch.setattr("aha.bot.WavelinkBackend", _FakeAudio)
+    _FakeAudio.instances = []
+
+    async def scenario() -> None:
+        await rest_only.setup_hook()
+        await rest_only.tasks.close()
+
+    asyncio.run(scenario())
+
+    assert rest_only.audio is None and _FakeAudio.instances == []

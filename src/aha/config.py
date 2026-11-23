@@ -64,6 +64,13 @@ DEFAULT_SUMMARIZE_MAX_CHARS = 4000
 MIN_SUMMARIZE_MAX_CHARS = 100
 MAX_SUMMARIZE_MAX_CHARS = 20_000
 
+#: Voice playback (ADR 0002): players one process holds at once, and how long the bot stays in a
+#: channel that is silent or empty before it leaves.
+DEFAULT_VOICE_MAX_PLAYERS = 10
+MAX_VOICE_MAX_PLAYERS = 200
+DEFAULT_VOICE_IDLE_MINUTES = 5
+MAX_VOICE_IDLE_MINUTES = 120
+
 #: Most shards one deployment may declare (only catches typos; Discord has its own ceiling).
 MAX_SHARD_COUNT = 10_000
 
@@ -202,6 +209,26 @@ def _parse_bounded_int(raw: str | None, *, name: str, default: int, low: int, hi
     return value
 
 
+def _parse_lavalink(source: Mapping[str, str]) -> tuple[str | None, str | None]:
+    """Return ``(url, password)`` of the Lavalink node, both ``None`` when voice is off.
+
+    The URL and the password go together: one without the other is a mistake, not "off", so it is
+    an error. The password may come from ``LAVALINK_PASSWORD_FILE`` (a mounted Secret) and is never
+    put in an error message.
+    """
+    url = (source.get("LAVALINK_URL") or "").strip().rstrip("/")
+    password = _read_secret(source, "LAVALINK_PASSWORD", "LAVALINK_PASSWORD_FILE")
+    if not url and password is None:
+        return None, None
+    if not url:
+        raise ConfigError("LAVALINK_PASSWORD is set but LAVALINK_URL is not.")
+    if not url.startswith(("http://", "https://")):
+        raise ConfigError(f"LAVALINK_URL must start with http:// or https://, got {url!r}")
+    if password is None:
+        raise ConfigError("LAVALINK_URL is set but LAVALINK_PASSWORD (or _FILE) is not.")
+    return url, password
+
+
 def _parse_fraction(raw: str | None, *, name: str, default: float) -> float:
     """Parse a fraction in ``0 <= x < 1``; unset or blank gives ``default``."""
     if raw is None or not raw.strip():
@@ -303,6 +330,14 @@ class Settings:
     summarize_daily_quota: int = DEFAULT_SUMMARIZE_DAILY_QUOTA
     #: Longest text (characters) that is sent to the model.
     summarize_max_chars: int = DEFAULT_SUMMARIZE_MAX_CHARS
+    #: URL of the Lavalink audio node (``http://host:2333``); ``None`` turns voice playback off.
+    lavalink_url: str | None = None
+    #: The node's password; set exactly when ``lavalink_url`` is.
+    lavalink_password: str | None = field(default=None, repr=False)
+    #: Voice players this process holds at once; over it the bot says it is busy.
+    voice_max_players: int = DEFAULT_VOICE_MAX_PLAYERS
+    #: Minutes of silence or an empty channel before the bot leaves.
+    voice_idle_minutes: int = DEFAULT_VOICE_IDLE_MINUTES
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Settings:
@@ -394,6 +429,21 @@ class Settings:
             low=MIN_SUMMARIZE_MAX_CHARS,
             high=MAX_SUMMARIZE_MAX_CHARS,
         )
+        lavalink_url, lavalink_password = _parse_lavalink(source)
+        voice_max_players = _parse_bounded_int(
+            source.get("VOICE_MAX_PLAYERS"),
+            name="VOICE_MAX_PLAYERS",
+            default=DEFAULT_VOICE_MAX_PLAYERS,
+            low=1,
+            high=MAX_VOICE_MAX_PLAYERS,
+        )
+        voice_idle_minutes = _parse_bounded_int(
+            source.get("VOICE_IDLE_MINUTES"),
+            name="VOICE_IDLE_MINUTES",
+            default=DEFAULT_VOICE_IDLE_MINUTES,
+            low=1,
+            high=MAX_VOICE_IDLE_MINUTES,
+        )
         session_start_floor = _parse_fraction(
             source.get("SESSION_START_FLOOR"),
             name="SESSION_START_FLOOR",
@@ -421,4 +471,8 @@ class Settings:
             anthropic_model=anthropic_model,
             summarize_daily_quota=summarize_daily_quota,
             summarize_max_chars=summarize_max_chars,
+            lavalink_url=lavalink_url,
+            lavalink_password=lavalink_password,
+            voice_max_players=voice_max_players,
+            voice_idle_minutes=voice_idle_minutes,
         )

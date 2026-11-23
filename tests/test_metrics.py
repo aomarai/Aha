@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+from typing import Any, cast
 
 from prometheus_client import generate_latest
 from prometheus_client.parser import text_string_to_metric_families
@@ -167,6 +168,8 @@ def test_the_exposition_text_parses_and_documents_every_metric() -> None:
         "aha_summarize_requests",
         "aha_summarize_tokens",
         "aha_rest_rate_limited",
+        "aha_voice_players",
+        "aha_lavalink_up",
     } <= set(families)  # counters also expose a ``*_created`` series
     documented = {
         name: family.documentation
@@ -203,6 +206,10 @@ def test_the_exposition_text_parses_and_documents_every_metric() -> None:
         "aha_session_start_reset_after_seconds": (
             "Seconds until the gateway session-start budget resets."
         ),
+        "aha_voice_players": "Guilds this process is in a voice channel for (0 when voice is off).",
+        "aha_lavalink_up": (
+            "1 when the Lavalink audio node is connected, 0 when it is not or voice is off."
+        ),
     }
 
 
@@ -224,3 +231,42 @@ def test_the_duration_histogram_uses_our_buckets_not_the_library_defaults() -> N
         if sample.name == "aha_command_duration_seconds_bucket"
     }
     assert seen == buckets | {"+Inf"}  # the library defaults would add 0.075, 0.75, 7.5, ...
+
+
+class FakeAudio:
+    """Just enough of an audio backend for the gauges."""
+
+    def __init__(self, players: int, up: bool) -> None:
+        self.players = players
+        self.is_up = up
+
+    @property
+    def up(self) -> bool:
+        return self.is_up
+
+    def player_count(self) -> int:
+        return self.players
+
+
+def _gauge_values(metrics: Metrics) -> dict[str, float]:
+    families = text_string_to_metric_families(generate_latest(metrics.registry).decode())
+    return {
+        sample.name: sample.value
+        for family in families
+        for sample in family.samples
+        if sample.name in ("aha_voice_players", "aha_lavalink_up")
+    }
+
+
+def test_the_voice_gauges_read_zero_until_an_audio_backend_is_bound() -> None:
+    assert _gauge_values(_metrics()) == {"aha_voice_players": 0.0, "aha_lavalink_up": 0.0}
+
+
+def test_the_voice_gauges_follow_the_backend_at_every_scrape() -> None:
+    metrics = _metrics()
+    audio = FakeAudio(players=3, up=True)
+    metrics.bind_audio(cast("Any", audio))
+
+    assert _gauge_values(metrics) == {"aha_voice_players": 3.0, "aha_lavalink_up": 1.0}
+    audio.players, audio.is_up = 0, False
+    assert _gauge_values(metrics) == {"aha_voice_players": 0.0, "aha_lavalink_up": 0.0}

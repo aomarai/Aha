@@ -7,6 +7,10 @@ for how a release is cut.
 ## [Unreleased]
 
 ### Added
+- Voice foundation (#169, ADR 0002): `/join` and `/leave`, an `AudioBackend` interface with a Lavalink
+  (Wavelink) adapter, the `voice_states` intent, `LAVALINK_URL` / `LAVALINK_PASSWORD` /
+  `VOICE_MAX_PLAYERS` / `VOICE_IDLE_MINUTES`, an idle janitor, and the `aha_voice_players` and
+  `aha_lavalink_up` gauges. Off unless `LAVALINK_URL` is set.
 - API documentation: an OpenAPI 3.1 spec for the health, readiness and metrics endpoints
   (`docs/openapi.yaml`) and a generated command reference (`docs/commands.md`), each kept in sync by
   a test.
