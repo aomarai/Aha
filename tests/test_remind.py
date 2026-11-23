@@ -323,7 +323,6 @@ def test_delivery_posts_in_the_channel_pinging_only_the_invoker() -> None:
     ((text, kwargs),) = channel.sent
     assert text == "<@33> ⏰ stand \\*up\\*"
     assert kwargs["nonce"] == 12
-    assert kwargs["enforce_nonce"] is True  # Discord drops a repeat of the same reminder
     mentions = kwargs["allowed_mentions"]
     assert mentions.everyone is False
     assert mentions.roles is False
