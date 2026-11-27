@@ -11,7 +11,7 @@ import pytest
 import wavelink
 
 from aha import voice as voice_module
-from aha.voice import CONNECT_TIMEOUT, NODE_ID, VoiceError, WavelinkBackend
+from aha.voice import CONNECT_TIMEOUT, NODE_ID, Track, VoiceError, WavelinkBackend
 from tests.helpers import Named
 
 
@@ -687,10 +687,95 @@ def test_pausing_and_resuming_go_to_the_player() -> None:
     backend, pool, bot = connected()
     player = with_player(backend, pool, bot, FakePlayer(1, 10))
 
+    assert backend.pause_changes(1) == 0
     asyncio.run(backend.set_paused(1, True))
+    assert backend.pause_changes(1) == 1
     asyncio.run(backend.set_paused(1, False))
 
     assert player.pauses == [True, False]
+    assert backend.pause_changes(1) == 2
+    assert backend.pause_changes(2) == 0  # per guild
+
+
+def test_a_refused_pause_does_not_count_as_a_change() -> None:
+    backend, pool, bot = connected()
+    player = with_player(backend, pool, bot, FakePlayer(1, 10))
+    player.command_error = wavelink.WavelinkException("boom")
+
+    with pytest.raises(VoiceError):
+        asyncio.run(backend.set_paused(1, True))
+
+    assert backend.pause_changes(1) == 0
+
+
+def test_leaving_forgets_the_pause_changes() -> None:
+    backend, pool, bot = connected()
+    with_player(backend, pool, bot, FakePlayer(1, 10))
+    asyncio.run(backend.set_paused(1, True))
+
+    asyncio.run(backend.leave(1))
+
+    assert backend.pause_changes(1) == 0
+
+
+class SlowLeavingPlayer(FakePlayer):
+    """A player whose disconnect waits until the test lets it finish."""
+
+    def __init__(self, guild_id: int, channel_id: int | None) -> None:
+        super().__init__(guild_id, channel_id)
+        self.release = asyncio.Event()
+        self.fail_with: Exception | None = None
+
+    async def disconnect(self, **kwargs: Any) -> None:
+        await self.release.wait()
+        self.disconnected += 1
+        if self.fail_with is not None:
+            raise self.fail_with
+
+
+@pytest.mark.parametrize("action", ["pause", "stop", "play"])
+def test_commands_are_refused_while_the_player_disconnects(action: str) -> None:
+    backend, pool, bot = connected()
+    player = SlowLeavingPlayer(1, 10)
+    with_player(backend, pool, bot, player)
+    track = Track("dQw4w9WgXcQ", "t", "a", 1000, False, "h")
+
+    async def scenario() -> str:
+        leaving = asyncio.create_task(backend.leave(1))
+        await asyncio.sleep(0)  # the leave is now waiting on the disconnect
+        if action == "pause":
+            command = backend.set_paused(1, False)
+        elif action == "stop":
+            command = backend.stop_track(1)
+        else:
+            command = backend.play(1, track)
+        try:
+            await command
+        except VoiceError as error:
+            key = error.key
+        else:
+            key = "accepted"
+        player.release.set()
+        await leaving
+        return key
+
+    assert asyncio.run(scenario()) == "voice.not_connected"
+    assert player.pauses == [] and player.stops == 0 and player.played == []
+    assert backend.pause_changes(1) == 0
+
+
+def test_a_failed_disconnect_does_not_leave_the_guild_blocked() -> None:
+    backend, pool, bot = connected()
+    player = SlowLeavingPlayer(1, 10)
+    with_player(backend, pool, bot, player)
+    player.release.set()
+    player.fail_with = RuntimeError("gone")
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(backend.leave(1))
+    asyncio.run(backend.set_paused(1, True))  # the player is still there: commands work again
+
+    assert player.pauses == [True]
 
 
 def test_stopping_a_track_goes_to_the_player() -> None:
