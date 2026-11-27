@@ -84,6 +84,11 @@ do_not_mutate = [
 ]
 pytest_add_cli_args_test_selection = ["tests/"]
 pytest_add_cli_args = ["--no-cov", "-q", "-p", "no:cacheprovider"]
+# Incremental runs (CI on pull requests reuse main's campaign, scripts/mutation_invalidate.py): a
+# change to a watched non-Python file (uv.lock, pyproject.toml, the locales) re-tests every mutant
+# instead of keeping cached verdicts. Workflow files cannot change a test outcome.
+on_dependency_change = "rerun"
+cache_invalidation_exclude = [".github/*"]
 
 # Coverage config. The SonarQube job additionally passes `--cov-report=xml` on
 # top of these addopts so the scanner can read the Cobertura report behind the
