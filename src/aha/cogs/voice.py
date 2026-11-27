@@ -50,9 +50,12 @@ class Voice(commands.Cog):
     def __init__(self, bot: AhaBot, *, clock: Callable[[], float] = time.monotonic) -> None:
         self.bot = bot
         self._clock = clock
-        #: When each guild's session became idle (silent or alone); in memory, because a restart
-        #: drops every session anyway.
+        #: When each guild's session became idle (silent, paused or alone); in memory, because a
+        #: restart drops every session anyway.
         self._idle_since: dict[int, float] = {}
+        #: The backend's :meth:`~aha.voice.AudioBackend.pause_changes` when each idle clock
+        #: started: a pause and resume between two sweeps restarts the clock.
+        self._idle_mark: dict[int, int] = {}
         #: The text channel of each guild's latest ``/play``, where a playback problem is reported.
         self._announce: dict[int, int] = {}
 
@@ -64,6 +67,11 @@ class Voice(commands.Cog):
                 self.bot.audio.subscribe(self._on_audio_event)
 
     # -- helpers ---------------------------------------------------------------------------------
+
+    def _busy(self, guild_id: int) -> None:
+        """Stop the guild's idle clock (someone just used it)."""
+        self._idle_since.pop(guild_id, None)
+        self._idle_mark.pop(guild_id, None)
 
     def listeners(self, channel_id: int) -> int:
         """How many others share the channel with the bot (0 when it is alone or gone)."""
@@ -104,7 +112,7 @@ class Voice(commands.Cog):
         except VoiceError as error:
             await reply(ctx, embed=embeds.error(t(error.key, locale)), ephemeral=True)
             return
-        self._idle_since.pop(ctx.guild.id, None)
+        self._busy(ctx.guild.id)
         message = t("voice.joined", locale, channel=plain(channel.name))
         await reply(ctx, embed=embeds.success(message))
 
@@ -175,7 +183,7 @@ class Voice(commands.Cog):
             message = t("voice.play_failed", locale)
             await reply(ctx, embed=embeds.error(message), ephemeral=True)
             return
-        self._idle_since.pop(guild_id, None)
+        self._busy(guild_id)
         self._announce[guild_id] = ctx.channel.id
         outcome.labels(outcome="ok").inc()
         title = self._link(track)
@@ -256,7 +264,7 @@ class Voice(commands.Cog):
             return
         await ctx.defer()
         await audio.leave(ctx.guild.id)
-        self._idle_since.pop(ctx.guild.id, None)
+        self._busy(ctx.guild.id)
         await reply(ctx, embed=embeds.success(t("voice.left", locale)))
 
     # -- leaving by itself -----------------------------------------------------------------------
@@ -268,7 +276,7 @@ class Voice(commands.Cog):
             await asyncio.sleep(SWEEP_INTERVAL)
 
     async def sweep(self) -> list[int]:
-        """Leave the guilds whose session has been silent or alone for the idle time.
+        """Leave the guilds whose session has been silent, paused or alone for the idle time.
 
         Returns the guild ids it left.
         """
@@ -279,18 +287,26 @@ class Voice(commands.Cog):
         idle_limit = self.bot.settings.voice_idle_minutes * 60.0
         present = set(audio.guild_ids())
         for gone in set(self._idle_since) - present:
-            del self._idle_since[gone]
+            self._busy(gone)
         left: list[int] = []
         for guild_id in sorted(present):
             channel_id = audio.channel_id(guild_id)
             alone = channel_id is None or self.listeners(channel_id) == 0
-            if audio.is_playing(guild_id) and not alone:
-                self._idle_since.pop(guild_id, None)
+            # Paused holds the channel and a node player but plays nothing, so it counts as idle:
+            # a forgotten pause must not keep the session open for ever.
+            sounding = audio.is_playing(guild_id) and not audio.is_paused(guild_id)
+            if sounding and not alone:
+                self._busy(guild_id)
                 continue
-            since = self._idle_since.setdefault(guild_id, now)
-            if now - since >= idle_limit:
+            mark = audio.pause_changes(guild_id)
+            if self._idle_mark.get(guild_id) != mark:  # new idleness, or paused/resumed since
+                self._idle_since[guild_id] = now
+                self._idle_mark[guild_id] = mark
+            if now - self._idle_since[guild_id] >= idle_limit:
+                # No await between the checks above and this call, and the backend refuses
+                # commands while it disconnects, so a resume cannot slip in and be lost.
                 await audio.leave(guild_id)
-                del self._idle_since[guild_id]
+                self._busy(guild_id)
                 left.append(guild_id)
                 log.info(
                     "Left the voice channel of guild %s after %d idle minutes",

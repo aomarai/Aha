@@ -340,7 +340,7 @@ class Settings:
     lavalink_password: str | None = field(default=None, repr=False)
     #: Voice players this process holds at once; over it the bot says it is busy.
     voice_max_players: int = DEFAULT_VOICE_MAX_PLAYERS
-    #: Minutes of silence or an empty channel before the bot leaves.
+    #: Minutes of silence, a pause or an empty channel before the bot leaves.
     voice_idle_minutes: int = DEFAULT_VOICE_IDLE_MINUTES
     #: Longest track ``/play`` accepts, in minutes.
     voice_max_track_minutes: int = DEFAULT_VOICE_MAX_TRACK_MINUTES

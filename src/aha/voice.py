@@ -103,6 +103,9 @@ class AudioBackend(Protocol):
     def is_paused(self, guild_id: int) -> bool:
         """Whether the guild's player is paused."""
 
+    def pause_changes(self, guild_id: int) -> int:
+        """A count that moves on every pause or resume, so the idle janitor sees a change."""
+
     def position_ms(self, guild_id: int) -> int:
         """How far into the current track the guild's player is."""
 
@@ -151,6 +154,11 @@ class WavelinkBackend:
         #: Reused across connection attempts, so a failed attempt leaves no session behind.
         self._node: Any = None
         self._listeners: list[AudioListener] = []
+        #: Pauses and resumes per guild (see :meth:`pause_changes`); dropped when the bot leaves.
+        self._pause_changes: dict[int, int] = {}
+        #: Guilds whose player is disconnecting: commands are refused until it is gone, so a
+        #: resume cannot succeed against a session the janitor is already ending.
+        self._leaving: set[int] = set()
         bot.add_listener(self._on_track_exception, "on_wavelink_track_exception")
         bot.add_listener(self._on_track_stuck, "on_wavelink_track_stuck")
         bot.add_listener(self._on_track_end, "on_wavelink_track_end")
@@ -242,8 +250,18 @@ class WavelinkBackend:
     async def leave(self, guild_id: int) -> None:
         """Disconnect the guild's player, if any."""
         player = self._player(guild_id)
-        if player is not None:
+        if player is None:
+            return
+        self._leaving.add(guild_id)
+        try:
             await player.disconnect()
+        finally:
+            self._leaving.discard(guild_id)
+            self._pause_changes.pop(guild_id, None)
+
+    def pause_changes(self, guild_id: int) -> int:
+        """How many times the guild's player was paused or resumed since the bot joined."""
+        return self._pause_changes.get(guild_id, 0)
 
     # -- tracks ----------------------------------------------------------------------------------
 
@@ -272,7 +290,7 @@ class WavelinkBackend:
     async def play(self, guild_id: int, track: Track) -> None:
         """Play ``track`` on the guild's player."""
         player = self._player(guild_id)
-        if player is None:
+        if player is None or guild_id in self._leaving:
             raise VoiceError("voice.not_connected")
         try:
             await player.play(track.handle)
@@ -283,6 +301,7 @@ class WavelinkBackend:
     async def set_paused(self, guild_id: int, paused: bool) -> None:
         """Pause or resume the guild's player."""
         await self._command(guild_id, lambda player: player.pause(paused))
+        self._pause_changes[guild_id] = self.pause_changes(guild_id) + 1
 
     async def stop_track(self, guild_id: int) -> None:
         """End the current track; the node reports it as stopped, not as ``ended``."""
@@ -290,7 +309,7 @@ class WavelinkBackend:
 
     async def _command(self, guild_id: int, action: Callable[[Any], Awaitable[Any]]) -> None:
         player = self._player(guild_id)
-        if player is None:
+        if player is None or guild_id in self._leaving:
             raise VoiceError("voice.not_connected")
         try:
             await action(player)
