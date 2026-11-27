@@ -153,6 +153,8 @@ jobs:
             AHA_COMMIT=${{ github.sha }}
           provenance: true
           sbom: true
+          # Read-only: image.yml writes this cache on every push to main.
+          cache-from: type=gha,scope=aha-image
 
       - name: Summarise the published image
         env:

@@ -41,7 +41,11 @@ mutants their change can affect (mutmut's per-function hashes and caller trackin
 one, and deletes the cache when shared test code changes); a watched non-Python change (`uv.lock`,
 `pyproject.toml`, the locales) re-tests everything (`on_dependency_change = "rerun"`). Every push to
 `main` runs the full campaign from scratch and saves it, so a stale verdict cannot outlive one merge;
-the gate always scores the whole campaign. Separate
+the gate always scores the whole campaign. Everything that can be is cached in the Actions cache
+(free up to 10 GB per repository, so never move it to paid storage): uv and its Python, pre-commit's
+hook environments, mypy and ruff, the mutation campaign and Docker layers (`scope=aha-image`). Only
+`main` writes the shared caches, which every pull request reads; a pull request saves only its own
+mutation campaign, for its next push. Separate
 workflows run security checks and SonarQube (advisory only: the job is `continue-on-error` because the
 cluster is short on memory, and Community Build gates `main`, not PRs). Every third-party action in `.github/workflows/` is pinned to a full commit SHA with a version
 comment (`# v7.0.1`); Dependabot's `github-actions` ecosystem bumps both. A new `uses:` must be pinned the
