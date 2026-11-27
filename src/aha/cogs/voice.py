@@ -50,8 +50,8 @@ class Voice(commands.Cog):
     def __init__(self, bot: AhaBot, *, clock: Callable[[], float] = time.monotonic) -> None:
         self.bot = bot
         self._clock = clock
-        #: When each guild's session became idle (silent or alone); in memory, because a restart
-        #: drops every session anyway.
+        #: When each guild's session became idle (silent, paused or alone); in memory, because a
+        #: restart drops every session anyway.
         self._idle_since: dict[int, float] = {}
         #: The text channel of each guild's latest ``/play``, where a playback problem is reported.
         self._announce: dict[int, int] = {}
@@ -268,7 +268,7 @@ class Voice(commands.Cog):
             await asyncio.sleep(SWEEP_INTERVAL)
 
     async def sweep(self) -> list[int]:
-        """Leave the guilds whose session has been silent or alone for the idle time.
+        """Leave the guilds whose session has been silent, paused or alone for the idle time.
 
         Returns the guild ids it left.
         """
@@ -284,7 +284,10 @@ class Voice(commands.Cog):
         for guild_id in sorted(present):
             channel_id = audio.channel_id(guild_id)
             alone = channel_id is None or self.listeners(channel_id) == 0
-            if audio.is_playing(guild_id) and not alone:
+            # Paused holds the channel and a node player but plays nothing, so it counts as idle:
+            # a forgotten pause must not keep the session open for ever.
+            sounding = audio.is_playing(guild_id) and not audio.is_paused(guild_id)
+            if sounding and not alone:
                 self._idle_since.pop(guild_id, None)
                 continue
             since = self._idle_since.setdefault(guild_id, now)

@@ -45,7 +45,7 @@ deploy/aha-lavalink`).
 | Log: `Playback failed in guild G for video X: ...` and users see "That track stopped because of a playback problem" | The node could not stream the track. Often the same cause as the sign-in block, or a changed YouTube player. | Same as above: bump the plugin. |
 | Many `Playback failed` lines at once | YouTube changed something. `aha_voice_tracks_total{outcome="failed"}` climbs. | Bump the plugin. |
 | Log: `Dropping queued video X: voice.load_failed` | A saved queue entry no longer loads; it was removed so the queue keeps moving. | Nothing. |
-| The bot sits in a channel and never leaves | The janitor leaves after `VOICE_IDLE_MINUTES` of silence or an empty channel; if it does not, check the `voice-janitor` task in the bot's logs. | Restart the bot as a last resort; the queue survives. |
+| The bot sits in a channel and never leaves | The janitor leaves after `VOICE_IDLE_MINUTES` of silence, a pause or an empty channel; if it does not, check the `voice-janitor` task in the bot's logs. | Restart the bot as a last resort; the queue survives. |
 | Node pod `OOMKilled` | The JVM outgrew its limit (640 MiB; heap capped at 384 MiB). | Check how many guilds were playing; raise the limit only if memory allows (the nodes are tight), or lower `VOICE_MAX_PLAYERS`. |
 
 ## Bump the YouTube plugin

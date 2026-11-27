@@ -6,6 +6,10 @@ for how a release is cut.
 
 ## [Unreleased]
 
+### Fixed
+- A paused voice session now counts as idle: the bot leaves after `VOICE_IDLE_MINUTES` paused, even
+  with people in the channel, instead of holding the channel and its Lavalink player indefinitely.
+
 ## [0.2.0] - 2026-11-23
 
 Show reminders, YouTube voice playback, API documentation and the Postgres-backed scheduler.

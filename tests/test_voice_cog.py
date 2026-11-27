@@ -506,6 +506,44 @@ def test_a_playing_session_with_listeners_is_never_idle() -> None:
     assert cog._idle_since == {}
 
 
+def test_a_paused_session_is_left_after_the_idle_time_even_with_listeners() -> None:
+    audio, clock = FakeAudio(), Clock()
+    audio.players[11] = 10
+    audio.playing.add(11)
+    audio.paused.add(11)
+    cog = sweeper(audio, clock, others={10: 2}, voice_idle_minutes=5)
+
+    assert asyncio.run(cog.sweep()) == []  # the clock starts at the first paused sweep
+    assert cog._idle_since == {11: clock.now}
+    clock.now += 299
+    assert asyncio.run(cog.sweep()) == []
+    clock.now += 1
+    assert asyncio.run(cog.sweep()) == [11]
+    assert audio.left == [11]
+
+
+def test_resuming_restarts_the_idle_clock() -> None:
+    audio, clock = FakeAudio(), Clock()
+    audio.players[11] = 10
+    audio.playing.add(11)
+    audio.paused.add(11)
+    cog = sweeper(audio, clock, others={10: 1}, voice_idle_minutes=5)
+
+    asyncio.run(cog.sweep())  # paused: idle from now
+    clock.now += 200
+    audio.paused.clear()
+    asyncio.run(cog.sweep())  # resumed: the clock is cleared
+    assert cog._idle_since == {}
+    clock.now += 200
+    audio.paused.add(11)
+    asyncio.run(cog.sweep())  # paused again: idle from now, not from the first pause
+
+    clock.now += 299
+    assert asyncio.run(cog.sweep()) == []
+    clock.now += 1
+    assert asyncio.run(cog.sweep()) == [11]
+
+
 def test_an_empty_channel_is_left_even_while_playing() -> None:
     audio, clock = FakeAudio(), Clock()
     audio.players[11] = 10
