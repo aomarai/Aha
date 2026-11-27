@@ -22,6 +22,7 @@ uv run pytest tests/test_bot.py::test_name --no-cov   # single test (--no-cov sk
 uv run pre-commit run --all-files         # ruff + hygiene + gitleaks secret scan
 uv run python -m scripts.gen_command_docs # regenerate docs/commands.md after adding or changing a command
 uv run mutmut run && uv run mutmut export-cicd-stats && uv run python scripts/mutation_score.py
+uv run python scripts/mutation_invalidate.py # before `mutmut run`, to reuse a previous campaign
 ```
 
 Running a subset of tests without `--no-cov` will report a coverage failure even when every test
@@ -33,7 +34,18 @@ passes — that is the global `--cov-fail-under=95` in `addopts`, not a real fai
 strict, pytest with 95% branch coverage, then a **mutation-testing job** that fails if the
 mutmut score drops below `THRESHOLD` in `scripts/mutation_score.py` (currently 0.98 against a
 measured 100%, a ratchet meant to be raised as surviving mutants are killed) and when the campaign
-enumerates fewer than `MIN_MUTANTS`, so a silently shrinking campaign cannot pass. Separate
+enumerates fewer than `MIN_MUTANTS`, so a silently shrinking campaign cannot pass. Pull requests run
+it **incrementally**: they restore the campaign the last push to `main` cached and re-test only the
+mutants their change can affect (mutmut's per-function hashes and caller tracking, plus
+`scripts/mutation_invalidate.py`, which resets mutants covered by changed test files and every unkilled
+one, and deletes the cache when shared test code changes); a watched non-Python change (`uv.lock`,
+`pyproject.toml`, the locales) re-tests everything (`on_dependency_change = "rerun"`). Every push to
+`main` runs the full campaign from scratch and saves it, so a stale verdict cannot outlive one merge;
+the gate always scores the whole campaign. Everything that can be is cached in the Actions cache
+(free up to 10 GB per repository, so never move it to paid storage): uv and its Python, pre-commit's
+hook environments, mypy and ruff, the mutation campaign and Docker layers (`scope=aha-image`). Only
+`main` writes the shared caches, which every pull request reads; a pull request saves only its own
+mutation campaign, for its next push. Separate
 workflows run security checks and SonarQube (advisory only: the job is `continue-on-error` because the
 cluster is short on memory, and Community Build gates `main`, not PRs). Every third-party action in `.github/workflows/` is pinned to a full commit SHA with a version
 comment (`# v7.0.1`); Dependabot's `github-actions` ecosystem bumps both. A new `uses:` must be pinned the
@@ -244,8 +256,9 @@ every change must keep:
   is `tests/test_postgres_integration.py`, which uses pytest-asyncio (strict mode, opt-in per module)
   and runs only when `AHA_TEST_DATABASE_URL` points at a real PostgreSQL. Discord collaborators are replaced with `monkeypatch.setattr` fakes that
   record calls; logs are checked with `caplog` against the `aha.*` logger.
-- After changing tests, `rm -rf mutants` before `mutmut run`, or it reuses cached results; check the
-  log has no `failed to collect stats`. `jobstore.py` and `guildsettings_store.py` are pure SQL and
+- Locally, `mutmut run` reuses `mutants/` from the last run: `rm -rf mutants` for a clean campaign, or
+  run `scripts/mutation_invalidate.py` first so edited tests are re-tested; check the log has no
+  `failed to collect stats`. `jobstore.py` and `guildsettings_store.py` are pure SQL and
   excluded (`do_not_mutate`); the real-PostgreSQL tests cover them. A `pytest.raises(match=...)` is a
   regex *search*, so mutants that only add text survive it: assert the exact message instead.
 - Mutmut copies the repo to `mutants/` and runs `tests/` there with `--no-cov`; `scripts/` is in

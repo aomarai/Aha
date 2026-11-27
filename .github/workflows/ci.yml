@@ -42,12 +42,28 @@ jobs:
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
+          cache-python: true
+          # A pull request's cache is visible to that pull request only, so only main saves one;
+          # every pull request restores it (the Actions cache is free up to 10 GB per repository).
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Python (from .python-version)
         run: uv python install
 
       - name: Install dependencies
         run: uv sync --locked
+
+      # pre-commit's hook environments (gitleaks is a Go build) and the mypy and ruff caches. Each
+      # tool checks its own cache against the files, so a cache from an older commit is safe.
+      - name: Restore the lint and type-check caches
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/pre-commit
+            .mypy_cache
+            .ruff_cache
+          key: lint-${{ runner.os }}-${{ github.sha }}
+          restore-keys: lint-${{ runner.os }}-
 
       - name: Lint (ruff)
         run: uv run ruff check --output-format=github .
@@ -64,6 +80,21 @@ jobs:
       - name: Run tests (pytest)
         run: uv run pytest -q
 
+      - name: Save the lint and type-check caches
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/pre-commit
+            .mypy_cache
+            .ruff_cache
+          key: lint-${{ runner.os }}-${{ github.sha }}
+
+  # Pull requests run incrementally: they restore their own last campaign, or else the one the last
+  # push to main saved, and re-test only the mutants the change can affect (mutmut's per-function
+  # hashes, plus scripts/mutation_invalidate.py for test edits, new tests and stale copies). A push
+  # to main always runs the full campaign from scratch and saves it, so the cache never drifts
+  # from a real run for longer than one merge.
   mutation-test:
     runs-on: ubuntu-latest
     needs: lint-and-test
@@ -72,11 +103,17 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The incremental run diffs against the commit the cached campaign was built from.
+          fetch-depth: 0
 
       - name: Install uv
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
+          cache-python: true
+          # A pull request's cache is visible to that pull request only, so only main saves one;
+          # every pull request restores it (the Actions cache is free up to 10 GB per repository).
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Python (from .python-version)
         run: uv python install
@@ -84,7 +121,25 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      # This pull request's previous run first (a cache is only visible to its own ref and the base
+      # branch), then main's. Keyed on the lock file, so a campaign written by another mutmut (or
+      # Python) is never restored: a dependency change re-tests everything anyway.
+      - name: Restore the last campaign
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: mutants
+          key: mutmut-${{ runner.os }}-${{ hashFiles('uv.lock', '.python-version') }}-pr${{ github.event.pull_request.number }}-${{ github.sha }}
+          restore-keys: |
+            mutmut-${{ runner.os }}-${{ hashFiles('uv.lock', '.python-version') }}-pr${{ github.event.pull_request.number }}-
+            mutmut-${{ runner.os }}-${{ hashFiles('uv.lock', '.python-version') }}-main-
+
+      - name: Reset the cached results this change can affect
+        if: github.event_name == 'pull_request'
+        run: uv run python scripts/mutation_invalidate.py
+
       - name: Run mutation tests (mutmut)
+        id: mutmut
         run: uv run mutmut run
 
       - name: Export mutation stats
@@ -92,3 +147,15 @@ jobs:
 
       - name: Gate on mutation score
         run: uv run python scripts/mutation_score.py
+
+      # Small (about 16 MB). Main's is the baseline for every pull request; a pull request's is
+      # reused by its own next push. Saved whenever the campaign finished, even if the gate then
+      # failed: the verdicts are still right, and the fixing push starts from them.
+      - name: Save the campaign
+        if: ${{ !cancelled() && steps.mutmut.outcome == 'success' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: mutants
+          key: >-
+            mutmut-${{ runner.os }}-${{ hashFiles('uv.lock', '.python-version') }}-${{ github.event_name == 'pull_request'
+            && format('pr{0}', github.event.pull_request.number) || 'main' }}-${{ github.sha }}

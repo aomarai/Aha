@@ -34,6 +34,10 @@ jobs:
         uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
+          cache-python: true
+          # A pull request's cache is visible to that pull request only, so only main saves one;
+          # every pull request restores it (the Actions cache is free up to 10 GB per repository).
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Python (from .python-version)
         run: uv python install
