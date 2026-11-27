@@ -122,16 +122,17 @@ jobs:
         run: uv sync --locked
 
       # This pull request's previous run first (a cache is only visible to its own ref and the base
-      # branch), then main's.
+      # branch), then main's. Keyed on the lock file, so a campaign written by another mutmut (or
+      # Python) is never restored: a dependency change re-tests everything anyway.
       - name: Restore the last campaign
         if: github.event_name == 'pull_request'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: mutants
-          key: mutmut-${{ runner.os }}-pr${{ github.event.pull_request.number }}-${{ github.sha }}
+          key: mutmut-${{ runner.os }}-${{ hashFiles('uv.lock', '.python-version') }}-pr${{ github.event.pull_request.number }}-${{ github.sha }}
           restore-keys: |
-            mutmut-${{ runner.os }}-pr${{ github.event.pull_request.number }}-
-            mutmut-${{ runner.os }}-main-
+            mutmut-${{ runner.os }}-${{ hashFiles('uv.lock', '.python-version') }}-pr${{ github.event.pull_request.number }}-
+            mutmut-${{ runner.os }}-${{ hashFiles('uv.lock', '.python-version') }}-main-
 
       - name: Reset the cached results this change can affect
         if: github.event_name == 'pull_request'
@@ -156,5 +157,5 @@ jobs:
         with:
           path: mutants
           key: >-
-            mutmut-${{ runner.os }}-${{ github.event_name == 'pull_request'
+            mutmut-${{ runner.os }}-${{ hashFiles('uv.lock', '.python-version') }}-${{ github.event_name == 'pull_request'
             && format('pr{0}', github.event.pull_request.number) || 'main' }}-${{ github.sha }}
