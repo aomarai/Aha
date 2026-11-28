@@ -1,20 +1,18 @@
+<div align="center">
+
+<!-- LOGO: drop the Aha ASCII art from the design folder here, inside a ```text block. -->
+
 # Aha
 
-<!-- Badges: build and security, SonarQube metrics, project facts, tooling. -->
+**A Discord bot for reminders, TV episode alerts, YouTube voice playback and small everyday tools.**
+Slash commands only, no privileged intents, and built to scale out across shards and pods.
 
 [![CI][ci-badge]][ci]
 [![Security][security-badge]][security]
 [![Quality Gate][sq-gate-badge]][sonar]
 [![Coverage][sq-coverage-badge]][sonar]
-
-[![Bugs][sq-bugs-badge]][sonar]
-[![Vulnerabilities][sq-vulns-badge]][sonar]
-[![Code Smells][sq-smells-badge]][sonar]
-[![Reliability Rating][sq-reliability-badge]][sonar]
-[![Security Rating][sq-security-badge]][sonar]
-[![Maintainability Rating][sq-maintainability-badge]][sonar]
-[![Duplicated Lines][sq-duplication-badge]][sonar]
-[![Lines of Code][sq-loc-badge]][sonar]
+[![Mutation testing: mutmut][mutmut-badge]][mutmut]
+[![mypy: strict][mypy-badge]][mypy]
 
 [![Python 3.14][python-badge]][python]
 [![discord.py][discordpy-badge]][discordpy]
@@ -23,14 +21,152 @@
 [![Last commit][last-commit-badge]][commits]
 [![Open issues][issues-badge]][issues]
 
-[![uv][uv-badge]][uv]
-[![Ruff][ruff-badge]][ruff]
-[![mypy: strict][mypy-badge]][mypy]
-[![pytest][pytest-badge]][pytest]
-[![Mutation testing: mutmut][mutmut-badge]][mutmut]
-[![pre-commit][precommit-badge]][precommit]
-[![gitleaks][gitleaks-badge]][gitleaks]
-[![Dependabot][dependabot-badge]][dependabot]
+[Features](#features) ·
+[Quickstart](#quickstart) ·
+[Commands](docs/commands.md) ·
+[Configuration](docs/configuration.md) ·
+[Operating](docs/operations.md) ·
+[Contributing](CONTRIBUTING.md)
+
+</div>
+
+## Features
+
+| | |
+|---|---|
+| **Voice playback** | `/play` a YouTube link, then `/queue`, `/skip`, `/pause`, `/resume`, `/stop`, `/remove` and `/nowplaying`, with buttons on the now-playing message. Audio runs on a [Lavalink](https://github.com/lavalink-devs/Lavalink) node; the queue lives in PostgreSQL and survives restarts. The bot leaves after `VOICE_IDLE_MINUTES` of silence, a pause or an empty channel. |
+| **Reminders** | `/remind`, `/reminders`, `/unremind`: durable, delivered by whichever pod is up, by ping or DM. |
+| **TV episode alerts** | `/watch` a show and get told when each new episode airs (schedules from TVmaze). `/watching`, `/unwatch`. |
+| **Summaries** | `/summarize` and a message menu, powered by Claude. Off per server until an admin turns it on. |
+| **Everyday tools** | `/poll` (native Discord polls), `/roll`, `/coin`, `/8ball`, `/countdown`, `/time`, `/url` link previews, and a reaction counter. |
+| **Per-server settings** | `/config` and `/configure`, stored in PostgreSQL. English and German. |
+| **Privacy built in** | `/forgetme` deletes your data. Every table is declared in a data inventory that a test enforces; see [privacy](docs/privacy.md). |
+
+Every command is listed with its options, cooldowns and permissions in the
+[command reference](docs/commands.md), which is generated from the bot itself.
+
+### Built to run in production
+
+- **Scales out.** Shard groups per pod, PostgreSQL for shared state and a durable job scheduler that
+  any pod can run ([ADR 0001](docs/adr/0001-runtime-architecture.md), [sharding](docs/sharding.md),
+  [scheduler](docs/scheduler.md)).
+- **Observable.** `/livez`, `/readyz` and Prometheus `/metrics` on every process, JSON logs with
+  per-command context, and [alert rules](deploy/alerts/aha.rules.yml).
+- **Minimal Discord footprint.** No message content, member or presence intents, and no message
+  cache. The bot subscribes to only the `guilds` and `voice_states` events.
+- **Safe by default.** Untrusted text is neutralised before it is shown, outbound fetches are
+  SSRF-safe, replies never ping, and secrets are masked in logs.
+- **Rigorously tested.** Strict mypy, a 95% coverage floor (currently 100%), and a mutation-testing
+  gate on every pull request.
+
+## Quickstart
+
+You need [uv](https://docs.astral.sh/uv/getting-started/installation/) (it installs Python 3.14 for
+you) and a bot token from the [Developer Portal](https://discord.com/developers/applications).
+
+```bash
+git clone https://github.com/aomarai/Aha.git && cd Aha
+cp .env.example .env          # add your DISCORD_BOT_TOKEN
+uv sync                       # installs dependencies (and Python 3.14)
+uv run aha                    # or: uv run python -m aha
+```
+
+Invite the bot to a server (replace `APP_ID` with your application ID). The `permissions` value
+grants View Channel, Send Messages, Embed Links and Read Message History:
+
+```
+https://discord.com/oauth2/authorize?client_id=APP_ID&scope=bot+applications.commands&permissions=84992
+```
+
+Check it is alive with `/ping`. For instant command updates while developing, set `DEV_GUILD_ID` to
+your test server's ID.
+
+### Optional services
+
+The core commands need nothing else. Each extra switches on with one setting:
+
+| To get | Set | Details |
+|---|---|---|
+| Reminders, show alerts, settings, the voice queue | `DATABASE_URL` | [Postgres runbook](docs/runbooks/postgres.md), [migrations](docs/migrations.md) |
+| Voice playback | `LAVALINK_URL` and `LAVALINK_PASSWORD` | [Voice runbook](docs/runbooks/voice.md), [ADR 0002](docs/adr/0002-voice-playback.md) |
+| `/summarize` | `ANTHROPIC_API_KEY` | an admin then runs `/configure summaries on` |
+
+All settings are in the [configuration reference](docs/configuration.md).
+
+## Running it for real
+
+- **Commands are synced as a deploy step**, not at startup: run `uv run aha sync` once per release,
+  after the new revision is serving. See [operating Aha](docs/operations.md#slash-command-syncing).
+- **Releases** publish a versioned image to `ghcr.io/aomarai/aha`; deploy by digest, not by tag.
+  See [releasing](docs/releasing.md) and the [changelog](CHANGELOG.md).
+- **Health and metrics**, structured logs and gateway connection handling are described in
+  [operating Aha](docs/operations.md).
+
+## Documentation
+
+| Topic | Where |
+|---|---|
+| Commands | [Command reference](docs/commands.md) |
+| Configuration | [Environment variables](docs/configuration.md) |
+| Operations | [Intents, sync, health, metrics, logging](docs/operations.md), [runbooks](docs/runbooks/) |
+| Design | [Architecture decisions](docs/adr/), [sharding](docs/sharding.md), [scheduler](docs/scheduler.md), [components](docs/components.md), [i18n](docs/i18n.md) |
+| HTTP API | [OpenAPI 3.1](docs/openapi.yaml) for the probe and metrics endpoints |
+| Data and legal | [Privacy](docs/privacy.md), [terms](docs/terms.md) |
+| Releases | [Releasing](docs/releasing.md), [changelog](CHANGELOG.md) |
+
+## Development
+
+```bash
+uv sync                       # runtime and dev dependencies
+uv run ruff check .           # lint
+uv run ruff format .          # format
+uv run mypy                   # type check (strict)
+uv run pytest                 # tests (95% coverage floor)
+uv run pre-commit install     # optional: run the hooks on every commit
+```
+
+CI runs lint, format, the pre-commit hooks, type checking, tests, a mutation-testing gate (pull
+requests re-test only what they change), a Docker build with a smoke test and a Trivy scan, CodeQL
+and dependency audits. Pull requests are reviewed by [Sourcery](https://sourcery.ai/). SonarQube
+gates `main` only, as an advisory check. The workflows are in `.github/workflows/`.
+
+A [dev container](.devcontainer/) (VS Code or the Dev Containers CLI) provides the same toolchain
+with nothing installed on your machine. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and
+the quality gates, and [AGENTS.md](AGENTS.md) for the full conventions.
+
+### Project layout
+
+```
+src/aha/
+├── bot.py, __main__.py   # the bot, and the entry point (`aha`, `aha sync`, `aha migrate`)
+├── cogs/                 # command groups: voice, playback, remind, shows, polls, summarize, ...
+├── voice.py, playback.py # audio backend (Lavalink) and the queue logic
+├── scheduler.py          # durable job scheduler any pod can run
+├── db.py, dbmigrate.py   # PostgreSQL pool and the plain-SQL migration runner
+├── migrations/           # NNNN_description.sql
+├── locales/              # en-US and de strings
+├── health.py, metrics.py # /livez, /readyz, /metrics
+└── net.py, textutil.py   # SSRF-safe fetching, untrusted-text handling
+docs/                     # reference, ADRs, runbooks     tests/    # pytest suite
+scripts/                  # CI gates and generators       deploy/   # alert rules
+```
+
+## Privacy
+
+Aha stores only what its features need: your reminders, your show subscriptions, queued tracks and
+per-server settings, each with a stated owner and retention. Logs record who ran which command (IDs
+and option names, never values). `/forgetme` deletes your data and `/privacy` links the
+[privacy policy](docs/privacy.md) and [terms](docs/terms.md), which are drafts awaiting the owner's
+review. Every new table must be declared in `aha.datainventory`; a test enforces it.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md), report vulnerabilities as described in
+[SECURITY.md](SECURITY.md), and please follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
 
 [ci]: https://github.com/aomarai/Aha/actions/workflows/ci.yml
 [ci-badge]: https://github.com/aomarai/Aha/actions/workflows/ci.yml/badge.svg?branch=main
@@ -39,14 +175,6 @@
 [sonar]: https://sq.homelab.local/dashboard?id=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2
 [sq-gate-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=alert_status
 [sq-coverage-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=coverage
-[sq-bugs-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=bugs
-[sq-vulns-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=vulnerabilities
-[sq-smells-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=code_smells
-[sq-reliability-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=reliability_rating
-[sq-security-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=security_rating
-[sq-maintainability-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=sqale_rating
-[sq-duplication-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=duplicated_lines_density
-[sq-loc-badge]: https://sq.homelab.local/api/project_badges/measure?project=aomarai_Aha_b5802f94-d481-4d0f-99fc-841310f2f7c2&token=sqb_0372f73fdf3a98a173c869d0ad20370857ca068f&metric=ncloc
 [python]: .python-version
 [python-badge]: https://img.shields.io/badge/python-3.14-blue?logo=python&logoColor=white
 [discordpy]: https://discordpy.readthedocs.io/
@@ -59,370 +187,7 @@
 [last-commit-badge]: https://img.shields.io/github/last-commit/aomarai/Aha
 [issues]: https://github.com/aomarai/Aha/issues
 [issues-badge]: https://img.shields.io/github/issues/aomarai/Aha
-[uv]: https://docs.astral.sh/uv/
-[uv-badge]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json
-[ruff]: https://docs.astral.sh/ruff/
-[ruff-badge]: https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json
 [mypy]: https://mypy-lang.org/
 [mypy-badge]: https://www.mypy-lang.org/static/mypy_badge.svg
-[pytest]: https://docs.pytest.org/
-[pytest-badge]: https://img.shields.io/badge/tested%20with-pytest-0A9EDC?logo=pytest&logoColor=white
 [mutmut]: https://mutmut.readthedocs.io/
 [mutmut-badge]: https://img.shields.io/badge/mutation%20testing-mutmut-blueviolet
-[precommit]: https://pre-commit.com/
-[precommit-badge]: https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit
-[gitleaks]: https://github.com/gitleaks/gitleaks
-[gitleaks-badge]: https://img.shields.io/badge/secrets%20scan-gitleaks-blue
-[dependabot]: .github/dependabot.yml
-[dependabot-badge]: https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot
-
-A Discord bot written in Python with [discord.py](https://discordpy.readthedocs.io/)
-and managed with [uv](https://docs.astral.sh/uv/).
-
-## Documentation
-
-- [Command reference](docs/commands.md): every slash command and context menu, with options,
-  cooldowns and permissions. Generated from the bot itself.
-- [HTTP API (OpenAPI 3.1)](docs/openapi.yaml): the probe and metrics endpoints each process serves.
-  View it with any OpenAPI tool, for example `docker run --rm -p 8081:8080
-  -e SWAGGER_JSON=/spec/openapi.yaml -v "$PWD/docs:/spec" swaggerapi/swagger-ui`.
-- [Voice runbook](docs/runbooks/voice.md): how playback works, what breaks, how to fix it.
-- [Architecture decisions](docs/adr/), [sharding](docs/sharding.md),
-  [scheduler](docs/scheduler.md), [migrations](docs/migrations.md), [privacy](docs/privacy.md) and
-  the [runbooks](docs/runbooks/).
-
-## Requirements
-
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) (installs Python for you)
-- A Discord bot token from the
-  [Developer Portal](https://discord.com/developers/applications)
-
-Python **3.14** is pinned in `.python-version`; `uv` downloads it on demand, so
-nothing needs to be installed system-wide.
-
-## Quickstart
-
-```bash
-# 1. Install uv (if you do not have it)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 2. Create a bot, then configure it
-cp .env.example .env          # add your DISCORD_BOT_TOKEN
-#   No privileged gateway intents are required (see "Intents" below).
-
-# 3. Install dependencies (also fetches Python 3.14)
-uv sync
-
-# 4. Run the bot
-uv run aha                    # or: uv run python -m aha
-```
-
-Invite the bot to a server (replace `APP_ID` with your application ID). The
-`permissions` value grants View Channel, Send Messages, Embed Links and Read
-Message History — enough for slash commands; adjust as needed:
-
-```
-https://discord.com/oauth2/authorize?client_id=APP_ID&scope=bot+applications.commands&permissions=84992
-```
-
-Verify it is alive with the `/ping` slash command. Slash commands work with any
-permissions.
-
-### Intents
-
-Aha is **slash-command only** and requests **no privileged gateway intents**:
-leave Message Content, Server Members and Presence switched off in the Developer
-Portal. Discord's guidance is to migrate text commands to slash commands, and
-privileged-intent access above 10,000 unique users requires an application that
-must be renewed annually (rule change of 2026-06-10), so the bot avoids needing
-it. There is no text trigger at all: the `@Aha command` mention surface was removed, so the bot
-subscribes to no message events.
-
-The bot also requests only the **non-privileged intents it uses**, not `Intents.default()`:
-`guilds` (the guild and channel cache, `on_guild_remove`) and `voice_states` (who is in which voice
-channel, and the voice updates forwarded to the Lavalink audio node; not privileged, kept in memory
-only, ADR 0002). Messages, typing, invites, emoji, reactions, scheduled events and the rest are not
-subscribed, and no message cache is kept (`max_messages=None`),
-no member cache (`MemberCacheFlags.none()`) and no guild chunking at startup.
-Each unused event stream costs bandwidth, CPU and memory on every shard. Add an intent in
-`aha.bot.gateway_intents` only together with the feature that needs it. If a future feature genuinely needs message
-text, prefer a message context-menu command (`app_commands.ContextMenu`), which
-receives the message without the intent.
-
-### Slash-command syncing
-
-Syncing overwrites the application's remote command set, so it is a **deploy step**, not
-something every process does at startup (see
-[ADR 0001](docs/adr/0001-runtime-architecture.md), section 4):
-
-```bash
-uv run aha sync --dry-run      # show what would change, write nothing
-uv run aha sync                # sync only if the commands differ, then exit
-uv run aha sync --guild ID     # sync to one guild (as a dev server) instead of globally
-```
-
-`aha sync` logs in over REST only (no gateway connection), compares the bot's commands with
-Discord's, and writes only when they differ, so re-running it is free. Run it **once per release,
-after the new revision is serving**, never before: Discord would otherwise route a new or changed
-command to an old process that cannot handle it. Exit code 0 means success (including "nothing to
-do"); 1 means it failed.
-
-At startup the bot does **not** sync unless one of these is set:
-
-- `DEV_GUILD_ID`: commands sync to that guild (instant) **and** any previously-synced global
-  commands are cleared, so switching the setting never leaves stale duplicates. Unchanged
-  targets are skipped.
-- `SYNC_ON_STARTUP=true`: global sync at every start. Only for a single self-hosted process;
-  with more than one process or revision the last writer wins.
-
-Without either, startup logs `Command sync skipped at startup (run 'aha sync')`.
-
-`/sync` exists only in those two modes (it is not even registered otherwise), and only the bot's
-owner with Manage Server may run it, so no guild admin can rewrite the commands every guild sees.
-In a production deployment, use `aha sync`.
-
-Limits: the sync is serialized within one process by a lock and restores the local command tree if
-a purge sync fails. Two *Jobs* that overlap, or a delayed Job from an older release, are not yet
-fenced; that arrives with the database (#84), and until then the deploy must run one sync at a time.
-
-### Connection health
-
-`on_connect` and `on_disconnect` are logged (the disconnect warning includes the
-WebSocket close code when discord.py exposes it), and `on_resumed` logs the
-outage duration. If the gateway stays disconnected for five minutes, the
-watchdog logs CRITICAL and closes the bot with a non-zero exit code, so an
-on-failure supervisor restarts it; the limit is `GATEWAY_DISCONNECT_TIMEOUT` in
-`bot.py`.
-
-### Command access control
-
-Commands that can be spammed or that expose operator power declare their own
-guardrails. Hybrid commands run `prepare()` on the slash path too, so the
-`commands.*` decorators apply to both surfaces; `app_commands.*` controls what
-Discord shows and enforces at interaction time. Apply the decorators **below**
-`@hybrid_command` so the hybrid command can read them off the callback:
-
-```python
-@hybrid_command(name="example", description="…")
-@app_commands.default_permissions(manage_guild=True)  # hidden unless Manage Server
-@app_commands.checks.has_permissions(manage_guild=True)  # interaction-time check
-@commands.guild_only()  # prefix + slash (sets the app flag)
-@commands.has_permissions(manage_guild=True)  # enforced on both paths
-@commands.cooldown(1, 5, commands.BucketType.user)  # per-user rate limit
-async def example(ctx: commands.Context[commands.Bot]) -> None: ...
-```
-
-Replies go through `aha.replies.reply` (or `respond`/`edit_message` for interaction
-responses), which disable mentions, and a bot-wide
-per-user budget (10 invocations per 10 s) applies to every command; `/help` and
-`/sync` also carry their own cooldowns. The budget is kept per process behind a swappable
-`RateLimitBackend`, so with several processes a user can use up to that many invocations per process. Permission and cooldown failures reply
-through the global error handler: ephemeral for slash invocations and a normal
-(public) message for mention invocations, since Discord cannot make a message
-reply private. Guild-only is enforced by Discord for slash invocations and by the
-local check for mentions. `/sync` (in `cogs/ops.py`) demonstrates the full pattern; `/ping`,
-`/roll`, and `/coin` carry cooldowns.
-
-## Architecture
-
-Design decisions live in [`docs/adr/`](docs/adr/). Start with
-[ADR 0001](docs/adr/0001-runtime-architecture.md), which covers how the bot scales horizontally
-(shard groups per pod, Postgres for shared state, command sync as a deploy step).
-
-## Releases
-
-Tagged releases publish a versioned image to `ghcr.io/aomarai/aha` (pull requests never publish);
-deploy by digest, not by tag. See [docs/releasing.md](docs/releasing.md) and the
-[changelog](CHANGELOG.md).
-
-## Project layout
-
-```
-Aha/
-├── src/aha/
-│   ├── __main__.py      # entry point: `aha` runs the bot, `aha sync` syncs commands
-│   ├── bot.py           # AhaBot (commands.Bot) + setup_hook/on_ready/sync_commands
-│   ├── botinfo.py       # build identity (version/commit) and latency formatting
-│   ├── db.py            # PostgreSQL pool (statement timeout, application_name)
-│   ├── dbmigrate.py     # plain-SQL migration runner (see docs/migrations.md)
-│   ├── migrations/      # NNNN_description.sql
-│   ├── scheduler.py     # durable job scheduler (any pod runs due jobs)
-│   ├── jobstore.py      # SQL behind the scheduler (scheduled_jobs)
-│   ├── voice.py         # audio backend interface and its Lavalink (Wavelink) adapter
-│   ├── playback.py      # the voice queue's logic (what plays next, advancing on track end)
-│   ├── queuestore.py    # SQL behind the voice queue (voice_queue)
-│   ├── youtube.py       # the YouTube link allowlist for /play
-│   ├── voicechecks.py   # checks the voice commands share
-│   ├── delivery.py      # send a scheduled message: channel, else DM (reminders, shows)
-│   ├── tvmaze.py        # TVmaze client behind /watch (search, next episode)
-│   ├── showstore.py     # SQL behind /watch (show_subscriptions)
-│   ├── cmdsync.py       # compare local vs remote command trees (sync only if changed)
-│   ├── components.py    # shared button/menu helpers (see docs/components.md)
-│   ├── config.py        # Settings loaded & validated from the environment
-│   ├── health.py        # /livez, /readyz, /metrics HTTP server (documented in docs/openapi.yaml)
-│   ├── net.py           # SSRF-safe URL fetching (address policy, resolver, limits)
-│   ├── logging_setup.py # text/JSON formatters, token masking
-│   ├── logctx.py        # per-invocation log context (ContextVar)
-│   ├── metrics.py       # Prometheus registry and instruments
-│   ├── tasks.py         # TaskRegistry: supervised background tasks
-│   ├── textutil.py      # neutralise untrusted text before showing it
-│   └── cogs/            # command groups, each exposing async setup(bot)
-│       ├── errors.py    # global error handler
-│       ├── fun.py       # /roll, /coin, /time, /8ball, /countdown
-│       ├── help.py      # /help (paginated)
-│       ├── meta.py      # /ping, /about
-│       ├── observability.py # counts command outcomes and durations
-│       ├── web.py       # /url link preview
-│       ├── config.py    # /config, /configure (per-server settings, needs DATABASE_URL)
-│       ├── summarize.py # /summarize and the Summarize menu (Claude API, opt-in per server)
-│       ├── forget.py    # /forgetme (delete your data, with a confirm button)
-│       ├── remind.py    # /remind, /reminders, /unremind (durable, needs DATABASE_URL)
-│       ├── voice.py     # /join, /leave, /play and the idle janitor (needs LAVALINK_URL)
-│       ├── playback.py  # /queue, /nowplaying, /skip, /pause, /resume, /stop, /remove and buttons
-│       ├── shows.py     # /watch, /watching, /unwatch (episode reminders, needs DATABASE_URL)
-│       ├── polls.py     # /poll (native Discord polls), Count reactions menu
-│       └── ops.py       # /sync (owner only; dev guild / SYNC_ON_STARTUP only)
-├── scripts/             # CI gates and generators (mutation score, command reference)
-├── tests/               # pytest suite
-├── .devcontainer/       # VS Code dev container (Python 3.14 + uv)
-├── .github/workflows/   # CI (lint, format, tests)
-├── .env.example         # template for local secrets
-├── pyproject.toml       # project metadata, dependencies, ruff/pytest config
-└── uv.lock              # reproducible dependency lockfile (committed)
-```
-
-## Configuration
-
-All configuration is read from environment variables (see `.env.example`).
-Real environment variables take precedence over `.env`.
-
-| Variable            | Required | Default | Purpose                                         |
-|---------------------|----------|---------|-------------------------------------------------|
-| `DISCORD_BOT_TOKEN` | yes*     | –       | Bot token from the Developer Portal             |
-| `DISCORD_BOT_TOKEN_FILE` | yes* | –      | Path of a file holding the token (use instead of the variable above; set exactly one) |
-| `LOG_LEVEL`         | no       | `INFO`  | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `LOG_FORMAT`        | no       | `text`  | `text` (human-readable) or `json` (one object per line) |
-| `DEV_GUILD_ID`      | no       | –       | Sync slash commands instantly to this guild     |
-| `SYNC_ON_STARTUP`   | no       | `false` | Sync commands at every start (single process only) |
-| `BOT_ACTIVITY`      | no       | `/help` | Activity text under the bot's name; `off` shows none (max 128 chars) |
-| `BOT_ACTIVITY_TYPE` | no       | `listening` | `playing`, `listening`, `watching` or `competing` |
-| `BOT_STATUS`        | no       | `online` | `online`, `idle`, `dnd` or `invisible`      |
-| `DATABASE_URL`      | no       | –       | PostgreSQL URL (or `DATABASE_URL_FILE`); see [docs/runbooks/postgres.md](docs/runbooks/postgres.md) |
-| `DB_POOL_MAX`       | no       | `5`     | Database connections per process               |
-| `DB_STATEMENT_TIMEOUT` | no    | `2.0`   | Seconds before a slow query is cancelled        |
-| `HEALTH_BIND`       | no       | `127.0.0.1` | Address of the health/metrics server        |
-| `HEALTH_PORT`       | no       | `8080`  | Port of the health/metrics server; `0` disables it |
-| `SHARD_COUNT`       | no       | –       | Total gateway shards; unset lets Discord choose (single process only). See [docs/sharding.md](docs/sharding.md) |
-| `SHARD_IDS`         | no       | all     | Shards this process owns, e.g. `0,1` (needs `SHARD_COUNT`) |
-| `ANTHROPIC_API_KEY` | no | – | Enables `/summarize` (or `ANTHROPIC_API_KEY_FILE`; set at most one). Off per server until an admin runs `/configure summaries on` |
-| `ANTHROPIC_MODEL` | no | `claude-haiku-5-5` | Model used for summaries |
-| `LAVALINK_URL`, `LAVALINK_PASSWORD` | no | – | Voice playback: the [Lavalink](https://github.com/lavalink-devs/Lavalink) audio node (`http://host:2333`) and its password (or `LAVALINK_PASSWORD_FILE`; set at most one). Set both or neither; without them `/join` says playback is off. See [ADR 0002](docs/adr/0002-voice-playback.md) |
-| `VOICE_MAX_PLAYERS`, `VOICE_IDLE_MINUTES`, `VOICE_MAX_TRACK_MINUTES`, `VOICE_MAX_QUEUE` | no | `10`, `5`, `30`, `50` | Voice sessions one process holds at once (1-200); minutes alone, silent or paused before the bot leaves (1-120); longest track `/play` accepts (1-600); tracks one server may queue (1-500). Voice also needs `DATABASE_URL` for the queue |
-| `SUMMARIZE_DAILY_QUOTA`, `SUMMARIZE_MAX_CHARS` | no | `10`, `4000` | Summaries per user per UTC day (1-1000); characters sent to the model (100-20000) |
-| `SESSION_START_FLOOR` | no     | `0.1`   | Wait for Discord's reset instead of identifying when fewer than this fraction of the daily gateway sessions remain (`0` disables); see [the runbook](docs/runbooks/session-budget.md) |
-| `SHARDS_PER_POD`, `POD_INDEX` | no | – | Derive `SHARD_IDS` from a StatefulSet ordinal instead (needs `SHARD_COUNT`) |
-
-\* Exactly one of `DISCORD_BOT_TOKEN` and `DISCORD_BOT_TOKEN_FILE` is required. See the
-[token rotation runbook](docs/runbooks/token-rotation.md).
-
-### Health, readiness and metrics
-
-Each process serves a small read-only HTTP server (default `127.0.0.1:8080`, set `HEALTH_BIND` and
-`HEALTH_PORT`; `HEALTH_PORT=0` turns it off). There is no authentication: access control is the bind
-address and, in a cluster, a NetworkPolicy, so bind `0.0.0.0` only inside a pod network.
-
-| Endpoint | Meaning | Use for |
-|----------|---------|---------|
-| `GET /livez` | The event loop answers and no critical background task has died for good. | liveness probe |
-| `GET /readyz` | Every shard this process owns is connected and ready (a disconnect shorter than 30 s does not count), and no critical task has died or is still recovering from a crash. `503` until the first READY. | readiness / startup probe; gates StatefulSet rollouts |
-| `GET /metrics` | Prometheus text exposition. | scrape |
-
-Metrics: `aha_commands_total{command,outcome}` (`ok`, `error`, `denied`, `cooldown`),
-`aha_command_duration_seconds{command}`, `aha_gateway_latency_seconds{shard}`,
-`aha_shard_ready{shard}`, `aha_gateway_reconnects_total{shard}` and `aha_guilds{shard}`. Commands are
-counted in one place (`cogs/observability.py`), so a new command is covered automatically. Alert
-rules for the metrics that exist today are in [`deploy/alerts/aha.rules.yml`](deploy/alerts/aha.rules.yml).
-
-### Logging
-
-`LOG_FORMAT=json` writes one JSON object per line to stdout for a log store such as Loki. Every
-record carries `ts` (UTC, ISO 8601), `level`, `logger` and `msg`, plus `exc` for a traceback. When
-set in the environment, `HOSTNAME` (as `pod`), `AHA_VERSION` (`version`) and `AHA_COMMIT`
-(`commit`) are added to every record. While a command is being handled, its records also carry
-`shard_id`, `guild_id`, `channel_id`, `user_id`, `interaction_id` and `command`. Every completed command is also written to the `aha.audit` logger at
-INFO as an audit trail (`event=command`, `outcome=ok`, the argument **names**, `duration_ms`); argument
-values are never logged, since they are user content. Filter on that logger name to route or silence
-the trail. The bot token is replaced with `***` in both formats, including inside
-tracebacks.
-
-## Development
-
-```bash
-uv sync                       # install runtime + dev dependencies
-uv run ruff check .           # lint
-uv run ruff format .          # format
-uv run mypy                   # type check (strict)
-uv run pytest                 # tests (enforces a 95% coverage floor)
-```
-
-Git hooks (ruff, whitespace/YAML/TOML hygiene, secret scanning). They are
-enforced by CI, so installing them locally is for earlier feedback:
-
-```bash
-uv run pre-commit install            # enable the hooks (once per clone)
-uv run pre-commit run --all-files    # run them on everything
-```
-
-CI (`.github/workflows/ci.yml`) runs lint, format check, the pre-commit hooks,
-type checking, and tests on every push to `main` and every pull request.
-`.github/workflows/image.yml` also builds the production Docker image, runs
-[`scripts/smoke_image.sh`](scripts/smoke_image.sh) against it, and scans it with Trivy (fixable
-HIGH/CRITICAL findings fail the build; see [`.trivyignore`](.trivyignore)); results go to code
-scanning and an SBOM is attached to the run.
-SonarQube (`.github/workflows/sonarqube.yml`) gates **`main` only**: the self-hosted server is
-Community Build, which cannot analyse pull requests, so a failing quality gate turns the check red
-after a merge rather than blocking the PR. The job is also `continue-on-error`: the cluster is short
-on memory, so a SonarQube failure is advisory and never blocks CI.
-Pull requests are reviewed by [Sourcery](https://sourcery.ai/) (configured in
-`.sourcery.yaml`; install the GitHub App on the repository to enable it).
-
-## Dev container
-
-A [VS Code Dev Container](https://containers.dev/) is provided so the whole
-toolchain (uv + Python 3.14 + dependencies) runs in an isolated, reproducible
-environment with nothing installed on your host machine.
-
-**Use it:** open the repository in VS Code and run *Dev Containers: Reopen in Container* (or use the **Dev Containers
-CLI**:
-`devcontainer up --workspace-folder .`). On first start the container runs
-`uv sync --locked`, which downloads Python 3.14 and installs all dependencies.
-
-- **Image** — `.devcontainer/Dockerfile` builds on
-  `mcr.microsoft.com/devcontainers/base:ubuntu-24.04` and copies a pinned `uv`
-  binary from the official `ghcr.io/astral-sh/uv` image; uv then provisions the
-  interpreter, so no system Python is needed.
-- **Extensions** — ruff, Pylance and the Python extension are pre-installed and
-  configured (ruff as the formatter, pytest discovery on `tests/`).
-- **gh CLI** — included via a dev container feature for the PR workflow.
-
-Run the bot inside the container exactly as you would locally:
-
-```bash
-uv run aha        # needs DISCORD_BOT_TOKEN in .env (see .env.example)
-```
-
-## Privacy
-
-Aha stores no personal data in a database yet. Logs record who ran which command (IDs and option
-names, never values). The drafts of the [privacy policy](docs/privacy.md) and
-[terms](docs/terms.md) need the owner's review before the bot grows past 75 servers; `/privacy` links
-them, and every future table must be declared in `aha.datainventory` (a test enforces it).
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow and the quality gates, [SECURITY.md](SECURITY.md)
-to report a vulnerability, and the [Code of Conduct](CODE_OF_CONDUCT.md).
-
-## License
-
-MIT -- see [LICENSE](LICENSE).
