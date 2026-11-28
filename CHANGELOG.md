@@ -6,6 +6,10 @@ for how a release is cut.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-28
+
+A voice fix. No migration and no new setting.
+
 ### Fixed
 - A paused voice session now counts as idle: the bot leaves after `VOICE_IDLE_MINUTES` paused, even
   with people in the channel, instead of holding the channel and its Lavalink player indefinitely.
