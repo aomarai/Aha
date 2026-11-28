@@ -1,6 +1,6 @@
 <div align="center">
 
-<!-- LOGO: drop the Aha ASCII art from the design folder here, inside a ```text block. -->
+<img src="docs/assets/aha-logo.svg" alt="Aha: a sad and a happy theatre mask drawn from coloured text characters" width="240">
 
 # Aha
 
